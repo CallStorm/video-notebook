@@ -7,6 +7,9 @@ import {
 import HomePage from "@/pages/home";
 import LoginPage from "@/pages/login";
 import AdminPage from "@/pages/admin";
+import AdminSkillsPage from "@/pages/admin-skills";
+import AdminAgentsPage from "@/pages/admin-agents";
+import AdminStudioPage from "@/pages/admin-studio";
 import DiscoverPage from "@/pages/discover";
 import NotebookPage from "@/pages/notebook";
 import { RequireAuth } from "@/components/require-auth";
@@ -43,6 +46,30 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth admin>
             <AdminPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "/admin/skills",
+        element: (
+          <RequireAuth admin>
+            <AdminSkillsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "/admin/agents",
+        element: (
+          <RequireAuth admin>
+            <AdminAgentsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "/admin/studio",
+        element: (
+          <RequireAuth admin>
+            <AdminStudioPage />
           </RequireAuth>
         ),
       },

@@ -36,6 +36,17 @@ export default function AdminPage() {
           <p className="text-sm text-muted-foreground">
             账号 / 模型配置 / Skills / Agents 的统一入口。
           </p>
+          <nav className="mt-3 flex flex-wrap gap-4 text-sm">
+            <Link to="/admin/skills" className="hover:text-foreground">
+              技能
+            </Link>
+            <Link to="/admin/agents" className="hover:text-foreground">
+              智能体
+            </Link>
+            <Link to="/admin/studio" className="hover:text-foreground">
+              Studio 能力
+            </Link>
+          </nav>
         </div>
 
         <AdminConfigsPage />
