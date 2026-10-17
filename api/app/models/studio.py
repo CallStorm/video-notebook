@@ -100,7 +100,7 @@ class StudioArtifact(Base):
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    mime: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[object] = mapped_column(

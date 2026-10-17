@@ -309,6 +309,10 @@ async def test_pdf_convert_stores_side_artifact(db_session, tmp_path):
     assert by_role["main"].filename == "deck.pptx"
     assert by_role["main"].text_content is None
     assert by_role["main"].storage_key
+    assert (
+        by_role["main"].mime
+        == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
     assert by_role["side"].filename == "deck.pdf"
     assert by_role["side"].storage_key
     assert task.result_json is None or "pdf_error" not in (task.result_json or {})
@@ -354,3 +358,42 @@ async def test_skips_task_that_is_not_queued(db_session, tmp_path):
     assert task.status == "running"
     assert task.title == "思维导图"
     assert await _artifacts(db_session, task.id) == []
+
+
+async def test_cancel_during_prepare_is_not_started(db_session, tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from app.studio import runner as runner_module
+
+    marker = tmp_path / "started"
+    script = tmp_path / "claude"
+    _script(script, f"#!/bin/sh\ntouch '{marker}'\n")
+    task, _, _ = await _seed(db_session, with_sources=False)
+    original = runner_module._prepare
+
+    async def cancel_during_prepare(session, studio_task):
+        studio_task.status = "canceled"
+        studio_task.deleted_at = datetime.now(UTC).replace(tzinfo=None)
+        await session.commit()
+        return await original(session, studio_task)
+
+    monkeypatch.setattr(runner_module, "_prepare", cancel_during_prepare)
+    await execute_studio_task(task.id, claude_bin=str(script))
+    await db_session.refresh(task)
+    assert task.status == "canceled"
+    assert not marker.exists()
+
+
+async def test_unexpected_error_after_running_is_process_failed(db_session, tmp_path, monkeypatch):
+    script = tmp_path / "claude"
+    _script(script, "#!/bin/sh\nexit 0\n")
+    task, _, _ = await _seed(db_session, with_sources=False)
+
+    def boom(_fmt, _outputs):
+        raise RuntimeError("accept blew up")
+
+    monkeypatch.setattr("app.studio.runner.accept_outputs", boom)
+    await execute_studio_task(task.id, claude_bin=str(script))
+    await db_session.refresh(task)
+    assert task.status == "failed"
+    assert task.error_code == "process_failed"

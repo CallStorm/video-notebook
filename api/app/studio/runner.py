@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import update
+
 from app.db.session import get_sessionmaker
 from app.models.notebook import Note, Video
 from app.models.studio import Agent, Skill, StudioArtifact, StudioCapability, StudioTask
@@ -201,10 +203,46 @@ async def _stopped(factory, task_id: int) -> bool:
         return task.status == "canceled" or task.deleted_at is not None
 
 
+def _queued_filter(task_id: int):
+    return (
+        StudioTask.id == task_id,
+        StudioTask.status == "queued",
+        StudioTask.deleted_at.is_(None),
+    )
+
+
+async def _fail_if_queued(session, task_id: int, message: str) -> None:
+    await session.execute(
+        update(StudioTask)
+        .where(*_queued_filter(task_id))
+        .values(
+            status="failed",
+            error_code="process_failed",
+            error_message=(message or "")[-_STDERR_TAIL:],
+            finished_at=_now(),
+        )
+    )
+    await session.commit()
+
+
+async def _claim_running(session, task_id: int) -> bool:
+    result = await session.execute(
+        update(StudioTask)
+        .where(*_queued_filter(task_id))
+        .values(status="running", started_at=_now())
+    )
+    await session.commit()
+    return result.rowcount == 1
+
+
 async def _mark_failed(factory, task_id: int, code: str, message: str, work: Path | None) -> None:
     async with factory() as session:
         task = await session.get(StudioTask, task_id)
-        if task is None or task.status not in {"queued", "running"}:
+        if (
+            task is None
+            or task.deleted_at is not None
+            or task.status not in {"queued", "running"}
+        ):
             return
         task.status = "failed"
         task.error_code = code
@@ -323,14 +361,17 @@ async def _store_success(
     accepted_title: str | None,
     pdf_convert: Callable[[Path, Path], None] | None,
     work: Path,
+    stored_keys: list[str],
 ) -> None:
     main_key, data = _store_main(accepted_path, accepted_mime)
+    stored_keys.append(main_key)
     text_content: str | None = None
     if prepared.format_key == "mind_map":
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:
             get_storage().delete(main_key)
+            stored_keys.remove(main_key)
             await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
             return
     side: tuple[str, str] | None = None
@@ -342,6 +383,7 @@ async def _store_success(
             pdf_error = converted
         else:
             side = converted
+            stored_keys.append(side[0])
     keys = [main_key]
     if side is not None:
         keys.append(side[0])
@@ -383,6 +425,30 @@ async def _store_success(
     shutil.rmtree(work)
 
 
+async def _abandon_attempt(
+    factory,
+    task_id: int,
+    message: str,
+    work: Path | None,
+    stored_keys: list[str],
+) -> None:
+    """Record process_failed unless cancel or success already won. Drop leaked objects."""
+    async with factory() as session:
+        task = await session.get(StudioTask, task_id)
+        if task is None:
+            status, deleted = None, False
+        else:
+            status, deleted = task.status, task.deleted_at is not None
+    if status != "succeeded":
+        for key in stored_keys:
+            get_storage().delete(key)
+    if status == "running" and not deleted:
+        await _mark_failed(factory, task_id, "process_failed", message, work)
+        return
+    if work is not None and (status == "canceled" or deleted):
+        shutil.rmtree(work, ignore_errors=True)
+
+
 async def execute_studio_task(
     task_id: int,
     *,
@@ -398,65 +464,62 @@ async def execute_studio_task(
         try:
             prepared = await _prepare(session, task)
         except RuntimeError as exc:
-            task.status = "failed"
-            task.error_code = "process_failed"
-            task.error_message = str(exc)[:_STDERR_TAIL]
-            task.finished_at = _now()
-            await session.commit()
+            await _fail_if_queued(session, task_id, str(exc))
             return
         limit = prepared.agent_timeout if timeout_seconds is None else timeout_seconds
-        task.status = "running"
-        task.started_at = _now()
-        await session.commit()
+        if not await _claim_running(session, task_id):
+            return
 
-    work = Path(tempfile.mkdtemp(prefix=f"studio_{task_id}_"))
+    stored_keys: list[str] = []
+    work: Path | None = None
     try:
+        work = Path(tempfile.mkdtemp(prefix=f"studio_{task_id}_"))
         prompt = _write_workspace(work, prepared)
-    except Exception as exc:  # noqa: BLE001
-        await _mark_failed(factory, task_id, "process_failed", str(exc), work)
-        return
-    if prepared.skill_missing:
-        await _mark_failed(factory, task_id, "process_failed", "技能目录不存在", work)
-        return
+        if prepared.skill_missing:
+            await _mark_failed(factory, task_id, "process_failed", "技能目录不存在", work)
+            return
 
-    outcome, code, stderr = await _run_claude(
-        claude_bin=claude_bin,
-        model_name=prepared.model_name,
-        work=work,
-        prompt=prompt,
-        task_id=task_id,
-        timeout_seconds=limit,
-        factory=factory,
-    )
-    if outcome == "canceled" or await _stopped(factory, task_id):
-        shutil.rmtree(work, ignore_errors=True)
-        return
-    if outcome == "timeout":
-        await _mark_failed(factory, task_id, "timeout", stderr or "timeout", work)
-        return
-    if code != 0:
-        await _mark_failed(
-            factory, task_id, "process_failed", stderr or "process failed", work
+        outcome, code, stderr = await _run_claude(
+            claude_bin=claude_bin,
+            model_name=prepared.model_name,
+            work=work,
+            prompt=prompt,
+            task_id=task_id,
+            timeout_seconds=limit,
+            factory=factory,
         )
-        return
+        if outcome == "canceled" or await _stopped(factory, task_id):
+            shutil.rmtree(work, ignore_errors=True)
+            return
+        if outcome == "timeout":
+            await _mark_failed(factory, task_id, "timeout", stderr or "timeout", work)
+            return
+        if code != 0:
+            await _mark_failed(
+                factory, task_id, "process_failed", stderr or "process failed", work
+            )
+            return
 
-    outputs = work / "outputs"
-    try:
-        accepted = accept_outputs(get_format(prepared.format_key), outputs)
-    except FormatMismatch:
-        await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
-        return
-    except NoOutput:
-        await _mark_failed(factory, task_id, "no_output", "no output", work)
-        return
+        outputs = work / "outputs"
+        try:
+            accepted = accept_outputs(get_format(prepared.format_key), outputs)
+        except FormatMismatch:
+            await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
+            return
+        except NoOutput:
+            await _mark_failed(factory, task_id, "no_output", "no output", work)
+            return
 
-    await _store_success(
-        factory,
-        task_id,
-        prepared=prepared,
-        accepted_path=accepted.path,
-        accepted_mime=accepted.mime,
-        accepted_title=accepted.title,
-        pdf_convert=pdf_convert,
-        work=work,
-    )
+        await _store_success(
+            factory,
+            task_id,
+            prepared=prepared,
+            accepted_path=accepted.path,
+            accepted_mime=accepted.mime,
+            accepted_title=accepted.title,
+            pdf_convert=pdf_convert,
+            work=work,
+            stored_keys=stored_keys,
+        )
+    except Exception as exc:  # noqa: BLE001
+        await _abandon_attempt(factory, task_id, str(exc), work, stored_keys)
