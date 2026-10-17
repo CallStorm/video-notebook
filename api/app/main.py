@@ -18,8 +18,9 @@ from app.admin_seed import seed_admin_if_empty
 from app.core.config import get_settings
 from app.core.errors import AppError, app_error_handler, validation_error_handler
 from app.core.logging import configure_logging, get_logger
-from app.db.session import dispose_engine
+from app.db.session import dispose_engine, get_sessionmaker
 from app.routes import api_router
+from app.services.capabilities import seed_builtin_capabilities
 
 configure_logging()
 logger = get_logger("app.main")
@@ -33,6 +34,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         extra={"env": settings.app_env, "debug": settings.debug},
     )
     await seed_admin_if_empty()
+    if settings.app_env != "test":
+        async with get_sessionmaker()() as session:
+            await seed_builtin_capabilities(session)
     try:
         yield
     finally:

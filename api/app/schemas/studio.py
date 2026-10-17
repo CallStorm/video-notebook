@@ -49,3 +49,39 @@ class AgentRead(BaseModel):
     updated_by: int
     created_at: datetime | None
     updated_at: datetime | None
+
+
+class FormatRead(BaseModel):
+    key: str
+    label: str
+
+
+class CapabilityWrite(BaseModel):
+    name: str
+    icon: str | None = None
+    format_key: str
+    agent_id: int | None = None
+    form: list[dict] = Field(default_factory=list)
+
+
+class CapabilityUpdate(BaseModel):
+    name: str | None = None
+    icon: str | None = None
+    agent_id: int | None = None
+    form: list[dict] | None = None
+    format_key: str | None = None
+
+
+class CapabilityRead(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: int
+    name: str
+    icon: str | None
+    format_key: str
+    agent_id: int | None
+    enabled: bool
+    is_builtin: bool
+    form_json: list
+    created_at: datetime | None
+    updated_at: datetime | None
