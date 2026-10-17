@@ -87,3 +87,22 @@ def test_two_files_without_manifest_are_no_output(tmp_path: Path):
     _write(outputs, "b.md", b"# B\n")
     with pytest.raises(NoOutput):
         accept_outputs(get_format("mind_map"), outputs)
+
+
+def test_fallback_symlink_outside_outputs_is_format_mismatch(tmp_path: Path):
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"secret\n")
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "leak").symlink_to(outside)
+    with pytest.raises(FormatMismatch):
+        accept_outputs(get_format("file"), outputs)
+
+
+def test_damaged_manifest_does_not_count_as_fallback_candidate(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "MANIFEST.json").write_text("{not json", encoding="utf-8")
+    _write(outputs, "payload.bin", b"data")
+    accepted = accept_outputs(get_format("file"), outputs)
+    assert accepted.path.name == "payload.bin"

@@ -153,6 +153,8 @@ def _accept_from_manifest(fmt: OutputFormat, outputs_dir: Path, data: dict) -> A
 def _accept_fallback(fmt: OutputFormat, outputs_dir: Path) -> Accepted:
     candidates: list[Path] = []
     for entry in outputs_dir.iterdir():
+        if entry.name == "MANIFEST.json":
+            continue
         if not entry.is_file():
             continue
         if entry.stat().st_size == 0:
@@ -163,6 +165,7 @@ def _accept_fallback(fmt: OutputFormat, outputs_dir: Path) -> Accepted:
     if len(candidates) != 1:
         raise NoOutput
     path = candidates[0].resolve()
+    _ensure_under_outputs(outputs_dir, path)
     return Accepted(path=path, mime=_guess_mime(path), title=None)
 
 
