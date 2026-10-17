@@ -39,8 +39,8 @@ dist/
 .cursor/
 *.swp
 
-# Local data / storage
-storage/
+# Local data / storage (repo root only; do not ignore api/app/storage)
+/storage/
 skills/
 data/
 *.log
