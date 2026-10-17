@@ -11,6 +11,7 @@ from app.routes import (
     admin_credentials,
     admin_default_models,
     admin_models,
+    admin_skills,
     auth,
     chat,
     health,
@@ -29,6 +30,7 @@ api_router.include_router(admin.router)
 api_router.include_router(admin_credentials.router)
 api_router.include_router(admin_models.router)
 api_router.include_router(admin_default_models.router)
+api_router.include_router(admin_skills.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)
 # Phase 4：notebook / source
