@@ -24,13 +24,30 @@ def test_parse_citations_keeps_first_seen_order():
     assert found[0]["line_no"] == 8
 
 
+_SUBTITLE_ONLY_SYSTEM = (
+    "你是视频笔记助手。只能根据这次给出的字幕回答，不要编造字幕里没有的事实。"
+    "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
+    "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
+    "用中文回答。"
+)
+_NOTES_SYSTEM = (
+    "你是视频笔记助手。可以根据这次给出的字幕和笔记回答，不要编造两者里都没有的事实。"
+    "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
+    "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
+    "笔记没有编号，不要给笔记编造 [n]。"
+    "用中文回答。"
+)
+
+
 class _Provider:
     def __init__(self) -> None:
         self.prompts: list[str] = []
+        self.systems: list = []
         self.history: list | None = None
 
     async def stream_chat(self, prompt, *, system=None, history=None, **kwargs):
         self.prompts.append(prompt)
+        self.systems.append(system)
         self.history = history
         yield "财政在收缩"
         yield "[1]"
@@ -464,3 +481,46 @@ async def test_chat_multiple_notes_separated_by_blank_line(
     )
     assert response.status_code == 200, response.text
     assert "笔记：旁注\n笔记里的句子\n\n笔记：另一篇\n第二句" in captured["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_chat_system_prompt_allows_notes_only_when_note_ids_present(
+    client, db_session, user, monkeypatch
+):
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=user.id,
+        title="旁注",
+        content_text="笔记里的句子",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+    token, _ = create_access_token(user.id, role=user.role)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    without_notes = _Provider()
+    _patch_llm(monkeypatch, without_notes)
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=headers,
+        json={"message": "在说什么？", "source_ids": [selected_id]},
+    )
+    assert response.status_code == 200, response.text
+    assert without_notes.systems == [_SUBTITLE_ONLY_SYSTEM]
+
+    with_notes = _Provider()
+    _patch_llm(monkeypatch, with_notes)
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=headers,
+        json={
+            "message": "在说什么？",
+            "source_ids": [selected_id],
+            "note_ids": [note.id],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert with_notes.systems == [_NOTES_SYSTEM]

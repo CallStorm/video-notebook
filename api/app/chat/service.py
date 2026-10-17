@@ -25,6 +25,13 @@ _SYSTEM = (
     "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
     "用中文回答。"
 )
+_SYSTEM_WITH_NOTES = (
+    "你是视频笔记助手。可以根据这次给出的字幕和笔记回答，不要编造两者里都没有的事实。"
+    "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
+    "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
+    "笔记没有编号，不要给笔记编造 [n]。"
+    "用中文回答。"
+)
 _HISTORY_LIMIT = 8
 
 
@@ -35,6 +42,7 @@ class PreparedChat:
     history: list[dict[str, str]]
     context: BuiltContext
     llm: LlmResolved
+    system: str = _SYSTEM
 
 
 def message_dict(message: ChatMessage, *, note_id: int | None = None) -> dict:
@@ -136,6 +144,7 @@ async def prepare_chat(
         history=history,
         context=context,
         llm=llm,
+        system=_SYSTEM_WITH_NOTES if notes else _SYSTEM,
     )
 
 
@@ -157,7 +166,7 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
     try:
         async for token in provider.stream_chat(
             prepared.prompt,
-            system=_SYSTEM,
+            system=prepared.system,
             history=prepared.history,
             max_tokens=2048,
         ):
