@@ -73,9 +73,44 @@ async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> Tas
         )
         if artifact is not None:
             text_content = artifact.text_content
+    rows = (
+        await session.execute(
+            select(StudioArtifact)
+            .where(StudioArtifact.task_id == task.id)
+            .order_by(StudioArtifact.id.asc())
+        )
+    ).scalars().all()
     payload = TaskRead.model_validate(task).model_dump()
     payload["text_content"] = text_content
+    payload["artifacts"] = [
+        {"id": row.id, "role": row.role, "filename": row.filename, "mime": row.mime}
+        for row in rows
+    ]
+    payload["pdf_error"] = _pdf_error(task.result_json)
     return TaskDetail.model_validate(payload)
+
+
+def _pdf_error(result_json: dict | None) -> str | None:
+    if not isinstance(result_json, dict):
+        return None
+    raw = result_json.get("pdf_error")
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    return text or None
+
+
+async def get_artifact_url(
+    session: AsyncSession, *, owner_id: int, task_id: int, artifact_id: int
+) -> dict[str, object]:
+    task = await session.get(StudioTask, task_id)
+    if task is None or task.deleted_at is not None or task.owner_id != owner_id:
+        raise NotFoundError("任务不存在")
+    artifact = await session.get(StudioArtifact, artifact_id)
+    if artifact is None or artifact.task_id != task.id or not artifact.storage_key:
+        raise NotFoundError("产物不存在")
+    url = get_storage().signed_url(artifact.storage_key)
+    return {"url": url, "expires_in": 3600}
 
 
 async def create_task(

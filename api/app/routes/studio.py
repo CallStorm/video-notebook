@@ -58,6 +58,19 @@ async def get_studio_task(
     return await svc.get_task(session, owner_id=user.id, task_id=task_id)
 
 
+@router.get("/studio/tasks/{task_id}/artifacts/{artifact_id}")
+async def get_studio_artifact_url(
+    task_id: int,
+    artifact_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """签发产物的存储代理地址，形状与播放地址一致。"""
+    return await svc.get_artifact_url(
+        session, owner_id=user.id, task_id=task_id, artifact_id=artifact_id
+    )
+
+
 @router.delete("/studio/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_studio_task(
     task_id: int,

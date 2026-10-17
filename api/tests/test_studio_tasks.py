@@ -7,6 +7,7 @@ from app.core.security import create_access_token
 from app.models.notebook import Note, Notebook, NotebookSource, Video
 from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
 from app.models.user import User
+from app.storage import get_storage
 
 _FORM = [
     {"type": "language"},
@@ -378,3 +379,100 @@ async def test_get_task_returns_mind_map_text_for_owner_only(
     assert deck.status_code == 200
     assert deck.json()["text_content"] is None
     assert "url" not in deck.json()
+
+
+async def test_artifact_url_is_signed(
+    client, owner, owner_headers, outsider_headers, notebook_id, capability_id, db_session
+):
+    cap = await db_session.get(StudioCapability, capability_id)
+    slides = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=cap.id,
+        agent_id=cap.agent_id,
+        format_key="slides",
+        title="一份幻灯片",
+        status="succeeded",
+        params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
+        result_json={"pdf_error": "convert failed"},
+    )
+    mind_map = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=cap.id,
+        agent_id=cap.agent_id,
+        format_key="mind_map",
+        title="灭佛",
+        status="succeeded",
+        params_json={"language": "中文", "video_ids": [1], "note_ids": [], "fields": []},
+    )
+    db_session.add_all([slides, mind_map])
+    await db_session.flush()
+    pptx_bytes = b"PPTX-BYTES-not-in-json"
+    pdf_bytes = b"PDF-BYTES-not-in-json"
+    storage = get_storage()
+    pptx_key = storage.put(
+        data=pptx_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        suffix=".pptx",
+    )
+    pdf_key = storage.put(data=pdf_bytes, content_type="application/pdf", suffix=".pdf")
+    main = StudioArtifact(
+        task_id=slides.id,
+        role="main",
+        filename="deck.pptx",
+        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        storage_key=pptx_key,
+        text_content="should-not-leak",
+    )
+    side = StudioArtifact(
+        task_id=slides.id,
+        role="side",
+        filename="deck.pdf",
+        mime="application/pdf",
+        storage_key=pdf_key,
+    )
+    db_session.add(
+        StudioArtifact(
+            task_id=mind_map.id,
+            role="main",
+            filename="mindmap.md",
+            mime="text/markdown",
+            text_content="# 灭佛\n- 原因\n",
+        )
+    )
+    db_session.add_all([main, side])
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/studio/tasks/{slides.id}/artifacts/{main.id}",
+        headers=owner_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["url"].startswith("/api/storage/")
+    assert "token=" in response.json()["url"]
+    assert response.json()["expires_in"] == 3600
+
+    denied = await client.get(
+        f"/api/studio/tasks/{slides.id}/artifacts/{main.id}",
+        headers=outsider_headers,
+    )
+    assert denied.status_code == 404
+
+    detail = await client.get(f"/api/studio/tasks/{slides.id}", headers=owner_headers)
+    assert detail.status_code == 200
+    deck = detail.json()
+    assert deck["text_content"] is None
+    assert "url" not in deck
+    assert deck["pdf_error"] == "convert failed"
+    assert {item["id"] for item in deck["artifacts"]} == {main.id, side.id}
+    raw = detail.text
+    assert pptx_bytes.decode() not in raw
+    assert pdf_bytes.decode() not in raw
+    assert "should-not-leak" not in raw
+    assert pptx_key not in raw
+    assert pdf_key not in raw
+
+    mapped = await client.get(f"/api/studio/tasks/{mind_map.id}", headers=owner_headers)
+    assert mapped.status_code == 200
+    assert mapped.json()["text_content"] == "# 灭佛\n- 原因\n"

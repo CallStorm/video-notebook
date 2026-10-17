@@ -21,6 +21,8 @@ import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type
 import { MarkdownMessage } from "@/components/chat-markdown";
 import { StudioPanel } from "@/components/studio-panel";
 import { StudioMindmap } from "@/components/studio-mindmap";
+import { StudioSlides } from "@/components/studio-slides";
+import { StudioFile } from "@/components/studio-file";
 import { Copy, StickyNote, X } from "lucide-react";
 
 interface VideoRead {
@@ -143,6 +145,7 @@ export default function NotebookPage() {
   const qc = useQueryClient();
   // fileInputRef removed: upload now lives inside AddSourceDialog
   const [previewTaskId, setPreviewTaskId] = useState<number | null>(null);
+  const [previewFormat, setPreviewFormat] = useState<string | null>(null);
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [relay, setRelay] = useState<ChatRelay | null>(null);
   const discussing = useRef(false);
@@ -173,6 +176,7 @@ export default function NotebookPage() {
 
   useEffect(() => {
     setPreviewTaskId(null);
+    setPreviewFormat(null);
     setPreviewExpanded(false);
     setRelay(null);
     discussing.current = false;
@@ -612,6 +616,42 @@ export default function NotebookPage() {
                 setFocusCue({ videoId, lineNo });
               }}
             />
+          ) : previewTaskId != null && previewFormat === "slides" ? (
+            <StudioSlides
+              access={token}
+              taskId={previewTaskId}
+              title={preview.data?.title || "幻灯片"}
+              pdfError={preview.data?.pdf_error ?? null}
+              artifacts={preview.data?.artifacts ?? []}
+              pending={!preview.data && !preview.isError}
+              notice={
+                preview.isError
+                  ? preview.error instanceof ApiError
+                    ? preview.error.message
+                    : "加载失败"
+                  : null
+              }
+              expanded={previewExpanded}
+              onBack={() => {
+                setPreviewTaskId(null);
+                setPreviewFormat(null);
+                setPreviewExpanded(false);
+              }}
+              onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+            />
+          ) : previewTaskId != null && previewFormat === "file" ? (
+            <StudioFile
+              access={token}
+              taskId={previewTaskId}
+              title={preview.data?.title || "文件"}
+              artifactId={preview.data?.artifacts?.find((item) => item.role === "main")?.id ?? null}
+              filename={preview.data?.artifacts?.find((item) => item.role === "main")?.filename ?? null}
+              onBack={() => {
+                setPreviewTaskId(null);
+                setPreviewFormat(null);
+                setPreviewExpanded(false);
+              }}
+            />
           ) : previewTaskId != null ? (
             <StudioMindmap
               title={preview.data?.title || "导图"}
@@ -623,6 +663,7 @@ export default function NotebookPage() {
               expanded={previewExpanded}
               onBack={() => {
                 setPreviewTaskId(null);
+                setPreviewFormat(null);
                 setPreviewExpanded(false);
               }}
               onToggleExpanded={() => setPreviewExpanded((value) => !value)}
@@ -645,8 +686,9 @@ export default function NotebookPage() {
               notebookId={notebookId}
               sources={nb.sources}
               notes={notes}
-              onOpenMindMap={(taskId) => {
+              onOpenTask={(taskId, formatKey) => {
                 setPreviewExpanded(false);
+                setPreviewFormat(formatKey);
                 setPreviewTaskId(taskId);
               }}
             />
@@ -732,13 +774,13 @@ function StudioHome({
   notebookId,
   sources,
   notes,
-  onOpenMindMap,
+  onOpenTask,
 }: {
   access: string;
   notebookId: number;
   sources: SourceSummary[];
   notes: NoteRead[];
-  onOpenMindMap: (taskId: number) => void;
+  onOpenTask: (taskId: number, formatKey: string) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -750,10 +792,17 @@ function StudioHome({
         notebookId={notebookId}
         sources={sources}
         notes={notes}
-        onOpenMindMap={onOpenMindMap}
+        onOpenTask={onOpenTask}
       />
     </div>
   );
+}
+
+interface StudioArtifactRef {
+  id: number;
+  role: string;
+  filename: string;
+  mime: string;
 }
 
 interface StudioTaskDetail {
@@ -762,6 +811,8 @@ interface StudioTaskDetail {
   status: string;
   format_key: string;
   text_content: string | null;
+  pdf_error?: string | null;
+  artifacts?: StudioArtifactRef[];
   params_json?: {
     video_ids?: unknown;
     note_ids?: unknown;

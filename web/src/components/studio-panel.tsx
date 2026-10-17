@@ -76,13 +76,13 @@ export function StudioPanel({
   notebookId,
   sources,
   notes,
-  onOpenMindMap,
+  onOpenTask,
 }: {
   access: string;
   notebookId: number;
   sources: StudioSource[];
   notes: StudioNote[];
-  onOpenMindMap?: (taskId: number) => void;
+  onOpenTask?: (taskId: number, formatKey: string) => void;
 }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -193,7 +193,10 @@ export function StudioPanel({
             const busy = task.status === "queued" || task.status === "running";
             const errorLabel =
               task.status === "failed" ? ERROR_LABELS[task.error_code ?? ""] ?? task.error_code : null;
-            const openable = task.status === "succeeded" && task.format_key === "mind_map" && !!onOpenMindMap;
+            const openable =
+              task.status === "succeeded" &&
+              (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file") &&
+              !!onOpenTask;
             return (
               <div key={task.id} className="flex items-start gap-2 px-4 py-2.5">
                 <div className="min-w-0 flex-1">
@@ -201,7 +204,7 @@ export function StudioPanel({
                     <button
                       type="button"
                       className="line-clamp-2 text-left text-xs font-medium hover:underline"
-                      onClick={() => onOpenMindMap(task.id)}
+                      onClick={() => onOpenTask?.(task.id, task.format_key)}
                     >
                       {task.title}
                     </button>

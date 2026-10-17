@@ -116,5 +116,14 @@ class TaskRead(BaseModel):
     updated_at: datetime | None
 
 
+class ArtifactRead(BaseModel):
+    id: int
+    role: str
+    filename: str
+    mime: str
+
+
 class TaskDetail(TaskRead):
     text_content: str | None = None
+    artifacts: list[ArtifactRead] = Field(default_factory=list)
+    pdf_error: str | None = None
