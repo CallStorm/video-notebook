@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from sqlalchemy import select
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from app.models.notebook import Note, Notebook, Subtitle, SubtitleLine, Video
 from app.models.studio import Agent, Skill, StudioArtifact, StudioCapability, StudioTask
 from app.models.user import User
+from app.storage import get_storage
 from app.studio.runner import execute_studio_task
 
 _FIXED = (
@@ -382,6 +384,95 @@ async def test_cancel_during_prepare_is_not_started(db_session, tmp_path, monkey
     await db_session.refresh(task)
     assert task.status == "canceled"
     assert not marker.exists()
+
+
+async def test_runner_keeps_blob_shared_with_another_task(db_session, tmp_path, monkeypatch):
+    data = b"hello-map\n"
+    key = get_storage().put(data=data, content_type="text/markdown", suffix=".md")
+    keeper, _, _ = await _seed(db_session, status="succeeded", with_sources=False)
+    db_session.add(
+        StudioArtifact(
+            task_id=keeper.id,
+            role="main",
+            filename="mindmap.md",
+            mime="text/markdown",
+            storage_key=key,
+            text_content="hello-map\n",
+        )
+    )
+    await db_session.commit()
+
+    script = tmp_path / "claude"
+    _script(
+        script,
+        "#!/bin/sh\n"
+        "out=$(pwd)/outputs\n"
+        "mkdir -p \"$out\"\n"
+        "printf 'hello-map\\n' > \"$out/mindmap.md\"\n",
+    )
+    task = StudioTask(
+        notebook_id=keeper.notebook_id,
+        owner_id=keeper.owner_id,
+        capability_id=keeper.capability_id,
+        agent_id=keeper.agent_id,
+        format_key=keeper.format_key,
+        title=keeper.title,
+        status="queued",
+        params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    from app.studio import runner as runner_module
+
+    storage = get_storage()
+    real_put = storage.put
+    seen: list[str] = []
+
+    def spy_put(**kwargs):
+        stored = real_put(**kwargs)
+        seen.append(stored)
+        return stored
+
+    monkeypatch.setattr(storage, "put", spy_put)
+    real_store = runner_module._store_success
+
+    async def cancel_then_store(*args, **kwargs):
+        task_id = args[1]
+        factory = runner_module.get_sessionmaker()
+        async with factory() as session:
+            row = await session.get(StudioTask, task_id)
+            row.status = "canceled"
+            await session.commit()
+        await real_store(*args, **kwargs)
+
+    monkeypatch.setattr(runner_module, "_store_success", cancel_then_store)
+    await execute_studio_task(task.id, claude_bin=str(script))
+    await db_session.refresh(task)
+    assert seen == [key]
+    assert task.status == "canceled"
+    assert await _artifacts(db_session, task.id) == []
+    assert get_storage().exists(key)
+    assert get_storage().get(key) == data
+
+
+async def test_pdf_convert_deadline_keeps_success(db_session, tmp_path, monkeypatch):
+    soffice = tmp_path / "soffice"
+    _script(soffice, "#!/bin/sh\nsleep 30\n")
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(tmp_path), os.environ.get("PATH", "")]),
+    )
+    script = tmp_path / "claude"
+    _pptx_script(script)
+    task, _, _ = await _seed(db_session, format_key="slides", with_sources=False)
+    await execute_studio_task(task.id, claude_bin=str(script), pdf_timeout_seconds=1)
+    await db_session.refresh(task)
+    assert task.status == "succeeded"
+    assert "timed out" in task.result_json["pdf_error"]
+    rows = await _artifacts(db_session, task.id)
+    assert [row.role for row in rows] == ["main"]
+    assert get_storage().get(rows[0].storage_key) == b"PK pptx"
 
 
 async def test_unexpected_error_after_running_is_process_failed(db_session, tmp_path, monkeypatch):

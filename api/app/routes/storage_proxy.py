@@ -20,10 +20,13 @@ async def stream_storage(
         raise UnauthorizedError("Missing signed token")
     if not storage.verify_signed_token(key, token, max_age_seconds=3600):
         raise UnauthorizedError("token 无效或已过期")
-    if not storage.exists(key):
+    try:
+        info = storage.head(key)
+        path = storage.local_path(key)
+    except ValueError as exc:
+        raise UnauthorizedError("token 无效或已过期") from exc
+    if info is None:
         raise NotFoundError(f"object {key} 不存在")
-
-    info = storage.head(key)
     content_type = info.content_type if info else None
     if not content_type:
         if key.endswith(".mp4"):
@@ -36,5 +39,4 @@ async def stream_storage(
             content_type = "application/octet-stream"
 
     # FileResponse 自带 Range，浏览器才能拖动播放。
-    path = storage.local_path(key)  # type: ignore[attr-defined]
     return FileResponse(path, media_type=content_type)

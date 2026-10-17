@@ -1,6 +1,8 @@
 """Phase 4：Notebook + Source 端到端。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from httpx import AsyncClient
 
@@ -266,3 +268,90 @@ async def test_storage_proxy_returns_data_with_valid_token(client: AsyncClient, 
     )
     assert partial.status_code == 206
     assert partial.content == b"hello"
+
+
+def _lexical_relative(start: Path, dest: Path) -> str:
+    start_parts = start.parts
+    dest_parts = dest.parts
+    common = 0
+    for left, right in zip(start_parts, dest_parts, strict=False):
+        if left != right:
+            break
+        common += 1
+    ups = len(start_parts) - common
+    return "/".join([*[".."] * ups, *dest_parts[common:]])
+
+
+async def test_signed_parent_key_rejected_and_valid_token_returns_bytes(
+    client: AsyncClient,
+):
+    from urllib.parse import urlencode
+
+    from app.core.errors import UnauthorizedError
+    from app.main import create_app
+    from app.routes.storage_proxy import stream_storage
+    from app.storage import get_storage, reset_storage_singleton
+
+    reset_storage_singleton()
+    storage = get_storage()
+    outside = storage.root.parent / f"{storage.root.name}-escape.bin"
+    outside.write_bytes(b"TOP-SECRET-OUTSIDE-ROOT")
+    try:
+        digest = "ab" + "c" * 38
+        leaf = storage.root / digest[:2] / f"{digest}.pdf"
+        bad_key = f"{digest}.pdf/{_lexical_relative(leaf, outside)}"
+        unsafe = (storage.root / digest[:2] / bad_key).resolve()
+        assert ".." in bad_key
+        assert unsafe == outside.resolve()
+        assert not unsafe.is_relative_to(storage.root.resolve())
+
+        bad_token = storage._make_token(bad_key, 60)  # noqa: SLF001
+        assert storage.verify_signed_token(bad_key, bad_token, max_age_seconds=3600) is False
+        with pytest.raises(ValueError):
+            storage.local_path(bad_key)
+        with pytest.raises(UnauthorizedError):
+            await stream_storage(bad_key, token=bad_token)
+
+        app = create_app()
+        body = bytearray()
+        status = {"code": 0}
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                status["code"] = message["status"]
+            elif message["type"] == "http.response.body":
+                body.extend(message.get("body") or b"")
+
+        path = f"/api/storage/{bad_key}"
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": urlencode({"token": bad_token}).encode(),
+            "headers": [],
+            "client": ("127.0.0.1", 123),
+            "server": ("testserver", 80),
+            "root_path": "",
+        }
+        await app(scope, receive, send)
+        assert status["code"] == 401
+        assert b"TOP-SECRET-OUTSIDE-ROOT" not in body
+
+        payload = b"stored-bytes"
+        key = storage.put(data=payload, content_type="text/plain", suffix=".txt")
+        token = storage._make_token(key, 3600)  # noqa: SLF001
+        ok = await client.get(f"/api/storage/{key}", params={"token": token})
+        assert ok.status_code == 200
+        assert ok.content == payload
+        far = storage._make_token(key, 24 * 3600)  # noqa: SLF001
+        rejected = await client.get(f"/api/storage/{key}", params={"token": far})
+        assert rejected.status_code == 401
+    finally:
+        outside.unlink(missing_ok=True)

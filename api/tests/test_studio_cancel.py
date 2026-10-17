@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.dml import Update
 
 from app.core.errors import NotFoundError
 from app.core.security import create_access_token
@@ -131,6 +133,40 @@ async def test_sweep_marks_stale_running_task_failed(db_session):
     assert stale.error_code == "process_failed"
     assert fresh.status == "running"
     assert fresh.error_code is None
+
+
+async def test_sweep_does_not_fail_task_that_became_succeeded(db_session, monkeypatch):
+    _, task = await _seed_task(
+        db_session,
+        status="running",
+        timeout_seconds=30,
+        started_at=_NOW - timedelta(seconds=91),
+    )
+    original = AsyncSession.execute
+    state = {"flipped": False}
+    rowcounts: list[int] = []
+
+    async def execute(self, statement, *args, **kwargs):
+        if isinstance(statement, Update) and not state["flipped"]:
+            state["flipped"] = True
+            await original(
+                self,
+                update(StudioTask)
+                .where(StudioTask.id == task.id)
+                .values(status="succeeded", error_code=None),
+            )
+        result = await original(self, statement, *args, **kwargs)
+        if isinstance(statement, Update):
+            rowcounts.append(result.rowcount)
+        return result
+
+    monkeypatch.setattr(AsyncSession, "execute", execute)
+    await sweep_studio_tasks(_NOW)
+    await db_session.refresh(task)
+    assert state["flipped"] is True
+    assert rowcounts == [0]
+    assert task.status == "succeeded"
+    assert task.error_code is None
 
 
 async def test_sweep_deletes_old_failure_work_dir(db_session, tmp_path):

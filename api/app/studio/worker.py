@@ -12,7 +12,7 @@ from typing import Any
 
 from celery import Celery
 from celery.signals import worker_ready
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import get_settings
 from app.db.session import dispose_engine, get_sessionmaker
@@ -91,21 +91,32 @@ async def sweep_studio_tasks(now: datetime) -> None:
     async with factory() as session:
         rows = (
             await session.execute(
-                select(StudioTask, Agent.timeout_seconds).join(
-                    Agent, Agent.id == StudioTask.agent_id
-                ).where(
+                select(StudioTask.id, StudioTask.started_at, Agent.timeout_seconds)
+                .join(Agent, Agent.id == StudioTask.agent_id)
+                .where(
                     StudioTask.status == "running",
                     StudioTask.started_at.is_not(None),
                 )
             )
         ).all()
-        for task, timeout_seconds in rows:
-            started = _naive(task.started_at)
+        for task_id, started_at, timeout_seconds in rows:
+            if started_at is None:
+                continue
+            started = _naive(started_at)
             if started < now - timedelta(seconds=timeout_seconds + _SWEEP_GRACE_SECONDS):
-                task.status = "failed"
-                task.error_code = "process_failed"
-                task.finished_at = now
-                session.add(task)
+                await session.execute(
+                    update(StudioTask)
+                    .where(
+                        StudioTask.id == task_id,
+                        StudioTask.status == "running",
+                        StudioTask.deleted_at.is_(None),
+                    )
+                    .values(
+                        status="failed",
+                        error_code="process_failed",
+                        finished_at=now,
+                    )
+                )
 
         stored = (
             await session.execute(

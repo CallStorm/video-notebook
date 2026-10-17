@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from app.db.session import get_sessionmaker
 from app.models.notebook import Note, Video
@@ -73,8 +73,36 @@ def _prompt(format_key: str, system_prompt: str) -> str:
     return "\n\n".join([get_format(format_key).instructions, system_prompt, _FIXED_PROMPT])
 
 
-def _soffice_convert(pptx_path: Path, outputs_dir: Path) -> None:
-    subprocess.run(
+def _pdf_convert_timeout() -> float:
+    """Match the sweep grace so conversion cannot stay running past that window."""
+    from app.studio.worker import _SWEEP_GRACE_SECONDS
+
+    return float(_SWEEP_GRACE_SECONDS)
+
+
+def _kill_popen_group(proc: subprocess.Popen[bytes]) -> None:
+    if proc.poll() is None and proc.pid is not None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+
+
+def _soffice_convert(
+    pptx_path: Path,
+    outputs_dir: Path,
+    *,
+    timeout_seconds: float,
+) -> None:
+    proc = subprocess.Popen(
         [
             "soffice",
             "--headless",
@@ -84,9 +112,17 @@ def _soffice_convert(pptx_path: Path, outputs_dir: Path) -> None:
             str(outputs_dir),
             str(pptx_path),
         ],
-        check=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
     )
+    try:
+        _stdout, stderr = proc.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        _kill_popen_group(proc)
+        raise
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode or 1, proc.args, stderr=stderr)
 
 
 def _kill_group(proc: asyncio.subprocess.Process, sig: int) -> None:
@@ -330,6 +366,27 @@ def _store_main(path: Path, mime: str) -> tuple[str, bytes]:
     return key, data
 
 
+async def _delete_unshared(session, task_id: int, keys: list[str]) -> None:
+    """Drop this attempt's blobs unless another task's artifact still has the key."""
+    storage = get_storage()
+    for key in keys:
+        other = await session.scalar(
+            select(StudioArtifact.id)
+            .where(
+                StudioArtifact.storage_key == key,
+                StudioArtifact.task_id != task_id,
+            )
+            .limit(1)
+        )
+        if other is None:
+            storage.delete(key)
+
+
+async def _delete_unshared_keys(factory, task_id: int, keys: list[str]) -> None:
+    async with factory() as session:
+        await _delete_unshared(session, task_id, keys)
+
+
 def _convert_pdf(
     pptx_path: Path,
     outputs_dir: Path,
@@ -360,6 +417,7 @@ async def _store_success(
     accepted_mime: str,
     accepted_title: str | None,
     pdf_convert: Callable[[Path, Path], None] | None,
+    pdf_timeout_seconds: float | None,
     work: Path,
     stored_keys: list[str],
 ) -> None:
@@ -370,14 +428,25 @@ async def _store_success(
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:
-            get_storage().delete(main_key)
+            await _delete_unshared_keys(factory, task_id, [main_key])
             stored_keys.remove(main_key)
             await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
             return
     side: tuple[str, str] | None = None
     pdf_error: str | None = None
     if prepared.format_key == "slides":
-        convert = pdf_convert or _soffice_convert
+        if pdf_convert is None:
+            timeout = (
+                _pdf_convert_timeout()
+                if pdf_timeout_seconds is None
+                else pdf_timeout_seconds
+            )
+
+            def convert(pptx_path: Path, outputs_dir: Path) -> None:
+                _soffice_convert(pptx_path, outputs_dir, timeout_seconds=timeout)
+
+        else:
+            convert = pdf_convert
         converted = _convert_pdf(accepted_path, work / "outputs", convert)
         if isinstance(converted, str):
             pdf_error = converted
@@ -388,15 +457,32 @@ async def _store_success(
     if side is not None:
         keys.append(side[0])
     async with factory() as session:
-        task = await session.get(StudioTask, task_id)
-        if task is None or task.status != "running" or task.deleted_at is not None:
-            for key in keys:
-                get_storage().delete(key)
+        result = await session.execute(
+            update(StudioTask)
+            .where(
+                StudioTask.id == task_id,
+                StudioTask.status == "running",
+                StudioTask.deleted_at.is_(None),
+            )
+            .values(
+                status="succeeded",
+                error_code=None,
+                error_message=None,
+                finished_at=_now(),
+                title=_choose_title(
+                    accepted_title, prepared.fields, prepared.capability_name
+                ),
+                result_json={"pdf_error": pdf_error} if pdf_error else None,
+            )
+        )
+        if result.rowcount != 1:
+            await session.rollback()
+            await _delete_unshared(session, task_id, keys)
             shutil.rmtree(work, ignore_errors=True)
             return
         session.add(
             StudioArtifact(
-                task_id=task.id,
+                task_id=task_id,
                 role="main",
                 filename=accepted_path.name,
                 mime=accepted_mime,
@@ -407,7 +493,7 @@ async def _store_success(
         if side is not None:
             session.add(
                 StudioArtifact(
-                    task_id=task.id,
+                    task_id=task_id,
                     role="side",
                     filename=side[1],
                     mime="application/pdf",
@@ -415,12 +501,6 @@ async def _store_success(
                     text_content=None,
                 )
             )
-        task.status = "succeeded"
-        task.error_code = None
-        task.error_message = None
-        task.finished_at = _now()
-        task.title = _choose_title(accepted_title, prepared.fields, prepared.capability_name)
-        task.result_json = {"pdf_error": pdf_error} if pdf_error else None
         await session.commit()
     shutil.rmtree(work)
 
@@ -439,9 +519,8 @@ async def _abandon_attempt(
             status, deleted = None, False
         else:
             status, deleted = task.status, task.deleted_at is not None
-    if status != "succeeded":
-        for key in stored_keys:
-            get_storage().delete(key)
+        if status != "succeeded":
+            await _delete_unshared(session, task_id, stored_keys)
     if status == "running" and not deleted:
         await _mark_failed(factory, task_id, "process_failed", message, work)
         return
@@ -455,6 +534,7 @@ async def execute_studio_task(
     claude_bin: str = "claude",
     pdf_convert: Callable[[Path, Path], None] | None = None,
     timeout_seconds: int | None = None,
+    pdf_timeout_seconds: float | None = None,
 ) -> None:
     factory = get_sessionmaker()
     async with factory() as session:
@@ -518,6 +598,7 @@ async def execute_studio_task(
             accepted_mime=accepted.mime,
             accepted_title=accepted.title,
             pdf_convert=pdf_convert,
+            pdf_timeout_seconds=pdf_timeout_seconds,
             work=work,
             stored_keys=stored_keys,
         )

@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,10 @@ class ObjectStorage(Protocol):
     def exists(self, key: str) -> bool: ...
     def signed_url(self, key: str, *, expires_seconds: int = 3600) -> str: ...
     def verify_signed_token(self, key: str, token: str, *, max_age_seconds: int) -> bool: ...
+
+
+# Content-addressed keys only. A signed token must not be able to join ".." onto the root.
+_OBJECT_KEY_RE = re.compile(r"^[0-9a-f]{40}(\.[A-Za-z0-9]{1,16})?$")
 
 
 def content_hash(data: bytes) -> str:
@@ -100,7 +105,9 @@ class LocalFsStorage:
         return f"/api/storage/{key}?token={token}"
 
     def verify_signed_token(self, key: str, token: str, *, max_age_seconds: int) -> bool:
-        """校验 token；max_age_seconds 是调用方允许的过期时间。"""
+        """校验 token。max_age_seconds 同时是 exp 相对现在的上限。"""
+        if _OBJECT_KEY_RE.fullmatch(key) is None:
+            return False
         try:
             payload_b64, sig_b64 = token.split(".", 1)
             payload = base64.urlsafe_b64decode(payload_b64.encode("ascii"))
@@ -114,10 +121,11 @@ class LocalFsStorage:
             if ks != key:
                 return False
             exp = int(exp_s)
-            if exp < int(time.time()):
+            now = int(time.time())
+            if exp < now or exp > now + max_age_seconds:
                 return False
             return True
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, UnicodeDecodeError):
             return False
 
     def _make_token(self, key: str, expires_seconds: int) -> str:
@@ -131,12 +139,17 @@ class LocalFsStorage:
 
     def _path_for_key(self, key: str) -> Path:
         # key 形如 "<sha1>" 或 "<sha1>.<ext>"；sha1[:2] 作为子目录
-        sha1 = key.split(".", 1)[0]
-        if len(sha1) != 40:
+        if _OBJECT_KEY_RE.fullmatch(key) is None:
             raise ValueError(f"bad object key: {key}")
-        # 拼上原来 key 里的扩展名（如果 key 形如 "<sha1>.<ext>"）
-        suffix = key[len(sha1):]
-        return self.root / sha1[:2] / f"{sha1}{suffix}"
+        digest = key[:40]
+        try:
+            root = self.root.resolve()
+            path = (self.root / digest[:2] / key).resolve()
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(f"bad object key: {key}") from exc
+        if path == root or not path.is_relative_to(root):
+            raise ValueError(f"bad object key: {key}")
+        return path
 
 
 _singleton: ObjectStorage | None = None
