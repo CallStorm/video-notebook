@@ -85,3 +85,32 @@ class CapabilityRead(BaseModel):
     form_json: list
     created_at: datetime | None
     updated_at: datetime | None
+
+
+class TaskCreate(BaseModel):
+    capability_id: int
+    language: str | None = None
+    video_ids: list[int] = Field(default_factory=list)
+    note_ids: list[int] = Field(default_factory=list)
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+class TaskRead(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: int
+    notebook_id: int
+    owner_id: int
+    capability_id: int
+    agent_id: int
+    format_key: str
+    title: str
+    status: str
+    params_json: dict
+    error_code: str | None
+    error_message: str | None
+    result_json: dict | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime | None
+    updated_at: datetime | None

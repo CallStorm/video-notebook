@@ -20,6 +20,7 @@ from app.routes import (
     notebooks,
     providers,
     sources,
+    studio,
     users,
 )
 
@@ -41,6 +42,7 @@ api_router.include_router(providers.router)
 api_router.include_router(notebooks.router)
 api_router.include_router(sources.router)
 api_router.include_router(chat.router)
+api_router.include_router(studio.router)
 
 # /api/storage/{key} 视频代理（签发 token 校验后流式回写）
 from app.routes import storage_proxy  # noqa: E402
