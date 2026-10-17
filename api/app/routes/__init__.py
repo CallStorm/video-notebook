@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from app.routes import (
     admin,
+    admin_agents,
     admin_credentials,
     admin_default_models,
     admin_models,
@@ -31,6 +32,7 @@ api_router.include_router(admin_credentials.router)
 api_router.include_router(admin_models.router)
 api_router.include_router(admin_default_models.router)
 api_router.include_router(admin_skills.router)
+api_router.include_router(admin_agents.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)
 # Phase 4：notebook / source
