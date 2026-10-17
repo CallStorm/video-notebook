@@ -55,3 +55,6 @@ web/coverage/
 
 # Local media / sk
 /media/
+
+# Linked worktrees
+.worktrees/
