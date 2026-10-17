@@ -47,6 +47,7 @@ async def post_chat(
         notebook_id=notebook_id,
         message=body.message,
         source_ids=body.source_ids,
+        note_ids=body.note_ids,
     )
 
     async def events():

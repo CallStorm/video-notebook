@@ -10,11 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.context import BuiltContext, build_context, parse_citations, strip_citations
-from app.core.errors import BadRequestError
+from app.core.errors import BadRequestError, NotFoundError
 from app.db.session import get_sessionmaker
 from app.llm.config_service import LlmResolved, get_active_llm
 from app.llm.providers import make_provider
-from app.models.notebook import ChatMessage, ChatThread, NotebookSource
+from app.models.notebook import ChatMessage, ChatThread, Note, NotebookSource
 from app.services.notebooks import get_notebook
 
 logger = logging.getLogger(__name__)
@@ -100,13 +100,15 @@ async def prepare_chat(
     notebook_id: int,
     message: str,
     source_ids: list[int] | None,
+    note_ids: list[int] | None = None,
 ) -> PreparedChat:
     await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
     ids = await _source_ids(session, notebook_id, source_ids)
-    if not ids:
+    notes = await _notes(session, notebook_id, note_ids)
+    if not ids and not notes:
         raise BadRequestError("请先勾选至少一个来源")
     context = await build_context(session, notebook_id=notebook_id, source_ids=ids)
-    if not context.lines:
+    if not context.lines and not notes:
         raise BadRequestError("勾选的来源还没有可用字幕")
     llm = await get_active_llm(session)
     thread = await _get_thread(session, notebook_id=notebook_id, owner_id=owner_id)
@@ -122,8 +124,12 @@ async def prepare_chat(
     thread.last_message_at = datetime.now(UTC).replace(tzinfo=None)
     session.add(thread)
     await session.commit()
-    note = "字幕较长，下面只包含前面一部分。\n\n" if context.truncated else ""
-    prompt = f"{note}字幕：\n{context.text}\n\n问题：{message.strip()}"
+    prefix = "字幕较长，下面只包含前面一部分。\n\n" if context.truncated else ""
+    body = f"字幕：\n{context.text}"
+    notes_block = _notes_block(notes)
+    if notes_block:
+        body = f"{body}\n\n{notes_block}"
+    prompt = f"{prefix}{body}\n\n问题：{message.strip()}"
     return PreparedChat(
         thread_id=thread.id,
         prompt=prompt,
@@ -166,6 +172,34 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
     if text:
         message_id = await _save_assistant(prepared, text, citations)
     yield {"type": "done", "message_id": message_id, "citations": citations}
+
+
+def _notes_block(notes: list[Note]) -> str:
+    return "\n\n".join(f"笔记：{item.title}\n{item.content_text}" for item in notes)
+
+
+async def _notes(
+    session: AsyncSession, notebook_id: int, note_ids: list[int] | None
+) -> list[Note]:
+    if not note_ids:
+        return []
+    rows = (
+        await session.execute(
+            select(Note).where(
+                Note.id.in_(note_ids),
+                Note.notebook_id == notebook_id,
+                Note.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    by_id = {row.id: row for row in rows}
+    ordered: list[Note] = []
+    for note_id in note_ids:
+        item = by_id.get(note_id)
+        if item is None:
+            raise NotFoundError("笔记不在这个笔记本里")
+        ordered.append(item)
+    return ordered
 
 
 async def _source_ids(

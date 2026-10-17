@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 from app.chat.context import CitedLine, parse_citations
 from app.core.security import create_access_token
 from app.llm.config_service import LlmResolved
-from app.models.notebook import Notebook, NotebookSource, Subtitle, SubtitleLine, Video
+from app.models.notebook import Note, Notebook, NotebookSource, Subtitle, SubtitleLine, Video
 from app.models.user import User
 
 
@@ -261,3 +262,205 @@ async def test_select_all_sources(client: AsyncClient, db_session):
     detail = await client.get(f"/api/notebooks/{notebook_id}", headers=headers)
     flags = {item["video_id"]: item["selected_for_chat"] for item in detail.json()["sources"]}
     assert flags[ignored_id] is True
+
+
+@pytest_asyncio.fixture
+async def user(db_session) -> User:
+    row, _token = await _user(db_session, "13800000910")
+    return row
+
+
+@pytest.mark.asyncio
+async def test_chat_without_note_ids_stays_on_videos(client, db_session, user, monkeypatch):
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=user.id,
+        title="旁注",
+        content_text="笔记里的句子",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    captured: dict = {}
+
+    async def fake_stream(prepared):
+        captured["prompt"] = prepared.prompt
+        yield {"type": "done", "message_id": None, "citations": []}
+
+    monkeypatch.setattr("app.chat.service.stream_answer", fake_stream)
+    _patch_llm(monkeypatch, _Provider())
+    token, _ = create_access_token(user.id, role=user.role)
+    await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"message": "在说什么？", "source_ids": [selected_id]},
+    )
+    assert "笔记里的句子" not in captured["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_chat_with_note_ids_appends_note_after_subtitles(
+    client, db_session, user, monkeypatch
+):
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=user.id,
+        title="旁注",
+        content_text="笔记里的句子",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+    captured: dict = {}
+
+    async def fake_stream(prepared):
+        captured["prompt"] = prepared.prompt
+        captured["citations"] = prepared.context.lines
+        yield {"type": "done", "message_id": None, "citations": []}
+
+    monkeypatch.setattr("app.chat.service.stream_answer", fake_stream)
+    _patch_llm(monkeypatch, _Provider())
+    token, _ = create_access_token(user.id, role=user.role)
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "message": "在说什么？",
+            "source_ids": [selected_id],
+            "note_ids": [note.id],
+        },
+    )
+    assert response.status_code == 200, response.text
+    prompt = captured["prompt"]
+    assert "财政在收缩" in prompt
+    assert "笔记里的句子" in prompt
+    assert "笔记：旁注\n笔记里的句子" in prompt
+    subtitle_index = prompt.index("财政在收缩")
+    note_index = prompt.index("笔记里的句子")
+    assert subtitle_index < note_index
+    assert prompt.index("问题：") > note_index
+    assert list(captured["citations"]) == [1]
+
+
+@pytest.mark.asyncio
+async def test_chat_note_not_in_notebook_returns_404(client, db_session, user, monkeypatch):
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    other = Notebook(owner_id=user.id, title="另一本", is_pinned=False, share_all=False)
+    db_session.add(other)
+    await db_session.commit()
+    await db_session.refresh(other)
+    note = Note(
+        notebook_id=other.id,
+        author_id=user.id,
+        title="旁注",
+        content_text="笔记里的句子",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+
+    async def fake_stream(prepared):
+        yield {"type": "done", "message_id": None, "citations": []}
+
+    monkeypatch.setattr("app.chat.service.stream_answer", fake_stream)
+    _patch_llm(monkeypatch, _Provider())
+    token, _ = create_access_token(user.id, role=user.role)
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "message": "在说什么？",
+            "source_ids": [selected_id],
+            "note_ids": [note.id],
+        },
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_chat_notes_without_videos_skips_subtitle_requirement(
+    client, db_session, user, monkeypatch
+):
+    notebook = Notebook(owner_id=user.id, title="只有笔记", is_pinned=False, share_all=False)
+    db_session.add(notebook)
+    await db_session.commit()
+    await db_session.refresh(notebook)
+    note = Note(
+        notebook_id=notebook.id,
+        author_id=user.id,
+        title="旁注",
+        content_text="笔记里的句子",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+    captured: dict = {}
+
+    async def fake_stream(prepared):
+        captured["prompt"] = prepared.prompt
+        yield {"type": "done", "message_id": None, "citations": []}
+
+    monkeypatch.setattr("app.chat.service.stream_answer", fake_stream)
+    _patch_llm(monkeypatch, _Provider())
+    token, _ = create_access_token(user.id, role=user.role)
+    response = await client.post(
+        f"/api/notebooks/{notebook.id}/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "message": "在说什么？",
+            "source_ids": [],
+            "note_ids": [note.id],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert "笔记：旁注\n笔记里的句子" in captured["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_chat_multiple_notes_separated_by_blank_line(
+    client, db_session, user, monkeypatch
+):
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    first = Note(
+        notebook_id=notebook_id,
+        author_id=user.id,
+        title="旁注",
+        content_text="笔记里的句子",
+        selected_for_chat=True,
+    )
+    second = Note(
+        notebook_id=notebook_id,
+        author_id=user.id,
+        title="另一篇",
+        content_text="第二句",
+        selected_for_chat=True,
+    )
+    db_session.add_all([first, second])
+    await db_session.commit()
+    await db_session.refresh(first)
+    await db_session.refresh(second)
+    captured: dict = {}
+
+    async def fake_stream(prepared):
+        captured["prompt"] = prepared.prompt
+        yield {"type": "done", "message_id": None, "citations": []}
+
+    monkeypatch.setattr("app.chat.service.stream_answer", fake_stream)
+    _patch_llm(monkeypatch, _Provider())
+    token, _ = create_access_token(user.id, role=user.role)
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "message": "在说什么？",
+            "source_ids": [selected_id],
+            "note_ids": [first.id, second.id],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert "笔记：旁注\n笔记里的句子\n\n笔记：另一篇\n第二句" in captured["prompt"]
