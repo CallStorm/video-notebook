@@ -1,4 +1,4 @@
-"""创建、列表、入队、删除 Studio 任务。"""
+"""创建、读取、列表、入队、删除 Studio 任务。"""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import Note, NotebookSource
 from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
-from app.schemas.studio import TaskCreate
+from app.schemas.studio import TaskCreate, TaskDetail, TaskRead
 from app.services.notebooks import get_notebook
 from app.storage import get_storage
 
@@ -54,6 +54,28 @@ async def list_tasks(
         )
     ).scalars().all()
     return list(rows)
+
+
+async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> TaskDetail:
+    task = await session.get(StudioTask, task_id)
+    if task is None or task.deleted_at is not None or task.owner_id != owner_id:
+        raise NotFoundError("任务不存在")
+    text_content: str | None = None
+    if task.format_key == "mind_map" and task.status == "succeeded":
+        artifact = await session.scalar(
+            select(StudioArtifact)
+            .where(
+                StudioArtifact.task_id == task.id,
+                StudioArtifact.role == "main",
+            )
+            .order_by(StudioArtifact.id.asc())
+            .limit(1)
+        )
+        if artifact is not None:
+            text_content = artifact.text_content
+    payload = TaskRead.model_validate(task).model_dump()
+    payload["text_content"] = text_content
+    return TaskDetail.model_validate(payload)
 
 
 async def create_task(

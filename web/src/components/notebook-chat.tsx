@@ -13,7 +13,7 @@ export interface ChatCitation {
   title: string | null;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   id: number;
   role: "user" | "assistant";
   content_text: string;
@@ -36,16 +36,24 @@ async function fetchHistory(access: string, notebookId: number): Promise<ChatMes
   return body.messages;
 }
 
+export interface ChatRelay {
+  pending: ChatMessage | null;
+  live: ChatMessage | null;
+  error: string | null;
+}
+
 export function NotebookChat({
   access,
   notebookId,
   sources,
   onJump,
+  relay,
 }: {
   access: string;
   notebookId: number;
   sources: ChatSource[];
   onJump: (videoId: number, lineNo: number) => void;
+  relay?: ChatRelay | null;
 }) {
   const qc = useQueryClient();
   const history = useQuery({
@@ -64,13 +72,18 @@ export function NotebookChat({
   const saved = history.data ?? [];
   const shown = [...saved];
   if (pendingUser) shown.push(pendingUser);
+  if (relay?.pending) shown.push(relay.pending);
   if (live && (live.id < 0 || !saved.some((message) => message.id === live.id))) {
     shown.push(live);
+  }
+  const relayLive = relay?.live ?? null;
+  if (relayLive && (relayLive.id < 0 || !saved.some((message) => message.id === relayLive.id))) {
+    shown.push(relayLive);
   }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [shown.length, live?.content_text]);
+  }, [shown.length, live?.content_text, relay?.live?.content_text, relay?.error]);
 
   async function send() {
     const message = draft.trim();
@@ -174,7 +187,9 @@ export function NotebookChat({
         }}
       >
         <div className="mx-auto flex max-w-2xl flex-col gap-1.5">
-          {formError ? <p className="px-4 text-xs text-destructive">{formError}</p> : null}
+          {formError || relay?.error ? (
+            <p className="px-4 text-xs text-destructive">{formError || relay?.error}</p>
+          ) : null}
           <div className="flex items-center gap-3 rounded-full border bg-background px-4 py-1.5 shadow-sm">
             <input
               value={draft}
@@ -324,22 +339,28 @@ function sendingPlaceholder(message: ChatMessage): boolean {
   return message.id < 0 && !message.content_text && !message.error;
 }
 
-async function readChatStream(
+export async function readChatStream(
   access: string,
   notebookId: number,
   message: string,
   sourceIds: number[],
   handlers: {
+    noteIds?: number[];
     onToken: (token: string) => void;
     onWarning: () => void;
     onError: (message: string) => void;
     onDone: (messageId: number | null, citations: ChatCitation[]) => void;
   },
 ): Promise<void> {
+  const payload: { message: string; source_ids: number[]; note_ids?: number[] } = {
+    message,
+    source_ids: sourceIds,
+  };
+  if (handlers.noteIds !== undefined) payload.note_ids = handlers.noteIds;
   const response = await fetch(`/api/notebooks/${notebookId}/chat`, {
     method: "POST",
     headers: authedHeaders(access, { "Content-Type": "application/json", Accept: "text/event-stream" }),
-    body: JSON.stringify({ message, source_ids: sourceIds }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     let payload: { code?: string; message?: string } | null = null;

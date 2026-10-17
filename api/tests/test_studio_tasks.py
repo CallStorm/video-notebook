@@ -5,7 +5,7 @@ import pytest_asyncio
 
 from app.core.security import create_access_token
 from app.models.notebook import Note, Notebook, NotebookSource, Video
-from app.models.studio import Agent, StudioCapability
+from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
 from app.models.user import User
 
 _FORM = [
@@ -267,3 +267,114 @@ async def test_enqueue_failure_marks_task_failed(
     body = created.json()
     assert body["status"] == "failed"
     assert body["error_code"] == "process_failed"
+
+
+async def test_get_task_returns_mind_map_text_for_owner_only(
+    client, owner, owner_headers, outsider_headers, notebook_id, capability_id, db_session
+):
+    cap = await db_session.get(StudioCapability, capability_id)
+    mind_map = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=cap.id,
+        agent_id=cap.agent_id,
+        format_key="mind_map",
+        title="灭佛",
+        status="succeeded",
+        params_json={"language": "中文", "video_ids": [1], "note_ids": [2], "fields": []},
+    )
+    queued = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=cap.id,
+        agent_id=cap.agent_id,
+        format_key="mind_map",
+        title="还在排队",
+        status="queued",
+        params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
+    )
+    failed = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=cap.id,
+        agent_id=cap.agent_id,
+        format_key="mind_map",
+        title="失败的导图",
+        status="failed",
+        params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
+    )
+    slides = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=cap.id,
+        agent_id=cap.agent_id,
+        format_key="slides",
+        title="一份幻灯片",
+        status="succeeded",
+        params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
+    )
+    db_session.add_all([mind_map, queued, failed, slides])
+    await db_session.flush()
+    db_session.add(
+        StudioArtifact(
+            task_id=mind_map.id,
+            role="main",
+            filename="mindmap.md",
+            mime="text/markdown",
+            text_content="# 灭佛\n- 原因\n",
+        )
+    )
+    db_session.add(
+        StudioArtifact(
+            task_id=failed.id,
+            role="main",
+            filename="mindmap.md",
+            mime="text/markdown",
+            text_content="# 不应返回\n",
+        )
+    )
+    db_session.add(
+        StudioArtifact(
+            task_id=slides.id,
+            role="main",
+            filename="deck.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            text_content="should-not-leak",
+        )
+    )
+    await db_session.commit()
+
+    listed = await client.get(
+        f"/api/notebooks/{notebook_id}/studio/tasks",
+        headers=owner_headers,
+    )
+    assert listed.status_code == 200
+    assert listed.json()
+    assert all("text_content" not in item for item in listed.json())
+
+    detail = await client.get(f"/api/studio/tasks/{mind_map.id}", headers=owner_headers)
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["id"] == mind_map.id
+    assert body["format_key"] == "mind_map"
+    assert body["status"] == "succeeded"
+    assert body["title"] == "灭佛"
+    assert body["params_json"]["video_ids"] == [1]
+    assert body["params_json"]["note_ids"] == [2]
+    assert body["text_content"] == "# 灭佛\n- 原因\n"
+
+    denied = await client.get(f"/api/studio/tasks/{mind_map.id}", headers=outsider_headers)
+    assert denied.status_code == 404
+
+    waiting = await client.get(f"/api/studio/tasks/{queued.id}", headers=owner_headers)
+    assert waiting.status_code == 200
+    assert waiting.json()["text_content"] is None
+
+    broken = await client.get(f"/api/studio/tasks/{failed.id}", headers=owner_headers)
+    assert broken.status_code == 200
+    assert broken.json()["text_content"] is None
+
+    deck = await client.get(f"/api/studio/tasks/{slides.id}", headers=owner_headers)
+    assert deck.status_code == 200
+    assert deck.json()["text_content"] is None
+    assert "url" not in deck.json()

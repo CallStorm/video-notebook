@@ -17,9 +17,10 @@ import { Button } from "@/components/ui/button";
 import { AddSourceDialog } from "@/components/add-source-dialog";
 import { SourceTranscript } from "@/components/source-transcript";
 import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu";
-import { NotebookChat, type ChatCitation } from "@/components/notebook-chat";
+import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type ChatRelay } from "@/components/notebook-chat";
 import { MarkdownMessage } from "@/components/chat-markdown";
 import { StudioPanel } from "@/components/studio-panel";
+import { StudioMindmap } from "@/components/studio-mindmap";
 import { Copy, StickyNote, X } from "lucide-react";
 
 interface VideoRead {
@@ -141,6 +142,10 @@ export default function NotebookPage() {
   const token = access ?? "";
   const qc = useQueryClient();
   // fileInputRef removed: upload now lives inside AddSourceDialog
+  const [previewTaskId, setPreviewTaskId] = useState<number | null>(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [relay, setRelay] = useState<ChatRelay | null>(null);
+  const discussing = useRef(false);
 
   const detail = useQuery({
     queryKey: ["notebook", notebookId],
@@ -159,6 +164,19 @@ export default function NotebookPage() {
       return busy ? 2000 : false;
     },
   });
+
+  const preview = useQuery({
+    queryKey: ["studio-task", notebookId, previewTaskId],
+    queryFn: () => api<StudioTaskDetail>(`/studio/tasks/${previewTaskId}`, { access: token }),
+    enabled: !!token && previewTaskId != null,
+  });
+
+  useEffect(() => {
+    setPreviewTaskId(null);
+    setPreviewExpanded(false);
+    setRelay(null);
+    discussing.current = false;
+  }, [notebookId]);
 
   const [showAddSource, setShowAddSource] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState<number | null>(null);
@@ -317,6 +335,84 @@ export default function NotebookPage() {
   const openNote = notes.find((note) => note.id === openNoteId) ?? null;
   const browsingList = !selected;
   const listRows = mixSourceRows(nb.sources, notes);
+  const previewMessage = mindMapNotice(preview.isLoading, preview.isError, preview.error, preview.data);
+
+  async function discussMindMap(message: string) {
+    const task = preview.data;
+    if (!task || discussing.current) return;
+    const videoIds = idList(task.params_json?.video_ids);
+    const noteIds = idList(task.params_json?.note_ids);
+    discussing.current = true;
+    setRelay({
+      pending: {
+        id: -3,
+        role: "user",
+        content_text: message,
+        citations: [],
+        source_ids: videoIds,
+        note_id: null,
+        created_at: null,
+      },
+      live: {
+        id: -4,
+        role: "assistant",
+        content_text: "",
+        citations: [],
+        source_ids: videoIds,
+        note_id: null,
+        created_at: null,
+      },
+      error: null,
+    });
+    let savedId: number | null = null;
+    try {
+      await readChatStream(token, notebookId, message, videoIds, {
+        noteIds,
+        onToken: (chunk) => {
+          setRelay((current) =>
+            current?.live
+              ? { ...current, live: { ...current.live, content_text: current.live.content_text + chunk } }
+              : current,
+          );
+        },
+        onWarning: () => {
+          setRelay((current) =>
+            current?.live ? { ...current, live: { ...current.live, truncated: true } } : current,
+          );
+        },
+        onError: (text) => {
+          setRelay((current) => (current?.live ? { ...current, live: { ...current.live, error: text } } : current));
+        },
+        onDone: (messageId, citations) => {
+          savedId = messageId;
+          setRelay((current) =>
+            current?.live
+              ? { ...current, live: { ...current.live, id: messageId ?? current.live.id, citations } }
+              : current,
+          );
+        },
+      });
+      await qc.invalidateQueries({ queryKey: ["chat", notebookId] });
+      const fresh = qc.getQueryData<ChatMessage[]>(["chat", notebookId]) ?? [];
+      setRelay((current) => {
+        if (!current) return current;
+        const pending = fresh.some((item) => item.role === "user" && item.content_text === message)
+          ? null
+          : current.pending;
+        const live = savedId != null && fresh.some((item) => item.id === savedId) ? null : current.live;
+        if (!pending && !live) return null;
+        return { ...current, pending, live, error: null };
+      });
+    } catch (error) {
+      setRelay({
+        pending: null,
+        live: null,
+        error: error instanceof ApiError ? error.message : "发送失败",
+      });
+    } finally {
+      discussing.current = false;
+    }
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -502,6 +598,7 @@ export default function NotebookPage() {
               setSelectedVideoId(videoId);
               setFocusCue({ videoId, lineNo });
             }}
+            relay={relay}
           />
         </main>
 
@@ -515,8 +612,44 @@ export default function NotebookPage() {
                 setFocusCue({ videoId, lineNo });
               }}
             />
+          ) : previewTaskId != null ? (
+            <StudioMindmap
+              title={preview.data?.title || "导图"}
+              text={previewMessage ? null : (preview.data?.text_content ?? null)}
+              notice={previewMessage}
+              noticeError={preview.isError}
+              videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
+              notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
+              expanded={previewExpanded}
+              onBack={() => {
+                setPreviewTaskId(null);
+                setPreviewExpanded(false);
+              }}
+              onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+              onOpenVideo={(videoId) => {
+                setPreviewExpanded(false);
+                setFocusCue(null);
+                setSelectedVideoId(videoId);
+              }}
+              onOpenNote={(noteId) => {
+                setPreviewExpanded(false);
+                setOpenNoteId(noteId);
+              }}
+              onDiscuss={(message) => {
+                void discussMindMap(message);
+              }}
+            />
           ) : (
-            <StudioHome access={token} notebookId={notebookId} sources={nb.sources} notes={notes} />
+            <StudioHome
+              access={token}
+              notebookId={notebookId}
+              sources={nb.sources}
+              notes={notes}
+              onOpenMindMap={(taskId) => {
+                setPreviewExpanded(false);
+                setPreviewTaskId(taskId);
+              }}
+            />
           )}
         </aside>
       </div>
@@ -599,20 +732,78 @@ function StudioHome({
   notebookId,
   sources,
   notes,
+  onOpenMindMap,
 }: {
   access: string;
   notebookId: number;
   sources: SourceSummary[];
   notes: NoteRead[];
+  onOpenMindMap: (taskId: number) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center border-b px-4 py-3">
         <h2 className="text-sm font-semibold">Studio</h2>
       </header>
-      <StudioPanel access={access} notebookId={notebookId} sources={sources} notes={notes} />
+      <StudioPanel
+        access={access}
+        notebookId={notebookId}
+        sources={sources}
+        notes={notes}
+        onOpenMindMap={onOpenMindMap}
+      />
     </div>
   );
+}
+
+interface StudioTaskDetail {
+  id: number;
+  title: string;
+  status: string;
+  format_key: string;
+  text_content: string | null;
+  params_json?: {
+    video_ids?: unknown;
+    note_ids?: unknown;
+  };
+}
+
+function idList(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is number => typeof item === "number");
+}
+
+function snapshotVideos(ids: number[], sources: SourceSummary[]): { id: number; title: string }[] {
+  return ids.map((id) => {
+    const source = sources.find((item) => item.video_id === id);
+    return {
+      id,
+      title: source?.video.title || source?.video.source_url || `来源 ${id}`,
+    };
+  });
+}
+
+function snapshotNotes(ids: number[], notes: NoteRead[]): { id: number; title: string }[] {
+  return ids.map((id) => ({
+    id,
+    title: notes.find((note) => note.id === id)?.title || `笔记 ${id}`,
+  }));
+}
+
+function mindMapNotice(
+  loading: boolean,
+  failed: boolean,
+  error: unknown,
+  task: StudioTaskDetail | undefined,
+): string | null {
+  if (!task) {
+    if (loading) return "加载导图…";
+    if (error instanceof ApiError) return error.message;
+    if (failed) return "加载失败";
+    return "加载导图…";
+  }
+  if (task.text_content == null) return "没有导图内容";
+  return null;
 }
 
 function StudioNote({

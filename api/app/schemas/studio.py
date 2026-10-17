@@ -114,3 +114,7 @@ class TaskRead(BaseModel):
     finished_at: datetime | None
     created_at: datetime | None
     updated_at: datetime | None
+
+
+class TaskDetail(TaskRead):
+    text_content: str | None = None
