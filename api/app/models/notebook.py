@@ -200,6 +200,7 @@ class Note(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
     citations_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    selected_for_chat: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     deleted_at: Mapped[object | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("message_id", name="uq_notes_message"),)

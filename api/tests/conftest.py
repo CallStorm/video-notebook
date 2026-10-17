@@ -49,6 +49,13 @@ from app.models.notebook import (  # noqa: E402,F401
     SubtitleLine,
     Video,
 )
+from app.models.studio import (  # noqa: E402,F401
+    Agent,
+    Skill,
+    StudioArtifact,
+    StudioCapability,
+    StudioTask,
+)
 from app.models.user import User  # noqa: F401,E402
 
 # 重要：清掉 lru_cache 让 .env override 生效
@@ -98,6 +105,11 @@ async def _clean_db():
         # 注意：SQLite 与 MySQL 都不支持多表 DELETE 在此写法；
         # 改为按依赖顺序删（model_configs 没有 FK 引用 users，可以放前面）
         for table in (
+            "studio_artifacts",
+            "studio_tasks",
+            "studio_capabilities",
+            "agents",
+            "skills",
             "notes",
             "chat_messages",
             "chat_threads",
