@@ -1,0 +1,23 @@
+# .dockerignore — api/
+
+# 本地依赖
+.venv/
+venv/
+
+# 测试产物
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 临时
+*.log
+*.pid
+
+# IDE
+.vscode/
+.idea/
+
+# 不应进镜像的
+.git/
+.DS_Store
+tests/

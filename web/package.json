@@ -1,0 +1,43 @@
+{
+  "name": "video-notebook-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 4173",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.1",
+    "@tanstack/react-query": "^5.62",
+    "class-variance-authority": "^0.7",
+    "clsx": "^2.1",
+    "lucide-react": "^0.469",
+    "react": "^18.3",
+    "react-dom": "^18.3",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.28",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^2.5",
+    "tailwindcss-animate": "^1.0",
+    "unist-util-visit": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10",
+    "@types/react": "^18.3",
+    "@types/react-dom": "^18.3",
+    "@vitejs/plugin-react-swc": "^3.7",
+    "autoprefixer": "^10.4",
+    "eslint": "^9.17",
+    "eslint-plugin-react-hooks": "^5.1",
+    "eslint-plugin-react-refresh": "^0.4",
+    "postcss": "^8.4",
+    "tailwindcss": "^3.4",
+    "typescript": "^5.7",
+    "typescript-eslint": "^8.19",
+    "vite": "^6.0"
+  }
+}

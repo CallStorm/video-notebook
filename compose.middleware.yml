@@ -1,0 +1,51 @@
+# compose.middleware.yml
+# 开发期只起 MySQL + Redis。api / web 走本地进程（uvicorn / vite）。
+# 用法：
+#   docker compose -f compose.middleware.yml up -d
+#   docker compose -f compose.middleware.yml down -v    # 含数据卷
+#
+# 端口默认绑 127.0.0.1，不对外暴露。
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: vnb-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-video_notebook}
+      MYSQL_USER: ${MYSQL_USER:-vnb}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeme-vnb}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+      - --default-authentication-plugin=caching_sha2_password
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-changeme-root}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: vnb-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql_data:
+  redis_data:

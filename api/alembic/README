@@ -1,0 +1,10 @@
+# alembic
+
+数据库迁移目录。所有改动不要直接用 SQL，应该用：
+
+```bash
+uv run alembic revision --autogenerate -m "describe the change"
+uv run alembic upgrade head
+```
+
+迁移在 `versions/` 下；每次只放一个 revision、一个 down_revision，方便回滚。

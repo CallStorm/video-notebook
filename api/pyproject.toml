@@ -1,0 +1,91 @@
+[project]
+name = "video-notebook-api"
+version = "0.1.0"
+description = "video-notebook backend (FastAPI + Celery)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "video-notebook team" }]
+
+dependencies = [
+  # Web framework
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "python-multipart>=0.0.20",
+
+  # Settings / validation
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+
+  # Logging
+  "python-json-logger>=2.0.7",
+
+  # Persistence (async)
+  "sqlalchemy[asyncio]>=2.0.36",
+  "alembic>=1.14",
+  "asyncmy>=0.2.10",
+  "cryptography>=44.0",   # asyncmy + AES-GCM
+
+  # Cache / broker
+  "redis>=5.2",
+
+  # Task queue
+  "celery>=5.4",
+  "flower>=2.0",   # optional monitoring, kept for compose
+
+  # HTTP client (LLM SDKs + tests)
+  "httpx>=0.27",
+  "anthropic>=0.39",   # minimax (Anthropic-兼容) 通过此 SDK
+
+  # Auth (placeholder for Phase 2)
+  "python-jose[cryptography]>=3.3",
+  "passlib[bcrypt]>=1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=6.0",
+  "ruff>=0.7",
+  "mypy>=1.13",
+]
+
+[tool.uv]
+dev-dependencies = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=6.0",
+  "ruff>=0.7",
+  "mypy>=1.13",
+  "aiosqlite>=0.20",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# ─── tooling ────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q --cov=app --cov-report=term-missing"
+asyncio_mode = "auto"
+
+[tool.mypy]
+strict = false
+python_version = "3.12"
+ignore_missing_imports = true
+
+[tool.coverage.run]
+omit = ["app/__init__.py", "tests/*", "alembic/*"]

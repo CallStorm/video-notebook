@@ -1,0 +1,239 @@
+"""笔记本对话：整段字幕进上下文，流式写回，并保存引用。"""
+from __future__ import annotations
+
+import logging
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.chat.context import BuiltContext, build_context, parse_citations, strip_citations
+from app.core.errors import BadRequestError
+from app.db.session import get_sessionmaker
+from app.llm.config_service import LlmResolved, get_active_llm
+from app.llm.providers import make_provider
+from app.models.notebook import ChatMessage, ChatThread, NotebookSource
+from app.services.notebooks import get_notebook
+
+logger = logging.getLogger(__name__)
+
+_SYSTEM = (
+    "你是视频笔记助手。只能根据这次给出的字幕回答，不要编造字幕里没有的事实。"
+    "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
+    "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
+    "用中文回答。"
+)
+_HISTORY_LIMIT = 8
+
+
+@dataclass
+class PreparedChat:
+    thread_id: int
+    prompt: str
+    history: list[dict[str, str]]
+    context: BuiltContext
+    llm: LlmResolved
+
+
+def message_dict(message: ChatMessage, *, note_id: int | None = None) -> dict:
+    created = message.created_at
+    return {
+        "id": message.id,
+        "role": message.role,
+        "content_text": message.content_text,
+        "citations": message.citations_json or [],
+        "source_ids": message.source_ids or [],
+        "note_id": note_id,
+        "created_at": created.isoformat() if created else None,
+    }
+
+
+async def list_messages(
+    session: AsyncSession, *, owner_id: int, notebook_id: int
+) -> list[dict]:
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    thread = await _find_thread(session, notebook_id)
+    if thread is None:
+        return []
+    rows = (
+        await session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.thread_id == thread.id)
+            .order_by(ChatMessage.id)
+        )
+    ).scalars().all()
+    from app.services.notes import note_ids_for_messages
+
+    saved = await note_ids_for_messages(session, [row.id for row in rows])
+    return [message_dict(row, note_id=saved.get(row.id)) for row in rows]
+
+
+async def set_selected(
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    notebook_id: int,
+    selected: bool,
+    video_id: int | None = None,
+) -> None:
+    from app.core.errors import NotFoundError
+
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    stmt = select(NotebookSource).where(NotebookSource.notebook_id == notebook_id)
+    if video_id is not None:
+        stmt = stmt.where(NotebookSource.video_id == video_id)
+    rows = (await session.execute(stmt)).scalars().all()
+    if video_id is not None and not rows:
+        raise NotFoundError("来源不在这个笔记本里")
+    for row in rows:
+        row.selected_for_chat = selected
+        session.add(row)
+    await session.commit()
+
+
+async def prepare_chat(
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    notebook_id: int,
+    message: str,
+    source_ids: list[int] | None,
+) -> PreparedChat:
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    ids = await _source_ids(session, notebook_id, source_ids)
+    if not ids:
+        raise BadRequestError("请先勾选至少一个来源")
+    context = await build_context(session, notebook_id=notebook_id, source_ids=ids)
+    if not context.lines:
+        raise BadRequestError("勾选的来源还没有可用字幕")
+    llm = await get_active_llm(session)
+    thread = await _get_thread(session, notebook_id=notebook_id, owner_id=owner_id)
+    history = await _history(session, thread.id)
+    user = ChatMessage(
+        thread_id=thread.id,
+        role="user",
+        content_text=message.strip(),
+        citations_json=[],
+        source_ids=context.source_ids,
+    )
+    session.add(user)
+    thread.last_message_at = datetime.now(UTC).replace(tzinfo=None)
+    session.add(thread)
+    await session.commit()
+    note = "字幕较长，下面只包含前面一部分。\n\n" if context.truncated else ""
+    prompt = f"{note}字幕：\n{context.text}\n\n问题：{message.strip()}"
+    return PreparedChat(
+        thread_id=thread.id,
+        prompt=prompt,
+        history=history,
+        context=context,
+        llm=llm,
+    )
+
+
+async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
+    if prepared.context.truncated:
+        yield {
+            "type": "warning",
+            "code": "context_too_large",
+            "chars": prepared.context.chars,
+        }
+    provider = make_provider(
+        provider_name=prepared.llm.provider,
+        api_key=prepared.llm.api_key,
+        base_url=prepared.llm.base_url,
+        model_name=prepared.llm.model_name,
+        params_json=prepared.llm.params_json,
+    )
+    parts: list[str] = []
+    try:
+        async for token in provider.stream_chat(
+            prepared.prompt,
+            system=_SYSTEM,
+            history=prepared.history,
+            max_tokens=2048,
+        ):
+            parts.append(token)
+            yield {"type": "token", "t": token}
+    except Exception as exc:  # noqa: BLE001 — 流里的失败要写成一条事件，不能把连接直接掐断
+        logger.warning("chat stream failed thread_id=%s: %s", prepared.thread_id, exc)
+        yield {"type": "error", "message": str(exc)[:500]}
+    text = "".join(parts).strip()
+    citations = parse_citations(text, prepared.context.lines) if text else []
+    message_id = None
+    if text:
+        message_id = await _save_assistant(prepared, text, citations)
+    yield {"type": "done", "message_id": message_id, "citations": citations}
+
+
+async def _source_ids(
+    session: AsyncSession, notebook_id: int, source_ids: list[int] | None
+) -> list[int]:
+    stmt = select(NotebookSource.video_id).where(NotebookSource.notebook_id == notebook_id)
+    if source_ids is None:
+        stmt = stmt.where(NotebookSource.selected_for_chat.is_(True))
+        rows = (await session.execute(stmt)).scalars().all()
+        return list(rows)
+    wanted = set(source_ids)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [video_id for video_id in rows if video_id in wanted]
+
+
+async def _find_thread(session: AsyncSession, notebook_id: int) -> ChatThread | None:
+    return (
+        await session.execute(select(ChatThread).where(ChatThread.notebook_id == notebook_id))
+    ).scalar_one_or_none()
+
+
+async def _get_thread(
+    session: AsyncSession, *, notebook_id: int, owner_id: int
+) -> ChatThread:
+    thread = await _find_thread(session, notebook_id)
+    if thread is not None:
+        return thread
+    thread = ChatThread(notebook_id=notebook_id, owner_id=owner_id)
+    session.add(thread)
+    await session.flush()
+    return thread
+
+
+async def _history(session: AsyncSession, thread_id: int) -> list[dict[str, str]]:
+    rows = (
+        await session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.thread_id == thread_id)
+            .order_by(ChatMessage.id.desc())
+            .limit(_HISTORY_LIMIT)
+        )
+    ).scalars().all()
+    history: list[dict[str, str]] = []
+    for row in reversed(rows):
+        if row.role not in ("user", "assistant"):
+            continue
+        content = strip_citations(row.content_text) if row.role == "assistant" else row.content_text
+        if content:
+            history.append({"role": row.role, "content": content})
+    return history
+
+
+async def _save_assistant(
+    prepared: PreparedChat, text: str, citations: list[dict]
+) -> int:
+    async with get_sessionmaker()() as session:
+        message = ChatMessage(
+            thread_id=prepared.thread_id,
+            role="assistant",
+            content_text=text,
+            citations_json=citations,
+            source_ids=prepared.context.source_ids,
+        )
+        session.add(message)
+        thread = await session.get(ChatThread, prepared.thread_id)
+        if thread is not None:
+            thread.last_message_at = datetime.now(UTC).replace(tzinfo=None)
+            session.add(thread)
+        await session.commit()
+        await session.refresh(message)
+        return message.id

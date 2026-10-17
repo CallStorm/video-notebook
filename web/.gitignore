@@ -1,0 +1,16 @@
+# Vite
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# Env
+.env
+.env.local
+.env.*.local

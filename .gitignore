@@ -1,0 +1,57 @@
+# .gitignore — repo root
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# uv / poetry / pip
+.venv/
+venv/
+ENV/
+.env
+.env.local
+.env.*.local
+
+# Build / dist
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+*.swp
+
+# Local data / storage
+storage/
+skills/
+data/
+*.log
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+web/.env
+web/.env.local
+web/coverage/
+
+# Local media / sk
+/media/
