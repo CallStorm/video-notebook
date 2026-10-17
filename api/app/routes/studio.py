@@ -1,4 +1,4 @@
-"""笔记本 Studio：已启用能力、创建与列出任务。"""
+"""笔记本 Studio：已启用能力、创建、列出与删除任务。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
@@ -47,3 +47,13 @@ async def create_studio_task(
     return await svc.create_task(
         session, owner_id=user.id, notebook_id=notebook_id, body=body
     )
+
+
+@router.delete("/studio/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_studio_task(
+    task_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    await svc.delete_task(session, owner_id=user.id, task_id=task_id)
+    return None

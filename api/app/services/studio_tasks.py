@@ -1,14 +1,17 @@
-"""创建、列表、入队 Studio 任务。"""
+"""创建、列表、入队、删除 Studio 任务。"""
 from __future__ import annotations
+
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import BadRequestError
+from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import Note, NotebookSource
-from app.models.studio import Agent, StudioCapability, StudioTask
+from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
 from app.schemas.studio import TaskCreate
 from app.services.notebooks import get_notebook
+from app.storage import get_storage
 
 _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
 
@@ -165,3 +168,26 @@ async def _require_notebook_notes(
     )
     if found != set(note_ids):
         raise BadRequestError("来源不属于该笔记本")
+
+
+async def delete_task(
+    session: AsyncSession, *, owner_id: int, task_id: int
+) -> None:
+    task = await session.get(StudioTask, task_id)
+    if task is None or task.deleted_at is not None or task.owner_id != owner_id:
+        raise NotFoundError("任务不存在")
+    if task.status in {"queued", "running"}:
+        task.status = "canceled"
+    elif task.status in {"succeeded", "failed", "canceled"}:
+        artifacts = (
+            await session.execute(
+                select(StudioArtifact).where(StudioArtifact.task_id == task.id)
+            )
+        ).scalars().all()
+        storage = get_storage()
+        for artifact in artifacts:
+            if artifact.storage_key:
+                storage.delete(artifact.storage_key)
+    task.deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    session.add(task)
+    await session.commit()
