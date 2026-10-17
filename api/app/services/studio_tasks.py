@@ -186,8 +186,17 @@ async def delete_task(
         ).scalars().all()
         storage = get_storage()
         for artifact in artifacts:
-            if artifact.storage_key:
-                storage.delete(artifact.storage_key)
+            key = artifact.storage_key
+            if not key:
+                continue
+            other = await session.scalar(
+                select(StudioArtifact.id).where(
+                    StudioArtifact.storage_key == key,
+                    StudioArtifact.task_id != task.id,
+                ).limit(1)
+            )
+            if other is None:
+                storage.delete(key)
     task.deleted_at = datetime.now(UTC).replace(tzinfo=None)
     session.add(task)
     await session.commit()

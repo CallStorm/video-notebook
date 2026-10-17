@@ -3,21 +3,24 @@ from __future__ import annotations
 
 import os
 import socket
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 
 from app.core.errors import NotFoundError
 from app.core.security import create_access_token
+from app.db import session as session_module
 from app.models.notebook import Notebook
 from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
 from app.models.user import User
 from app.services.studio_tasks import delete_task
 from app.storage import get_storage
 from app.studio.runner import execute_studio_task
-from app.studio.worker import sweep_studio_tasks
+from app.studio.worker import studio_run, sweep_studio_tasks
 
 _NOW = datetime(2026, 10, 18, 12, 0, 0)
 
@@ -193,6 +196,43 @@ async def test_delete_finished_task_removes_storage_keys(db_session):
     assert not get_storage().exists(side_key)
 
 
+async def test_delete_shared_storage_key_keeps_other_artifact(db_session):
+    owner, first = await _seed_task(db_session, status="succeeded")
+    _, second = await _seed_task(db_session, owner=owner, status="succeeded")
+    key = get_storage().put(data=b"# shared\n", content_type="text/markdown", suffix=".md")
+    db_session.add(
+        StudioArtifact(
+            task_id=first.id,
+            role="main",
+            filename="mindmap.md",
+            mime="text/markdown",
+            storage_key=key,
+            text_content="# shared\n",
+        )
+    )
+    db_session.add(
+        StudioArtifact(
+            task_id=second.id,
+            role="main",
+            filename="mindmap.md",
+            mime="text/markdown",
+            storage_key=key,
+            text_content="# shared\n",
+        )
+    )
+    await db_session.commit()
+    await delete_task(db_session, owner_id=owner.id, task_id=first.id)
+    await db_session.refresh(first)
+    kept = (
+        await db_session.execute(
+            select(StudioArtifact).where(StudioArtifact.task_id == second.id)
+        )
+    ).scalar_one()
+    assert first.deleted_at is not None
+    assert get_storage().exists(key)
+    assert kept.storage_key == key
+
+
 async def test_delete_task_rejects_non_owner(db_session):
     owner, task = await _seed_task(db_session)
     outsider = await _user(db_session, phone="13800000802", name="Outsider")
@@ -240,6 +280,29 @@ async def test_delete_route_owner_204_outsider_404(
     assert listed.json() == []
 
 
+def test_studio_run_disposes_engine(monkeypatch):
+    saved_engine = session_module._engine
+    saved_maker = session_module._sessionmaker
+
+    class _DummyEngine:
+        async def dispose(self) -> None:
+            return None
+
+    session_module._engine = _DummyEngine()
+    session_module._sessionmaker = object()
+
+    async def fake(_task_id: int) -> None:
+        return None
+
+    monkeypatch.setattr("app.studio.worker.execute_studio_task", fake)
+    try:
+        studio_run(1)
+        assert session_module._engine is None
+    finally:
+        session_module._engine = saved_engine
+        session_module._sessionmaker = saved_maker
+
+
 def test_importing_worker_does_not_open_redis(monkeypatch):
     def blocked(*_args, **_kwargs):
         raise AssertionError("importing worker must not open a network connection")
@@ -250,6 +313,9 @@ def test_importing_worker_does_not_open_redis(monkeypatch):
 
     import app.studio.worker as worker_mod
 
+    before = {thread.name for thread in threading.enumerate()}
     importlib.reload(worker_mod)
+    after = {thread.name for thread in threading.enumerate()}
     assert worker_mod.celery_app.conf.broker_url
     assert Path(worker_mod.__file__).name == "worker.py"
+    assert "studio-sweep" not in (after - before)

@@ -3,19 +3,24 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import threading
+import time
+from collections.abc import Coroutine
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from celery import Celery
 from celery.signals import worker_ready
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.db.session import get_sessionmaker
+from app.db.session import dispose_engine, get_sessionmaker
 from app.models.studio import Agent, StudioTask
 from app.studio.runner import execute_studio_task
 
 _SWEEP_GRACE_SECONDS = 60
+_SWEEP_INTERVAL_SECONDS = 600
 _WORK_DIR_TTL_SECONDS = 24 * 3600
 
 
@@ -47,19 +52,36 @@ celery_app.conf.update(
 )
 
 
+def _run_isolated(coro: Coroutine[Any, Any, None]) -> None:
+    async def _inner() -> None:
+        try:
+            await coro
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_inner())
+
+
 @celery_app.task(name="studio.run")
 def studio_run(task_id: int) -> None:
-    asyncio.run(execute_studio_task(task_id))
+    _run_isolated(execute_studio_task(task_id))
 
 
 @celery_app.task(name="studio.sweep")
 def studio_sweep() -> None:
-    asyncio.run(sweep_studio_tasks(_now()))
+    _run_isolated(sweep_studio_tasks(_now()))
+
+
+def _sweep_loop() -> None:
+    while True:
+        time.sleep(_SWEEP_INTERVAL_SECONDS)
+        _run_isolated(sweep_studio_tasks(_now()))
 
 
 @worker_ready.connect
 def _sweep_on_worker_ready(**_kwargs) -> None:
-    asyncio.run(sweep_studio_tasks(_now()))
+    _run_isolated(sweep_studio_tasks(_now()))
+    threading.Thread(target=_sweep_loop, name="studio-sweep", daemon=True).start()
 
 
 async def sweep_studio_tasks(now: datetime) -> None:
