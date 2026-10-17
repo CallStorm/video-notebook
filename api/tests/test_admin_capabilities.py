@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.core.security import create_access_token
 from app.models.notebook import Notebook
-from app.models.studio import StudioCapability, StudioTask
+from app.models.studio import Agent, StudioCapability, StudioTask
 from app.models.user import User
 
 
@@ -147,3 +147,51 @@ async def test_delete_builtin_and_capability_with_task(client, admin_headers, db
         headers=admin_headers,
     )
     assert removed.status_code == 204
+
+
+async def test_create_rejects_missing_agent(client, admin_headers):
+    created = await client.post(
+        "/api/admin/studio/capabilities",
+        headers=admin_headers,
+        json={
+            "name": "无智能体",
+            "icon": "x",
+            "format_key": "file",
+            "agent_id": 999999,
+            "form": [],
+        },
+    )
+    assert created.status_code == 400
+
+
+async def test_patch_enabled_capability_rejects_null_agent(client, admin_headers, db_session):
+    agent = Agent(
+        name="可用",
+        model_name="claude-sonnet-4-6",
+        system_prompt="x",
+        is_active=True,
+        updated_by=1,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    cap = StudioCapability(
+        name="已启用",
+        icon="📝",
+        format_key="file",
+        agent_id=agent.id,
+        enabled=True,
+        is_builtin=False,
+        form_json=[],
+    )
+    db_session.add(cap)
+    await db_session.commit()
+    await db_session.refresh(cap)
+    patched = await client.patch(
+        f"/api/admin/studio/capabilities/{cap.id}",
+        headers=admin_headers,
+        json={"agent_id": None},
+    )
+    assert patched.status_code == 409
+    await db_session.refresh(cap)
+    assert cap.enabled is True
+    assert cap.agent_id == agent.id

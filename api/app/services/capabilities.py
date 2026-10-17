@@ -123,6 +123,22 @@ def _ensure_format(format_key: str) -> None:
         raise BadRequestError("产物格式不存在") from exc
 
 
+async def _require_existing_agent(session: AsyncSession, agent_id: int | None) -> Agent | None:
+    if agent_id is None:
+        return None
+    agent = await session.get(Agent, agent_id)
+    if agent is None or agent.deleted_at is not None:
+        raise BadRequestError("智能体不存在")
+    return agent
+
+
+def _require_usable_agent_if_enabled(*, enabled: bool, agent: Agent | None) -> None:
+    if not enabled:
+        return
+    if agent is None or not agent.is_active:
+        raise ConflictError("能力还没有可用的智能体")
+
+
 async def list_capabilities(session: AsyncSession) -> list[StudioCapability]:
     rows = (
         await session.execute(
@@ -148,6 +164,8 @@ async def create_capability(
     form: list[dict],
 ) -> StudioCapability:
     _ensure_format(format_key)
+    agent = await _require_existing_agent(session, agent_id)
+    _require_usable_agent_if_enabled(enabled=False, agent=agent)
     cap = StudioCapability(
         name=name,
         icon=icon,
@@ -176,6 +194,9 @@ async def update_capability(
     if "format_key" in fields_set:
         raise BadRequestError("产物格式创建后不能改")
     cap = await _get_live(session, capability_id)
+    next_agent_id = agent_id if "agent_id" in fields_set else cap.agent_id
+    agent = await _require_existing_agent(session, next_agent_id)
+    _require_usable_agent_if_enabled(enabled=cap.enabled, agent=agent)
     if name is not None:
         cap.name = name
     if "icon" in fields_set:
