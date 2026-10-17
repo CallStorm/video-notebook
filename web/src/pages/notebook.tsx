@@ -19,7 +19,8 @@ import { SourceTranscript } from "@/components/source-transcript";
 import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu";
 import { NotebookChat, type ChatCitation } from "@/components/notebook-chat";
 import { MarkdownMessage } from "@/components/chat-markdown";
-import { Copy, Network, Presentation, StickyNote, X } from "lucide-react";
+import { StudioPanel } from "@/components/studio-panel";
+import { Copy, StickyNote, X } from "lucide-react";
 
 interface VideoRead {
   id: number;
@@ -58,6 +59,7 @@ interface NoteRead {
   content_text: string;
   message_id: number | null;
   citations: ChatCitation[];
+  selected_for_chat: boolean;
   created_at: string | null;
 }
 
@@ -241,6 +243,27 @@ export default function NotebookPage() {
             input.videoId == null || source.video_id === input.videoId
               ? { ...source, selected_for_chat: input.selected }
               : source,
+          ),
+        };
+      });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["notebook", notebookId] }),
+  });
+
+  const setNoteSelection = useMutation({
+    mutationFn: (input: { noteId: number; selected: boolean }) =>
+      api(`/notebooks/${notebookId}/notes/${input.noteId}`, {
+        method: "PATCH",
+        access: token,
+        body: { selected_for_chat: input.selected },
+      }),
+    onMutate: (input) => {
+      qc.setQueryData<NotebookDetail>(["notebook", notebookId], (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          notes: (current.notes ?? []).map((note) =>
+            note.id === input.noteId ? { ...note, selected_for_chat: input.selected } : note,
           ),
         };
       });
@@ -456,6 +479,9 @@ export default function NotebookPage() {
                     onRemove={() => {
                       if (window.confirm("删除这条笔记？")) removeNote.mutate(row.note.id);
                     }}
+                    onToggleSelected={(selectedFlag) =>
+                      setNoteSelection.mutate({ noteId: row.note.id, selected: selectedFlag })
+                    }
                   />
                 ),
               )}
@@ -490,7 +516,7 @@ export default function NotebookPage() {
               }}
             />
           ) : (
-            <StudioHome />
+            <StudioHome access={token} notebookId={notebookId} sources={nb.sources} notes={notes} />
           )}
         </aside>
       </div>
@@ -538,12 +564,14 @@ function NoteRow({
   onOpen,
   onRename,
   onRemove,
+  onToggleSelected,
 }: {
   note: NoteRead;
   active: boolean;
   onOpen: () => void;
   onRename: () => void;
   onRemove: () => void;
+  onToggleSelected: (selected: boolean) => void;
 }) {
   return (
     <div className={`group flex items-start gap-2.5 px-4 py-2.5 hover:bg-muted/40 ${active ? "bg-muted/60" : ""}`}>
@@ -555,46 +583,34 @@ function NoteRow({
         <div className="mt-0.5 text-[10px] text-muted-foreground">笔记</div>
       </button>
       <SourceRowMenu onRename={onRename} onRemove={onRemove} />
+      <input
+        type="checkbox"
+        className="mt-1.5 rounded"
+        checked={note.selected_for_chat}
+        onClick={(event) => event.stopPropagation()}
+        onChange={() => onToggleSelected(!note.selected_for_chat)}
+      />
     </div>
   );
 }
 
-function StudioHome() {
-  const [picked, setPicked] = useState<"mind" | "ppt" | null>(null);
+function StudioHome({
+  access,
+  notebookId,
+  sources,
+  notes,
+}: {
+  access: string;
+  notebookId: number;
+  sources: SourceSummary[];
+  notes: NoteRead[];
+}) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center border-b px-4 py-3">
         <h2 className="text-sm font-semibold">Studio</h2>
       </header>
-      <div className="grid grid-cols-2 gap-2 p-3">
-        <button
-          type="button"
-          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-xs hover:bg-muted/60 ${
-            picked === "mind" ? "bg-muted" : ""
-          }`}
-          onClick={() => setPicked("mind")}
-        >
-          <Network className="h-3.5 w-3.5 shrink-0 text-violet-600" />
-          思维导图
-        </button>
-        <button
-          type="button"
-          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left text-xs hover:bg-muted/60 ${
-            picked === "ppt" ? "bg-muted" : ""
-          }`}
-          onClick={() => setPicked("ppt")}
-        >
-          <Presentation className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-          PPT
-        </button>
-      </div>
-      {picked ? (
-        <p className="px-4 text-xs text-muted-foreground">
-          {picked === "mind" ? "思维导图" : "PPT"}还没接入，稍后再做。
-        </p>
-      ) : (
-        <p className="px-4 text-xs text-muted-foreground">从左侧点开笔记，会在这里查看。</p>
-      )}
+      <StudioPanel access={access} notebookId={notebookId} sources={sources} notes={notes} />
     </div>
   );
 }

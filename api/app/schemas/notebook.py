@@ -89,6 +89,7 @@ class NoteRead(BaseModel):
     title: str
     content_text: str
     citations: list[dict] = []
+    selected_for_chat: bool = True
     created_at: str | None
 
 

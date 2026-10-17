@@ -20,6 +20,7 @@ def note_dict(note: Note) -> dict:
         "title": note.title,
         "content_text": note.content_text,
         "citations": note.citations_json or [],
+        "selected_for_chat": note.selected_for_chat,
         "created_at": created.isoformat() if created else None,
     }
 
@@ -94,6 +95,24 @@ async def save_message_as_note(
             await session.execute(select(Note).where(Note.message_id == message.id))
         ).scalar_one()
         return note_dict(again)
+    await session.refresh(note)
+    return note_dict(note)
+
+
+async def set_note_selected(
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    notebook_id: int,
+    note_id: int,
+    selected: bool,
+) -> dict:
+    note = await _owned_note(session, owner_id=owner_id, note_id=note_id)
+    if note.notebook_id != notebook_id:
+        raise NotFoundError("笔记不存在")
+    note.selected_for_chat = selected
+    session.add(note)
+    await session.commit()
     await session.refresh(note)
     return note_dict(note)
 

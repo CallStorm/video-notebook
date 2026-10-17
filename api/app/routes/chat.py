@@ -13,7 +13,7 @@ from app.db.session import get_session
 from app.models.user import User
 from app.schemas.chat import ChatRequest, SourceSelection
 from app.schemas.notebook import NoteRename
-from app.services.notes import delete_note, rename_note, save_message_as_note
+from app.services.notes import delete_note, rename_note, save_message_as_note, set_note_selected
 
 router = APIRouter(tags=["chat"])
 
@@ -88,6 +88,23 @@ async def remove_note(
 ):
     await delete_note(session, owner_id=user.id, note_id=note_id)
     return None
+
+
+@router.patch("/notebooks/{notebook_id}/notes/{note_id}")
+async def patch_note_selection(
+    notebook_id: int,
+    note_id: int,
+    body: SourceSelection,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await set_note_selected(
+        session,
+        owner_id=user.id,
+        notebook_id=notebook_id,
+        note_id=note_id,
+        selected=body.selected_for_chat,
+    )
 
 
 @router.patch("/notebooks/{notebook_id}/sources/selection")

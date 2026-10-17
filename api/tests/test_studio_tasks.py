@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest_asyncio
 
 from app.core.security import create_access_token
-from app.models.notebook import Notebook, NotebookSource, Video
+from app.models.notebook import Note, Notebook, NotebookSource, Video
 from app.models.studio import Agent, StudioCapability
 from app.models.user import User
 
@@ -224,6 +224,31 @@ async def test_list_capabilities_omits_disabled(
     ids = {item["id"] for item in response.json()}
     assert capability_id in ids
     assert disabled.id not in ids
+
+
+@pytest_asyncio.fixture
+async def note_id(db_session, owner, notebook_id) -> int:
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=owner.id,
+        title="一条笔记",
+        content_text="笔记全文",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+    return note.id
+
+
+async def test_patch_note_selection(client, owner_headers, notebook_id, note_id):
+    response = await client.patch(
+        f"/api/notebooks/{notebook_id}/notes/{note_id}",
+        headers=owner_headers,
+        json={"selected_for_chat": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["selected_for_chat"] is False
 
 
 async def test_enqueue_failure_marks_task_failed(
