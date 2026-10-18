@@ -17,6 +17,7 @@ from app.routes import (
     admin_studio,
     auth,
     chat,
+    collections,
     health,
     notebooks,
     providers,
@@ -42,6 +43,7 @@ api_router.include_router(admin_studio.router)
 api_router.include_router(providers.router)
 # Phase 4：notebook / source
 api_router.include_router(notebooks.router)
+api_router.include_router(collections.router)
 api_router.include_router(sources.router)
 api_router.include_router(chat.router)
 api_router.include_router(studio.router)
