@@ -80,3 +80,10 @@ YTDLP_COOKIES_FROM_BROWSER=chrome
 ```
 
 首次从浏览器读 cookie 时，macOS 可能弹出钥匙串授权，点「允许」即可。失败的来源可在卡片菜单里「重新抓取」。
+
+YouTube 抓取还需要本机有 **Deno**（推荐）或 Node，用于 yt-dlp 的 JS challenge（`yt-dlp-ejs`）。macOS：
+
+```bash
+curl -fsSL https://deno.land/install.sh | sh
+```
+

@@ -33,7 +33,8 @@ dependencies = [
   # Auth (placeholder for Phase 2)
   "python-jose[cryptography]>=3.3",
   "passlib[bcrypt]>=1.7",
-  "yt-dlp>=2026.8.19",
+  "yt-dlp[default]>=2026.10.1",
+  "yt-dlp-ejs>=0.8.0",
 ]
 
 [project.optional-dependencies]
