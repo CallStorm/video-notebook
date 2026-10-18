@@ -1,9 +1,10 @@
-"""Collection CRUD API."""
+"""Collection CRUD and membership API."""
 from __future__ import annotations
 
 import pytest_asyncio
 
 from app.core.security import create_access_token
+from app.models.notebook import Notebook
 from app.models.user import User
 
 
@@ -88,3 +89,93 @@ async def test_outsider_cannot_see_collection(client, owner_headers, outsider_he
     )
     cid = created.json()["id"]
     assert (await client.get(f"/api/collections/{cid}", headers=outsider_headers)).status_code == 404
+
+
+async def test_sync_collection_notebooks(client, db_session, owner, owner_headers, outsider_headers):
+    a = Notebook(owner_id=owner.id, title="A", is_pinned=False, share_all=False)
+    b = Notebook(owner_id=owner.id, title="B", is_pinned=False, share_all=False)
+    db_session.add_all([a, b])
+    outsider = User(phone="13800000803", name="Other", role="user", status="active")
+    outsider.set_password("userpw1234")
+    db_session.add(outsider)
+    await db_session.flush()
+    foreign = Notebook(owner_id=outsider.id, title="X", is_pinned=False, share_all=False)
+    db_session.add(foreign)
+    await db_session.commit()
+    await db_session.refresh(a)
+    await db_session.refresh(b)
+    await db_session.refresh(foreign)
+
+    created = await client.post("/api/collections", headers=owner_headers, json={"name": "组"})
+    cid = created.json()["id"]
+
+    synced = await client.put(
+        f"/api/collections/{cid}/notebooks",
+        headers=owner_headers,
+        json={"notebook_ids": [a.id, b.id]},
+    )
+    assert synced.status_code == 200
+    detail = synced.json()
+    assert detail["notebook_count"] == 2
+    assert {row["id"] for row in detail["notebooks"]} == {a.id, b.id}
+
+    cleared = await client.put(
+        f"/api/collections/{cid}/notebooks",
+        headers=owner_headers,
+        json={"notebook_ids": []},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["notebook_count"] == 0
+
+    bad = await client.put(
+        f"/api/collections/{cid}/notebooks",
+        headers=owner_headers,
+        json={"notebook_ids": [foreign.id]},
+    )
+    assert bad.status_code == 400
+
+    assert (
+        await client.put(
+            f"/api/collections/{cid}/notebooks",
+            headers=outsider_headers,
+            json={"notebook_ids": []},
+        )
+    ).status_code == 404
+
+
+async def test_sync_notebook_collections(client, db_session, owner, owner_headers):
+    notebook = Notebook(owner_id=owner.id, title="本", is_pinned=False, share_all=False)
+    db_session.add(notebook)
+    await db_session.commit()
+    await db_session.refresh(notebook)
+
+    c1 = (await client.post("/api/collections", headers=owner_headers, json={"name": "一"})).json()
+    c2 = (await client.post("/api/collections", headers=owner_headers, json={"name": "二"})).json()
+
+    synced = await client.put(
+        f"/api/notebooks/{notebook.id}/collections",
+        headers=owner_headers,
+        json={"collection_ids": [c1["id"], c2["id"]]},
+    )
+    assert synced.status_code == 200
+    assert set(synced.json()["collection_ids"]) == {c1["id"], c2["id"]}
+
+    got = await client.get(f"/api/notebooks/{notebook.id}/collections", headers=owner_headers)
+    assert set(got.json()["collection_ids"]) == {c1["id"], c2["id"]}
+
+    narrowed = await client.put(
+        f"/api/notebooks/{notebook.id}/collections",
+        headers=owner_headers,
+        json={"collection_ids": [c1["id"]]},
+    )
+    assert narrowed.json()["collection_ids"] == [c1["id"]]
+
+    detail = await client.get(f"/api/collections/{c1['id']}", headers=owner_headers)
+    assert detail.json()["notebook_count"] == 1
+
+    bad = await client.put(
+        f"/api/notebooks/{notebook.id}/collections",
+        headers=owner_headers,
+        json={"collection_ids": [999999]},
+    )
+    assert bad.status_code == 400

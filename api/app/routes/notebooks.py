@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_active_user
 from app.db.session import get_session
 from app.models.user import User
+from app.schemas.collection import NotebookCollectionsPut, NotebookCollectionsRead
 from app.schemas.notebook import (
     NotebookCreate,
     NotebookListResponse,
@@ -14,6 +15,7 @@ from app.schemas.notebook import (
     NotebookSourceRead,
     NotebookUpdate,
 )
+from app.services import collections as collections_svc
 from app.services import notebooks as svc
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
@@ -128,3 +130,26 @@ async def delete_share_all(
     return await svc.set_share_all(
         session, owner_id=user.id, notebook_id=notebook_id, value=False
     )
+
+
+@router.get("/{notebook_id}/collections", response_model=NotebookCollectionsRead)
+async def get_notebook_collections(
+    notebook_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    ids = await collections_svc.get_notebook_collection_ids(session, user.id, notebook_id)
+    return NotebookCollectionsRead(collection_ids=ids)
+
+
+@router.put("/{notebook_id}/collections", response_model=NotebookCollectionsRead)
+async def put_notebook_collections(
+    notebook_id: int,
+    body: NotebookCollectionsPut,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    ids = await collections_svc.set_notebook_collections(
+        session, user.id, notebook_id, body.collection_ids
+    )
+    return NotebookCollectionsRead(collection_ids=ids)
