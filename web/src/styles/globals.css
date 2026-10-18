@@ -4,31 +4,32 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 47% 11.2%;
+    /* Soft cool canvas — NotebookLM-like */
+    --background: 210 40% 97.5%;
+    --foreground: 222 28% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 47% 11.2%;
+    --card-foreground: 222 28% 14%;
 
-    --primary: 222.2 47% 11.2%;
+    --primary: 222 28% 14%;
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 1.2%;
+    --secondary: 210 28% 94%;
+    --secondary-foreground: 222 28% 18%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 210 28% 94%;
+    --muted-foreground: 215 14% 46%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 1.2%;
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 28% 18%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --border: 214 28% 90%;
+    --input: 214 28% 90%;
+    --ring: 214 70% 55%;
+    --radius: 1rem;
   }
 
   .dark {
@@ -42,8 +43,15 @@
   }
 
   body {
+    @apply bg-background text-foreground antialiased;
     font-family:
       ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+}
+
+@layer utilities {
+  .panel-surface {
+    @apply rounded-2xl border border-border/60 bg-card shadow-sm;
   }
 }

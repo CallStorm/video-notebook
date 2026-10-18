@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -72,9 +71,8 @@ function formatDateTime(iso: string | null): string {
   return d.toLocaleString("zh-CN");
 }
 
-export default function AdminSkillsPage() {
-  const { user, access, logout } = useAuth();
-  const navigate = useNavigate();
+export function AdminSkillsPanel() {
+  const { access } = useAuth();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<SkillRead | null>(null);
@@ -117,36 +115,13 @@ export default function AdminSkillsPage() {
   });
 
   return (
-    <Layout
-      rightSlot={
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{user?.name}</span>
-          <Link to="/" className="hover:text-foreground">
-            返回前台
-          </Link>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              logout();
-              navigate("/", { replace: true });
-            }}
-          >
-            登出
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-6">
-        <div>
-          <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground">
-            返回后台
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">技能</h1>
-          <p className="text-sm text-muted-foreground">上传 zip，改元数据，下载或删除。</p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">技能</h2>
+        <p className="text-sm text-muted-foreground">上传 zip，改元数据，下载或删除。</p>
+      </div>
 
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle>上传技能</CardTitle>
             <CardDescription>根目录或单层文件夹内需包含 SKILL.md，上限 32MB。</CardDescription>
@@ -298,7 +273,11 @@ export default function AdminSkillsPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </Layout>
+    </div>
   );
+}
+
+/** 兼容旧链接 → 后台 Tab */
+export default function AdminSkillsPage() {
+  return <Navigate to="/admin?tab=skills" replace />;
 }

@@ -254,7 +254,7 @@ export function StudioPanel({
           <button
             key={capability.id}
             type="button"
-            className="flex items-center gap-2 rounded-full border px-3 py-2 text-left text-xs hover:bg-muted/60"
+            className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/60"
             onClick={() => openCapability(capability)}
           >
             {capability.icon ? <span className="shrink-0">{capability.icon}</span> : null}
@@ -283,7 +283,7 @@ export function StudioPanel({
               const when = relativeTime(task.created_at);
               const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
               return (
-                <div key={task.id} className="group flex items-start gap-2.5 px-4 py-2.5 hover:bg-muted/40">
+                <div key={task.id} className="group flex items-start gap-2.5 rounded-xl px-3 py-2.5 mx-1 transition-colors hover:bg-muted/50">
                   {icon ? (
                     <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-base leading-none">
                       {icon}
@@ -318,7 +318,7 @@ export function StudioPanel({
               );
             }
             return (
-              <div key={task.id} className="flex items-start gap-2.5 px-4 py-2.5">
+              <div key={task.id} className="mx-1 flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/50">
                 {icon ? (
                   <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-base leading-none">
                     {icon}

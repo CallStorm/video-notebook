@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth";
+import { ApiError } from "@/lib/api";
+import { generateIcon } from "@/lib/generate-icon";
 
 const EMOJI_OPTIONS = ["🎬", "📚", "🎓", "🔬", "💡", "🚀", "🎵", "📁", "🧠", "🌐"];
 
@@ -30,20 +33,23 @@ export function EditNotebookDialog({
   isPending,
   error,
 }: EditNotebookDialogProps) {
+  const { access } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
+  const [genPending, setGenPending] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
-  // 打开 / 切换 notebook 时同步表单
   useEffect(() => {
     if (open && notebook) {
       setTitle(notebook.title);
       setDescription(notebook.description ?? "");
       setIcon(notebook.icon);
+      setGenError(null);
+      setGenPending(false);
     }
   }, [open, notebook]);
 
-  // Esc 关闭
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -62,6 +68,20 @@ export function EditNotebookDialog({
     onSubmit({ title: t, description: description.trim(), icon });
   };
 
+  async function onGenerate() {
+    if (!access || !title.trim() || genPending) return;
+    setGenPending(true);
+    setGenError(null);
+    try {
+      const next = await generateIcon(access, title.trim());
+      setIcon(next);
+    } catch (err) {
+      setGenError(err instanceof ApiError ? err.message : "生成失败");
+    } finally {
+      setGenPending(false);
+    }
+  }
+
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -73,7 +93,7 @@ export function EditNotebookDialog({
         onSubmit={submit}
       >
         <header className="flex items-center justify-between border-b p-4">
-          <h2 className="text-base font-semibold">Edit Notebook</h2>
+          <h2 className="text-base font-semibold">编辑笔记本</h2>
           <Button
             type="button"
             size="icon"
@@ -94,7 +114,7 @@ export function EditNotebookDialog({
 
           <div className="space-y-2">
             <label htmlFor="nb-edit-title" className="text-sm font-medium">
-              Notebook Title <span className="text-destructive">*</span>
+              名称 <span className="text-destructive">*</span>
             </label>
             <Input
               id="nb-edit-title"
@@ -125,7 +145,20 @@ export function EditNotebookDialog({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">图标</label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">图标</label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full"
+                disabled={!title.trim() || genPending || !access}
+                onClick={() => void onGenerate()}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {genPending ? "生成中…" : "AI 生成"}
+              </Button>
+            </div>
             <div className="flex flex-wrap gap-1">
               {EMOJI_OPTIONS.map((e) => (
                 <button
@@ -142,6 +175,7 @@ export function EditNotebookDialog({
                 </button>
               ))}
             </div>
+            {genError ? <p className="text-xs text-destructive">{genError}</p> : null}
           </div>
 
           {error && (
@@ -157,13 +191,10 @@ export function EditNotebookDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
-          <Button
-            type="submit"
-            disabled={isPending || !title.trim()}
-          >
-            {isPending ? "保存中…" : "Save"}
+          <Button type="submit" disabled={isPending || !title.trim()}>
+            {isPending ? "保存中…" : "保存"}
           </Button>
         </footer>
       </form>

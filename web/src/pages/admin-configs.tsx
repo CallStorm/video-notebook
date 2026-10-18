@@ -45,7 +45,7 @@ interface ModelRow {
 }
 
 interface DefaultModelRow {
-  role: "chat" | "tts" | "stt";
+  role: "chat" | "tts" | "stt" | "logo";
   model_id: number | null;
 }
 
@@ -153,12 +153,14 @@ const ROLE_MODEL_TYPE: Record<string, "language" | "text_to_speech" | "speech_to
   chat: "language",
   tts: "text_to_speech",
   stt: "speech_to_text",
+  logo: "language",
 };
 
 const ROLE_LABEL: Record<string, string> = {
   chat: "聊天模型",
   tts: "文字转语音",
   stt: "语音转文字",
+  logo: "生成图标",
 };
 
 // ─── page ─────────────────────────────────────────────────────────────

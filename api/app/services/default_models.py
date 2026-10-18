@@ -1,6 +1,6 @@
 """DefaultModels 服务：每个 role 选哪个 model_id。
 
-v1 我们只用 chat + stt；tts / embedding 数据结构已就绪但 admin UI 不暴露。
+roles：chat / tts / stt / logo（logo 用于按名称生成 emoji 图标）。
 """
 from __future__ import annotations
 

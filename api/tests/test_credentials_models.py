@@ -246,4 +246,4 @@ async def test_list_default_models_returns_all_roles(client: AsyncClient, db_ses
     )
     assert resp.status_code == 200
     roles = [d["role"] for d in resp.json()]
-    assert set(roles) == {"chat", "tts", "stt"}
+    assert set(roles) == {"chat", "tts", "stt", "logo"}

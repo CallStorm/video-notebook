@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth";
+import { ApiError } from "@/lib/api";
+import { generateIcon } from "@/lib/generate-icon";
 
 interface NewNotebookDialogProps {
   open: boolean;
@@ -20,16 +23,20 @@ export function NewNotebookDialog({
   isPending,
   error,
 }: NewNotebookDialogProps) {
+  const { access } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [icon, setIcon] = useState<string>(EMOJI_OPTIONS[0]);
+  const [genPending, setGenPending] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
-  // 打开弹窗时重置
   useEffect(() => {
     if (open) {
       setTitle("");
       setDescription("");
       setIcon(EMOJI_OPTIONS[0]);
+      setGenError(null);
+      setGenPending(false);
     }
   }, [open]);
 
@@ -44,6 +51,20 @@ export function NewNotebookDialog({
       icon,
     });
   };
+
+  async function onGenerate() {
+    if (!access || !title.trim() || genPending) return;
+    setGenPending(true);
+    setGenError(null);
+    try {
+      const next = await generateIcon(access, title.trim());
+      setIcon(next);
+    } catch (err) {
+      setGenError(err instanceof ApiError ? err.message : "生成失败");
+    } finally {
+      setGenPending(false);
+    }
+  }
 
   return (
     <div
@@ -103,7 +124,25 @@ export function NewNotebookDialog({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">图标</label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">图标</label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full"
+                disabled={!title.trim() || genPending || !access}
+                onClick={() => void onGenerate()}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {genPending ? "生成中…" : "AI 生成"}
+              </Button>
+            </div>
+            <div className="flex justify-center pb-1">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-3xl">
+                {icon}
+              </div>
+            </div>
             <div className="flex flex-wrap gap-1">
               {EMOJI_OPTIONS.map((e) => (
                 <button
@@ -120,6 +159,7 @@ export function NewNotebookDialog({
                 </button>
               ))}
             </div>
+            {genError ? <p className="text-xs text-destructive">{genError}</p> : null}
           </div>
 
           {error && (

@@ -61,6 +61,7 @@ class _TTLCache[K, V]:
 
 _llm_cache = _TTLCache[str, LlmResolved]()
 _stt_cache = _TTLCache[str, SttResolved]()
+_logo_cache = _TTLCache[str, LlmResolved]()
 
 
 async def _resolve_default(
@@ -81,19 +82,40 @@ async def _resolve_default(
     return m, cred
 
 
-async def get_active_llm(session: AsyncSession) -> LlmResolved:
-    cached = _llm_cache.get("active")
-    if cached:
-        return cached
-    m, cred = await _resolve_default(session, "chat")
-    resolved = LlmResolved(
+def _to_llm(m: Model, cred: Credential) -> LlmResolved:
+    return LlmResolved(
         provider=m.provider,
         base_url=cred.base_url,
         api_key=decrypt(cred.api_key_enc or ""),
         model_name=m.name,
         params_json=cred.config,
     )
+
+
+async def get_active_llm(session: AsyncSession) -> LlmResolved:
+    cached = _llm_cache.get("active")
+    if cached:
+        return cached
+    m, cred = await _resolve_default(session, "chat")
+    resolved = _to_llm(m, cred)
     _llm_cache.put("active", resolved)
+    return resolved
+
+
+async def get_active_logo_llm(session: AsyncSession) -> LlmResolved:
+    """生成图标用模型：优先 logo role，未配置则回退 chat。"""
+    cached = _logo_cache.get("active")
+    if cached:
+        return cached
+    d = (
+        await session.execute(select(DefaultModel).where(DefaultModel.role == "logo"))
+    ).scalar_one_or_none()
+    if d is not None:
+        m, cred = await _resolve_default(session, "logo")
+    else:
+        m, cred = await _resolve_default(session, "chat")
+    resolved = _to_llm(m, cred)
+    _logo_cache.put("active", resolved)
     return resolved
 
 
@@ -116,10 +138,12 @@ async def get_active_stt(session: AsyncSession) -> SttResolved:
 
 def invalidate(role: str | None = None) -> None:
     """Admin 改了配置后调用。下次读会回 DB 拉。"""
-    if role in (None, "chat", "all"):
+    if role in (None, "chat", "logo", "all"):
         _llm_cache.clear()
+        _logo_cache.clear()
     if role in (None, "stt", "all"):
         _stt_cache.clear()
-    if role and role not in ("chat", "stt", "all"):
+    if role and role not in ("chat", "stt", "logo", "all"):
         _llm_cache.clear()
+        _logo_cache.clear()
         _stt_cache.clear()

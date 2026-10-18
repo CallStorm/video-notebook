@@ -23,6 +23,7 @@ import { StudioPanel } from "@/components/studio-panel";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
 import { StudioFile } from "@/components/studio-file";
+import { UserMenu } from "@/components/user-menu";
 import { Copy, StickyNote, X } from "lucide-react";
 
 interface VideoRead {
@@ -430,46 +431,42 @@ export default function NotebookPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-background">
       {/* 顶栏 */}
-      <header className="flex items-center justify-between border-b bg-background px-4 py-2">
-        <div className="flex items-center gap-2">
+      <header className="flex shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 py-2.5 backdrop-blur-md">
+        <div className="flex min-w-0 items-center gap-2.5">
           <Button
             size="icon"
             variant="ghost"
+            className="h-8 w-8 rounded-full"
             onClick={() => navigate("/")}
             title="返回首页"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <span className="text-xl">{nb.icon || "📁"}</span>
-          <h1 className="text-base font-semibold">{nb.title}</h1>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xl leading-none">{nb.icon || "📁"}</span>
+          <h1 className="truncate text-base font-semibold tracking-tight">{nb.title}</h1>
+          <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
             {nb.source_count} 个来源 · {nb.note_count} 条笔记
           </span>
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
+        <UserMenu
+          onLogout={() => {
             logout();
             navigate("/login", { replace: true });
           }}
-        >
-          登出
-        </Button>
+        />
       </header>
 
-      {/* 三栏 */}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)] overflow-hidden">
-        {/* 左：来源（仿 Gemini Notebook 风格） */}
+      {/* 三栏：圆角浮动面板 */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)] gap-3 overflow-hidden p-3">
+        {/* 左：来源 */}
         <aside
-          className={`flex min-h-0 min-w-0 flex-col border-r ${browsingList ? "overflow-y-auto" : "overflow-hidden"}`}
+          className={`panel-surface flex min-h-0 min-w-0 flex-col ${browsingList ? "overflow-y-auto" : "overflow-hidden"}`}
         >
-          {/* 顶：Sources + 视图切换图标 */}
-          <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur">
-            <h2 className="text-sm font-semibold">Sources</h2>
-            <Button size="icon" variant="ghost" className="h-7 w-7" title="视图切换">
+          <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border/50 bg-card/95 px-4 py-2.5 backdrop-blur">
+            <h2 className="text-sm font-semibold tracking-tight">来源</h2>
+            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="视图切换">
               <LayoutList className="h-4 w-4" />
             </Button>
           </header>
@@ -488,35 +485,35 @@ export default function NotebookPage() {
             />
           ) : null}
 
-          {/* 两按钮：Add sources / Create note */}
-          <div className={browsingList ? "flex gap-2 border-b px-3 py-3" : "hidden"}>
+          {/* 两按钮：添加来源 / 新建笔记 */}
+          <div className={browsingList ? "flex gap-2 border-b border-border/50 px-3 py-3" : "hidden"}>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full"
+              className="flex-1 rounded-full border-border/70"
               onClick={() => {
                 setShowAddSource(true);
               }}
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add sources
+              <Plus className="mr-1 h-3.5 w-3.5" /> 添加来源
             </Button>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full"
+              className="flex-1 rounded-full border-border/70"
               onClick={() => alert("笔记功能 v2 实装")}
               title="v2 实装"
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> Create note
+              <Plus className="mr-1 h-3.5 w-3.5" /> 新建笔记
             </Button>
           </div>
 
           {/* 工具栏：filter + select all */}
-          <div className={browsingList ? "flex items-center justify-between border-b px-4 py-2 text-xs text-muted-foreground" : "hidden"}>
+          <div className={browsingList ? "flex items-center justify-between border-b border-border/50 px-4 py-2 text-xs text-muted-foreground" : "hidden"}>
             <Button
               size="icon"
               variant="ghost"
-              className="h-7 w-7"
+              className="h-7 w-7 rounded-full"
               title="筛选"
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -548,12 +545,12 @@ export default function NotebookPage() {
           />
 
           {browsingList && listRows.length === 0 ? (
-            <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-              还没有来源。点上方「Add sources」上传或粘贴 URL。
+            <p className="px-4 py-10 text-center text-xs text-muted-foreground">
+              还没有来源。点上方「添加来源」上传或粘贴 URL。
             </p>
           ) : null}
           {browsingList && listRows.length > 0 ? (
-            <div className="divide-y">
+            <div className="space-y-0.5 p-2">
               {listRows.map((row) =>
                 row.kind === "source" ? (
                   <SimpleSourceRow
@@ -610,7 +607,10 @@ export default function NotebookPage() {
           ) : null}
         </aside>
 
-        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <main className="panel-surface flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <header className="flex shrink-0 items-center border-b border-border/50 px-4 py-2.5">
+            <h2 className="text-sm font-semibold tracking-tight">对话</h2>
+          </header>
           <NotebookChat
             access={token}
             notebookId={notebookId}
@@ -627,7 +627,7 @@ export default function NotebookPage() {
           />
         </main>
 
-        <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden border-l">
+        <aside className="panel-surface flex min-h-0 min-w-0 flex-col overflow-hidden">
           {openNote ? (
             <StudioNote
               note={openNote}
@@ -782,8 +782,12 @@ function NoteRow({
   onToggleSelected: (selected: boolean) => void;
 }) {
   return (
-    <div className={`group flex items-start gap-2.5 px-4 py-2.5 hover:bg-muted/40 ${active ? "bg-muted/60" : ""}`}>
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-blue-50 text-blue-600">
+    <div
+      className={`group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/50 ${
+        active ? "bg-sky-50/80" : ""
+      }`}
+    >
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
         <StickyNote className="h-3 w-3" />
       </div>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
@@ -817,8 +821,8 @@ function StudioHome({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">Studio</h2>
+      <header className="flex shrink-0 items-center border-b border-border/50 px-4 py-2.5">
+        <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
       </header>
       <StudioPanel
         access={access}
@@ -984,7 +988,7 @@ function SelectAll({
         disabled={sources.length === 0}
         onChange={() => onChange(!all)}
       />
-      <span>Select all</span>
+      <span>全选</span>
     </label>
   );
 }
@@ -1013,8 +1017,8 @@ function SimpleSourceRow({
   const fetch = fetchLabel(v);
   const sub = fetch ? null : subtitleLabel(v.subtitle_status);
   return (
-    <div className="group flex items-start gap-2.5 px-4 py-2.5 hover:bg-muted/40">
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-red-50 text-red-600">
+    <div className="group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/50">
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
         <TypeIcon className="h-3 w-3" />
       </div>
       <button

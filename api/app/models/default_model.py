@@ -1,6 +1,7 @@
 """DefaultModel 表：每个 role 选哪个 model。
 
-v1 role 集合：chat / tts / stt（参考 open-notebook 的精简子集）。
+role 集合：chat / tts / stt / logo。
+logo：按名称生成 emoji 图标（绑定 language 模型）。
 """
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
 
-DEFAULT_MODEL_ROLES = ("chat", "tts", "stt")
+DEFAULT_MODEL_ROLES = ("chat", "tts", "stt", "logo")
 
 
 class DefaultModel(Base, TimestampMixin):

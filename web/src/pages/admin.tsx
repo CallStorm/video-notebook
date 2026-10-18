@@ -1,14 +1,43 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { AdminClaudePage } from "@/pages/admin-claude";
 import { AdminUsersPage } from "@/pages/admin-users";
 import { AdminConfigsPage } from "@/pages/admin-configs";
+import { AdminSkillsPanel } from "@/pages/admin-skills";
+import { AdminAgentsPanel } from "@/pages/admin-agents";
+import { AdminStudioPanel } from "@/pages/admin-studio";
+
+type AdminTab = "overview" | "skills" | "agents" | "studio";
+
+const TABS: { id: AdminTab; label: string }[] = [
+  { id: "overview", label: "概览" },
+  { id: "skills", label: "技能" },
+  { id: "agents", label: "智能体" },
+  { id: "studio", label: "Studio 能力" },
+];
+
+function parseTab(raw: string | null): AdminTab {
+  if (raw === "skills" || raw === "agents" || raw === "studio" || raw === "overview") {
+    return raw;
+  }
+  return "overview";
+}
 
 export default function AdminPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseTab(searchParams.get("tab"));
+
+  function setTab(next: AdminTab) {
+    if (next === "overview") {
+      setSearchParams({}, { replace: true });
+    } else {
+      setSearchParams({ tab: next }, { replace: true });
+    }
+  }
 
   return (
     <Layout
@@ -21,6 +50,7 @@ export default function AdminPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-full"
             onClick={() => {
               logout();
               navigate("/", { replace: true });
@@ -33,26 +63,38 @@ export default function AdminPage() {
     >
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">后台（admin）</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">后台</h1>
           <p className="text-sm text-muted-foreground">
-            账号 / 模型配置 / Skills / Agents 的统一入口。
+            账号、模型、技能、智能体与 Studio 能力管理。
           </p>
-          <nav className="mt-3 flex flex-wrap gap-4 text-sm">
-            <Link to="/admin/skills" className="hover:text-foreground">
-              技能
-            </Link>
-            <Link to="/admin/agents" className="hover:text-foreground">
-              智能体
-            </Link>
-            <Link to="/admin/studio" className="hover:text-foreground">
-              Studio 能力
-            </Link>
+          <nav className="mt-4 flex flex-wrap gap-1 rounded-full bg-muted/50 p-1 w-fit">
+            {TABS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                  tab === item.id
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
           </nav>
         </div>
 
-        <AdminClaudePage />
-        <AdminConfigsPage />
-        <AdminUsersPage />
+        {tab === "overview" ? (
+          <div className="space-y-6">
+            <AdminClaudePage />
+            <AdminConfigsPage />
+            <AdminUsersPage />
+          </div>
+        ) : null}
+        {tab === "skills" ? <AdminSkillsPanel /> : null}
+        {tab === "agents" ? <AdminAgentsPanel /> : null}
+        {tab === "studio" ? <AdminStudioPanel /> : null}
       </div>
     </Layout>
   );

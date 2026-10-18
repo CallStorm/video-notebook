@@ -46,7 +46,7 @@ export function LoginForm() {
   };
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm rounded-3xl border-border/60 shadow-sm">
       <CardContent className="pt-6">
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -61,6 +61,7 @@ export function LoginForm() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="13800000000"
+              className="rounded-xl"
               required
             />
           </div>
@@ -75,6 +76,7 @@ export function LoginForm() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="rounded-xl"
               required
             />
           </div>
@@ -83,7 +85,11 @@ export function LoginForm() {
               {mutation.error.code}: {mutation.error.message}
             </p>
           )}
-          <Button type="submit" disabled={mutation.isPending} className="w-full">
+          <Button
+            type="submit"
+            disabled={mutation.isPending}
+            className="w-full rounded-full"
+          >
             {mutation.isPending ? "登录中…" : "登录"}
           </Button>
         </form>

@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -274,9 +273,8 @@ function FormFieldEditor({
   );
 }
 
-export default function AdminStudioPage() {
-  const { user, access, logout } = useAuth();
-  const navigate = useNavigate();
+export function AdminStudioPanel() {
+  const { access } = useAuth();
   const qc = useQueryClient();
   const [form, setForm] = useState<CapabilityFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -332,36 +330,15 @@ export default function AdminStudioPage() {
   };
 
   return (
-    <Layout
-      rightSlot={
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{user?.name}</span>
-          <Link to="/" className="hover:text-foreground">
-            返回前台
-          </Link>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              logout();
-              navigate("/", { replace: true });
-            }}
-          >
-            登出
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-6">
-        <div>
-          <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground">
-            返回后台
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">Studio 能力</h1>
-          <p className="text-sm text-muted-foreground">配置产物格式、智能体和用户表单。创建后格式不可改。</p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">Studio 能力</h2>
+        <p className="text-sm text-muted-foreground">
+          配置产物格式、智能体和用户表单。创建后格式不可改。
+        </p>
+      </div>
 
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle>{editingId === null ? "新建能力" : `编辑能力 #${editingId}`}</CardTitle>
             <CardDescription>表单字段只有来源、语言和文本三种。</CardDescription>
@@ -543,7 +520,11 @@ export default function AdminStudioPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </Layout>
+    </div>
   );
+}
+
+/** 兼容旧链接 → 后台 Tab */
+export default function AdminStudioPage() {
+  return <Navigate to="/admin?tab=studio" replace />;
 }

@@ -89,7 +89,23 @@ function formatDate(iso: string | null): string {
 }
 
 function formatSources(n: number): string {
-  return n === 1 ? "1 source" : `${n} sources`;
+  return n === 1 ? "1 个来源" : `${n} 个来源`;
+}
+
+/** Soft pastel covers — NotebookLM-like notebook tiles */
+const COVER_PALETTE = [
+  "from-sky-100 to-sky-50",
+  "from-emerald-100 to-emerald-50",
+  "from-amber-100 to-amber-50",
+  "from-rose-100 to-rose-50",
+  "from-teal-100 to-teal-50",
+  "from-lime-100 to-lime-50",
+  "from-orange-100 to-orange-50",
+  "from-cyan-100 to-cyan-50",
+] as const;
+
+function coverClass(id: number): string {
+  return COVER_PALETTE[Math.abs(id) % COVER_PALETTE.length];
 }
 
 function initialTab(params: URLSearchParams): Tab {
@@ -205,7 +221,7 @@ export default function HomePage() {
   if (!token) {
     return (
       <div className="min-h-screen bg-background">
-        <header className="border-b">
+        <header className="border-b border-border/60 bg-background/80 backdrop-blur">
           <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
             <Link to="/">
               <Brand />
@@ -213,7 +229,7 @@ export default function HomePage() {
           </div>
         </header>
         <div className="mx-auto max-w-md p-12 text-center">
-          <div className="rounded-lg border bg-card p-8">
+          <div className="rounded-3xl border border-border/60 bg-card p-8 shadow-sm">
             <h1 className="mb-2 text-lg font-semibold">登录已过期</h1>
             <p className="mb-4 text-sm text-muted-foreground">
               请重新登录以继续。
@@ -233,26 +249,26 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* 顶栏：品牌 + tabs + 搜索 + 新建 + 头像 */}
-      <header className="sticky top-0 z-20 border-b bg-background">
+      <header className="sticky top-0 z-20 border-b border-border/50 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
           <Link to="/" className="shrink-0">
             <Brand />
           </Link>
 
           {/* Tabs */}
-          <nav className="ml-4 flex items-center gap-1">
+          <nav className="ml-4 flex items-center gap-1 rounded-full bg-muted/50 p-1">
             <TabButton
               active={tab === "all"}
               disabled
-              title="All（v2）"
+              title="全部（v2）"
             >
-              All
+              全部
             </TabButton>
             <TabButton
               active={tab === "mine"}
               onClick={() => setTab("mine")}
             >
-              我的笔记
+              我的笔记本
             </TabButton>
             <TabButton
               active={tab === "discover"}
@@ -270,15 +286,15 @@ export default function HomePage() {
             <div className="relative w-72">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search notebooks"
+                placeholder="搜索笔记本"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="rounded-full pl-9"
+                className="h-9 rounded-full border-border/60 bg-card pl-9 shadow-sm"
               />
             </div>
 
             {/* 视图切换 */}
-            <div className="hidden items-center rounded-full border p-0.5 md:flex">
+            <div className="hidden items-center rounded-full border border-border/60 bg-card p-0.5 shadow-sm md:flex">
               <Button
                 size="icon"
                 variant={view === "grid" ? "secondary" : "ghost"}
@@ -310,7 +326,7 @@ export default function HomePage() {
       </header>
 
       {/* 内容区 */}
-      <div className="mx-auto max-w-6xl p-6">
+      <div className="mx-auto max-w-6xl px-6 py-8">
         {(tab === "all" || tab === "mine") && (
           <MyNotebooksSection
             notebooks={visible}
@@ -344,9 +360,11 @@ export default function HomePage() {
         )}
       </div>
 
-      <details className="mx-auto mb-6 max-w-6xl rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-        <summary className="mx-auto max-w-6xl cursor-pointer">API 健康检查（开发用）</summary>
-        <div className="mx-auto mt-2 max-w-6xl">
+      <details className="mx-auto mb-8 max-w-6xl px-6 text-[11px] text-muted-foreground/70">
+        <summary className="cursor-pointer select-none hover:text-muted-foreground">
+          API 健康检查（开发用）
+        </summary>
+        <div className="mt-2 rounded-xl border border-border/40 bg-muted/30 p-3">
           <HealthGate />
         </div>
       </details>
@@ -399,7 +417,7 @@ export default function HomePage() {
   );
 }
 
-// ── Tab 按钮（仿 Gemini） ─────────────────────────────────
+// ── Tab 按钮（仿 NotebookLM 软胶囊） ──────────────────────
 function TabButton({
   active,
   onClick,
@@ -419,18 +437,15 @@ function TabButton({
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       title={title}
-      className={`relative rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+      className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
         active
-          ? "bg-blue-50 text-foreground"
+          ? "bg-card text-foreground shadow-sm"
           : disabled
-            ? "text-muted-foreground/50"
-            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            ? "cursor-not-allowed text-muted-foreground/40"
+            : "text-muted-foreground hover:text-foreground"
       }`}
     >
       {children}
-      {active && (
-        <span className="absolute -bottom-px left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-foreground/60" />
-      )}
     </button>
   );
 }
@@ -457,25 +472,35 @@ function MyNotebooksSection({
 }) {
   return (
     <section>
-      <header className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">My notebooks</h1>
+      <header className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">我的笔记本</h1>
         <Button
           onClick={onCreate}
-          className="rounded-full bg-blue-500 px-4 text-white hover:bg-blue-600"
+          className="rounded-full bg-foreground px-4 text-background hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
-          <span className="ml-1">New notebook</span>
+          <span className="ml-1">新建笔记本</span>
         </Button>
       </header>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
       ) : notebooks.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
-          还没有笔记本。点「New notebook」开始。
+        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/70 bg-card/60 px-8 py-20 text-center">
+          <p className="mb-1 text-base font-medium text-foreground">还没有笔记本</p>
+          <p className="mb-5 max-w-sm text-sm text-muted-foreground">
+            创建一本笔记本，上传或粘贴视频链接，开始整理与对话。
+          </p>
+          <Button
+            onClick={onCreate}
+            className="rounded-full bg-foreground px-5 text-background hover:bg-foreground/90"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="ml-1">新建笔记本</span>
+          </Button>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {notebooks.map((nb) => (
             <NotebookCard
               key={nb.id}
@@ -522,29 +547,39 @@ function CollectionsSection({
 }) {
   return (
     <section>
-      <header className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">My collections</h1>
+      <header className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">我的集合</h1>
         <Button
           onClick={onCreate}
-          className="rounded-full bg-blue-500 px-4 text-white hover:bg-blue-600"
+          className="rounded-full bg-foreground px-4 text-background hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
-          <span className="ml-1">New collection</span>
+          <span className="ml-1">新建集合</span>
         </Button>
       </header>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
       ) : collections.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
-          还没有集合。点「New collection」开始。
+        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/70 bg-card/60 px-8 py-20 text-center">
+          <p className="mb-1 text-base font-medium text-foreground">还没有集合</p>
+          <p className="mb-5 max-w-sm text-sm text-muted-foreground">
+            用集合把相关笔记本归在一起，方便浏览与整理。
+          </p>
+          <Button
+            onClick={onCreate}
+            className="rounded-full bg-foreground px-5 text-background hover:bg-foreground/90"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="ml-1">新建集合</span>
+          </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {collections.map((c) => (
             <div
               key={c.id}
-              className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
               onClick={() => onOpen(c.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -555,21 +590,30 @@ function CollectionsSection({
               role="link"
               tabIndex={0}
             >
-              <header className="mb-3 flex items-start justify-between">
-                <span className="text-3xl leading-none" aria-hidden>
-                  {c.icon || <Folder className="h-8 w-8 text-muted-foreground" />}
+              <div
+                className={`relative flex h-24 items-end bg-gradient-to-br px-4 pb-3 ${coverClass(c.id)}`}
+              >
+                <span className="text-3xl leading-none drop-shadow-sm" aria-hidden>
+                  {c.icon || <Folder className="h-8 w-8 text-foreground/50" />}
                 </span>
-                <div onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="absolute right-2 top-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <CollectionCardMenu
                     onEdit={() => onEdit(c.id)}
                     onDelete={() => onDelete(c.id)}
                     onRemoveEmoji={() => onRemoveEmoji(c.id)}
                   />
                 </div>
-              </header>
-              <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{c.name}</h3>
-              <div className="mt-auto pt-3 text-xs text-muted-foreground">
-                {c.notebook_count === 1 ? "1 notebook" : `${c.notebook_count} notebooks`}
+              </div>
+              <div className="flex flex-1 flex-col p-4 pt-3">
+                <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{c.name}</h3>
+                <div className="mt-auto pt-3 text-xs text-muted-foreground">
+                  {c.notebook_count === 1
+                    ? "1 本笔记本"
+                    : `${c.notebook_count} 本笔记本`}
+                </div>
               </div>
             </div>
           ))}
@@ -582,15 +626,15 @@ function CollectionsSection({
 function PlaceholderSection({ title, hint }: { title: string; hint: string }) {
   return (
     <section>
-      <h1 className="mb-4 text-2xl font-semibold">{title}</h1>
-      <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">{title}</h1>
+      <div className="rounded-3xl border border-dashed border-border/70 bg-card/60 px-8 py-20 text-center text-sm text-muted-foreground">
         {hint}
       </div>
     </section>
   );
 }
 
-// ── Card：仿 Gemini Notebook ──────────────────────────────
+// ── Card：仿 NotebookLM 封面条 ────────────────────────────
 function NotebookCard({
   notebook: nb,
   onUpdateTitle,
@@ -605,16 +649,18 @@ function NotebookCard({
   onAddToCollection?: (id: number) => void;
 }) {
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
-      {/* 头部：emoji 左 + 右上角 bell + 三点菜单 */}
-      <header className="mb-3 flex items-start justify-between">
-        <Link
-          to={`/notebooks/${nb.id}`}
-          className="text-3xl leading-none"
-          aria-label={nb.title}
-        >
-          {nb.icon || "📁"}
-        </Link>
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+      <Link
+        to={`/notebooks/${nb.id}`}
+        className={`relative flex h-24 items-end bg-gradient-to-br px-4 pb-3 ${coverClass(nb.id)}`}
+        aria-label={nb.title}
+      >
+        <span className="text-3xl leading-none drop-shadow-sm">{nb.icon || "📁"}</span>
+        {nb.is_pinned ? (
+          <Pin className="absolute left-3 top-3 h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+        ) : null}
+      </Link>
+      <div className="absolute right-2 top-2 z-10">
         <NotebookCardMenu
           notebookId={nb.id}
           isPinned={nb.is_pinned}
@@ -623,26 +669,17 @@ function NotebookCard({
           onTogglePin={onTogglePin}
           onDelete={onDelete}
         />
-      </header>
-
-      {/* 标题 + 描述 */}
-      <Link to={`/notebooks/${nb.id}`} className="block space-y-1">
-        <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
-          {nb.title}
-        </h3>
-        {nb.description && (
-          <p className="line-clamp-1 text-xs text-muted-foreground">
-            {nb.description}
-          </p>
-        )}
-      </Link>
-
-      {/* 底部：日期 · 来源数 */}
-      <div className="mt-auto pt-3 text-xs text-muted-foreground">
-        <p>
-          {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
-        </p>
       </div>
+
+      <Link to={`/notebooks/${nb.id}`} className="flex flex-1 flex-col p-4 pt-3">
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{nb.title}</h3>
+        {nb.description ? (
+          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{nb.description}</p>
+        ) : null}
+        <div className="mt-auto pt-3 text-xs text-muted-foreground">
+          {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
+        </div>
+      </Link>
     </div>
   );
 }
@@ -658,8 +695,11 @@ function NotebookRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="group flex items-center gap-3 rounded-lg border bg-card p-3 hover:shadow-sm">
-      <Link to={`/notebooks/${nb.id}`} className="text-2xl">
+    <div className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 shadow-sm transition-shadow hover:shadow-md">
+      <Link
+        to={`/notebooks/${nb.id}`}
+        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-2xl ${coverClass(nb.id)}`}
+      >
         {nb.icon || "📁"}
       </Link>
       <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1">
@@ -678,7 +718,7 @@ function NotebookRow({
           size="icon"
           variant="ghost"
           onClick={onTogglePin}
-          className="h-7 w-7"
+          className="h-7 w-7 rounded-full"
         >
           <Pin
             className={`h-3.5 w-3.5 ${nb.is_pinned ? "fill-current text-amber-500" : ""}`}
@@ -688,7 +728,7 @@ function NotebookRow({
           size="icon"
           variant="ghost"
           onClick={onDelete}
-          className="h-7 w-7 text-destructive"
+          className="h-7 w-7 rounded-full text-destructive"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>

@@ -190,10 +190,10 @@ export function NotebookChat({
           {formError || relay?.error ? (
             <p className="px-4 text-xs text-destructive">{formError || relay?.error}</p>
           ) : null}
-          <div className="flex items-center gap-3 rounded-full border bg-background px-4 py-1.5 shadow-sm">
+          <div className="flex items-center gap-3 rounded-full border border-border/60 bg-muted/40 px-4 py-1.5 shadow-sm">
             <input
               value={draft}
-              placeholder="Ask a question or create something"
+              placeholder="向来源提问，或生成新内容…"
               disabled={sending || selectedIds.length === 0}
               className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
               onChange={(event) => setDraft(event.target.value)}
@@ -205,7 +205,7 @@ export function NotebookChat({
               }}
             />
             <span className="shrink-0 text-xs text-muted-foreground">
-              {selectedIds.length} {selectedIds.length === 1 ? "source" : "sources"}
+              {selectedIds.length} 个来源
             </span>
             <button
               type="submit"

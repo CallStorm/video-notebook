@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -71,9 +70,8 @@ async function deleteAgent(access: string, id: number): Promise<void> {
   await api(`/admin/agents/${id}`, { method: "DELETE", access, raw: true });
 }
 
-export default function AdminAgentsPage() {
-  const { user, access, logout } = useAuth();
-  const navigate = useNavigate();
+export function AdminAgentsPanel() {
+  const { access } = useAuth();
   const qc = useQueryClient();
   const [form, setForm] = useState<AgentWrite>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -115,36 +113,15 @@ export default function AdminAgentsPage() {
   };
 
   return (
-    <Layout
-      rightSlot={
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{user?.name}</span>
-          <Link to="/" className="hover:text-foreground">
-            返回前台
-          </Link>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              logout();
-              navigate("/", { replace: true });
-            }}
-          >
-            登出
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-6">
-        <div>
-          <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground">
-            返回后台
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">智能体</h1>
-          <p className="text-sm text-muted-foreground">配置 Claude Code 运行用的技能、提示和超时。模型在后台首页。</p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">智能体</h2>
+        <p className="text-sm text-muted-foreground">
+          配置 Claude Code 运行用的技能、提示和超时。模型在「概览」Tab。
+        </p>
+      </div>
 
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle>{editingId === null ? "新建智能体" : `编辑智能体 #${editingId}`}</CardTitle>
             <CardDescription>
@@ -315,7 +292,11 @@ export default function AdminAgentsPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </Layout>
+    </div>
   );
+}
+
+/** 兼容旧链接 → 后台 Tab */
+export default function AdminAgentsPage() {
+  return <Navigate to="/admin?tab=agents" replace />;
 }
