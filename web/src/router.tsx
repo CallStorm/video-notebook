@@ -12,6 +12,7 @@ import AdminAgentsPage from "@/pages/admin-agents";
 import AdminStudioPage from "@/pages/admin-studio";
 import DiscoverPage from "@/pages/discover";
 import NotebookPage from "@/pages/notebook";
+import CollectionPage from "@/pages/collection";
 import { RequireAuth } from "@/components/require-auth";
 import { AuthProvider } from "@/lib/auth";
 
@@ -38,6 +39,14 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <NotebookPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "/collections/:id",
+        element: (
+          <RequireAuth>
+            <CollectionPage />
           </RequireAuth>
         ),
       },

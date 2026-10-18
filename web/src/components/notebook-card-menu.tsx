@@ -16,6 +16,7 @@ interface NotebookCardMenuProps {
   hasNotification?: boolean;
   /** 触发「Edit Notebook」全屏弹窗。父级在收到回调时打开 dialog。 */
   onRequestEdit: (id: number) => void;
+  onAddToCollection?: (id: number) => void;
   onTogglePin: (id: number) => void;
   onDelete: (id: number) => void;
 }
@@ -36,6 +37,7 @@ export function NotebookCardMenu({
   isPinned,
   hasNotification,
   onRequestEdit,
+  onAddToCollection,
   onTogglePin,
   onDelete,
 }: NotebookCardMenuProps) {
@@ -145,8 +147,11 @@ export function NotebookCardMenu({
                     </Item>
                     <Item
                       icon={<FolderPlus className="h-3.5 w-3.5" />}
-                      disabled
-                      hint="Phase 12"
+                      disabled={!onAddToCollection}
+                      onClick={() => {
+                        setOpen(false);
+                        onAddToCollection?.(notebookId);
+                      }}
                     >
                       Add to collection
                     </Item>

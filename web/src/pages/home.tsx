@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
-import { Plus, Search, LayoutGrid, List, Pin, Trash2 } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Folder, Plus, Search, LayoutGrid, List, Pin, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import { HealthGate } from "@/components/health-gate";
@@ -10,8 +10,20 @@ import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { Brand } from "@/components/brand";
 import { UserMenu } from "@/components/user-menu";
 import { NotebookCardMenu } from "@/components/notebook-card-menu";
+import { CollectionCardMenu } from "@/components/collection-card-menu";
+import { CollectionEditDialog } from "@/components/collection-edit-dialog";
+import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+interface Collection {
+  id: number;
+  name: string;
+  icon: string | null;
+  notebook_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
 
 interface Notebook {
   id: number;
@@ -80,20 +92,48 @@ function formatSources(n: number): string {
   return n === 1 ? "1 source" : `${n} sources`;
 }
 
+function initialTab(params: URLSearchParams): Tab {
+  const raw = params.get("tab");
+  if (raw === "collections" || raw === "discover" || raw === "mine" || raw === "all") return raw;
+  return "mine";
+}
+
 export default function HomePage() {
   const { access, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const token = access ?? "";
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<View>("grid");
-  const [tab, setTab] = useState<Tab>("mine");
+  const [tab, setTab] = useState<Tab>(() => initialTab(searchParams));
+  const [collectionDialog, setCollectionDialog] = useState<
+    { mode: "create" | "edit"; id: number | null } | null
+  >(null);
+  const [addToCollectionId, setAddToCollectionId] = useState<number | null>(null);
 
   const list = useQuery({
     queryKey: ["notebooks", search],
     queryFn: () => fetchNotebooks(token, search),
     enabled: !!token,
+  });
+
+  const collections = useQuery({
+    queryKey: ["collections"],
+    queryFn: () => api<Collection[]>("/collections", { access: token }),
+    enabled: !!token && tab === "collections",
+  });
+
+  const patchCollection = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: { icon?: string | null; name?: string } }) =>
+      api<Collection>(`/collections/${id}`, { method: "PATCH", access: token, body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["collections"] }),
+  });
+
+  const removeCollection = useMutation({
+    mutationFn: (id: number) => api(`/collections/${id}`, { method: "DELETE", access: token, raw: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["collections"] }),
   });
 
   const create = useMutation({
@@ -148,6 +188,11 @@ export default function HomePage() {
       ),
     [items],
   );
+
+  const addNotebook =
+    addToCollectionId != null
+      ? (items.find((n) => n.id === addToCollectionId) ?? null)
+      : null;
 
   // Edit dialog 状态
   const [editing, setEditing] = useState<Notebook | null>(null);
@@ -216,11 +261,7 @@ export default function HomePage() {
             >
               发现
             </TabButton>
-            <TabButton
-              active={tab === "collections"}
-              onClick={() => setTab("collections")}
-              title="集合（v2）"
-            >
+            <TabButton active={tab === "collections"} onClick={() => setTab("collections")}>
               集合
             </TabButton>
           </nav>
@@ -284,11 +325,22 @@ export default function HomePage() {
             onDelete={(id) => {
               if (confirm("删除这个笔记本？")) remove.mutate(id);
             }}
+            onAddToCollection={setAddToCollectionId}
           />
         )}
         {tab === "discover" && <PlaceholderSection title="发现" hint="Phase 12 实装 share_all / Discover 视图" />}
         {tab === "collections" && (
-          <PlaceholderSection title="集合" hint="Phase 12 实装 collection 分组" />
+          <CollectionsSection
+            collections={collections.data ?? []}
+            isLoading={collections.isLoading}
+            onCreate={() => setCollectionDialog({ mode: "create", id: null })}
+            onEdit={(id) => setCollectionDialog({ mode: "edit", id })}
+            onDelete={(id) => {
+              if (confirm("删除这个集合？")) removeCollection.mutate(id);
+            }}
+            onRemoveEmoji={(id) => patchCollection.mutate({ id, body: { icon: "" } })}
+            onOpen={(id) => navigate(`/collections/${id}`)}
+          />
         )}
       </div>
 
@@ -323,6 +375,26 @@ export default function HomePage() {
             : null
         }
       />
+
+      <CollectionEditDialog
+        open={collectionDialog !== null}
+        mode={collectionDialog?.mode ?? "create"}
+        collectionId={collectionDialog?.id ?? null}
+        access={token}
+        onClose={() => setCollectionDialog(null)}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["collections"] })}
+      />
+
+      {addNotebook ? (
+        <AddToCollectionDialog
+          open
+          access={token}
+          notebookId={addNotebook.id}
+          notebookTitle={addNotebook.title}
+          notebookIcon={addNotebook.icon}
+          onClose={() => setAddToCollectionId(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -372,6 +444,7 @@ function MyNotebooksSection({
   onDelete,
   onCreate,
   onEdit,
+  onAddToCollection,
 }: {
   notebooks: Notebook[];
   isLoading: boolean;
@@ -380,6 +453,7 @@ function MyNotebooksSection({
   onDelete: (id: number) => void;
   onEdit: (id: number) => void;
   onCreate: () => void;
+  onAddToCollection: (id: number) => void;
 }) {
   return (
     <section>
@@ -409,6 +483,7 @@ function MyNotebooksSection({
               onUpdateTitle={onEdit}
               onTogglePin={() => onTogglePin(nb.id, !nb.is_pinned)}
               onDelete={() => onDelete(nb.id)}
+              onAddToCollection={onAddToCollection}
             />
           ))}
         </div>
@@ -421,6 +496,82 @@ function MyNotebooksSection({
               onTogglePin={() => onTogglePin(nb.id, !nb.is_pinned)}
               onDelete={() => onDelete(nb.id)}
             />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CollectionsSection({
+  collections,
+  isLoading,
+  onCreate,
+  onEdit,
+  onDelete,
+  onRemoveEmoji,
+  onOpen,
+}: {
+  collections: Collection[];
+  isLoading: boolean;
+  onCreate: () => void;
+  onEdit: (id: number) => void;
+  onDelete: (id: number) => void;
+  onRemoveEmoji: (id: number) => void;
+  onOpen: (id: number) => void;
+}) {
+  return (
+    <section>
+      <header className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">My collections</h1>
+        <Button
+          onClick={onCreate}
+          className="rounded-full bg-blue-500 px-4 text-white hover:bg-blue-600"
+        >
+          <Plus className="h-4 w-4" />
+          <span className="ml-1">New collection</span>
+        </Button>
+      </header>
+
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">加载中…</p>
+      ) : collections.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
+          还没有集合。点「New collection」开始。
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {collections.map((c) => (
+            <div
+              key={c.id}
+              className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => onOpen(c.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpen(c.id);
+                }
+              }}
+              role="link"
+              tabIndex={0}
+            >
+              <header className="mb-3 flex items-start justify-between">
+                <span className="text-3xl leading-none" aria-hidden>
+                  {c.icon || <Folder className="h-8 w-8 text-muted-foreground" />}
+                </span>
+                <div onClick={(e) => e.stopPropagation()}>
+                  <CollectionCardMenu
+                    onEdit={() => onEdit(c.id)}
+                    onDelete={() => onDelete(c.id)}
+                    onRemoveEmoji={() => onRemoveEmoji(c.id)}
+                  />
+                </div>
+              </header>
+              <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{c.name}</h3>
+              <div className="mt-auto pt-3 text-xs text-muted-foreground">
+                {c.notebook_count === 1 ? "1 notebook" : `${c.notebook_count} notebooks`}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -445,11 +596,13 @@ function NotebookCard({
   onUpdateTitle,
   onTogglePin,
   onDelete,
+  onAddToCollection,
 }: {
   notebook: Notebook;
   onUpdateTitle: (id: number) => void;
   onTogglePin: (id: number) => void;
   onDelete: (id: number) => void;
+  onAddToCollection?: (id: number) => void;
 }) {
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -466,6 +619,7 @@ function NotebookCard({
           notebookId={nb.id}
           isPinned={nb.is_pinned}
           onRequestEdit={onUpdateTitle}
+          onAddToCollection={onAddToCollection}
           onTogglePin={onTogglePin}
           onDelete={onDelete}
         />
