@@ -1,9 +1,8 @@
 """/api/notebooks/{id}/sources/* 与 /api/sources/* — 上传 / URL fetch / 查询 / 删除。
 
-Phase 4 v1：
-- upload：multipart，5MB/分块（python-multipart 自动分），落 LocalFsStorage，ffprobe 异步探查
-- fetch_url：v1 落 status=pending 占位（实际 yt-dlp 留 Phase 5）
-- 字幕读取：v1 没有字幕（Phase 6 才接入），返回 404
+- upload：multipart，落 LocalFsStorage，ffprobe 探查后 kick 字幕流水线
+- fetch_url：创建 pending 记录后 kick yt-dlp 后台抓取（probing → ready/failed）
+- 字幕：内嵌 / 平台 / ASR 链
 """
 from __future__ import annotations
 
@@ -74,7 +73,7 @@ async def post_fetch_url(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    """粘贴视频 URL 入库；v1 不实际下载。"""
+    """粘贴视频 URL 入库并后台抓取。"""
     return await svc.fetch_url(
         session, owner_id=user.id, notebook_id=notebook_id, url=body.url
     )
@@ -88,6 +87,16 @@ async def get_video(
 ):
     v = await svc.get_video(session, owner_id=user.id, video_id=video_id)
     return svc._video_to_dict(v)  # type: ignore[attr-defined]
+
+
+@router.post("/sources/{video_id}/retry-fetch", response_model=VideoRead)
+async def retry_fetch_url(
+    video_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """重新抓取失败的 URL 来源。"""
+    return await svc.retry_fetch(session, owner_id=user.id, video_id=video_id)
 
 
 @router.patch("/sources/{video_id}", response_model=VideoRead)

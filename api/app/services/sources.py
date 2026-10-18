@@ -1,9 +1,8 @@
 """Source（视频）服务：上传、URL fetch、查询、删除。
 
-v1：
 - upload：multipart 流式写到 LocalFsStorage（按 sha1 内容寻址），写完后做一次 ffprobe
   探查（可选，没装 ffmpeg 也能用），然后 status=ready。
-- fetch_url：v1 落 status=pending 占位，不实际跑 yt-dlp（Phase 5 接管）。
+- fetch_url：创建 pending 记录后 kick 后台 yt-dlp 抓取（pending → probing → ready/failed）。
 - delete：级联删 video row + storage_key 文件 + subtitles + notebook_sources 关联。
 """
 from __future__ import annotations
@@ -201,7 +200,7 @@ def _ffprobe(storage_key: str | None) -> dict:
     }
 
 
-# ── URL fetch（v1 占位） ─────────────────────────────────────
+# ── URL fetch ──────────────────────────────────────────────
 async def fetch_url(
     session: AsyncSession,
     *,
@@ -251,8 +250,9 @@ async def fetch_url(
     )
     await session.commit()
 
-    # v1：实际下载留 Phase 5。这里只占位 + 标 pending。
-    # TODO(Phase 5): enqueue yt-dlp job
+    from app.sources.fetch import kick_fetch_job
+
+    kick_fetch_job(v.id)
     return _video_to_dict(v)
 
 
@@ -289,6 +289,29 @@ async def get_subtitle_lines(
         )
     ).scalars().all()
     return list(lines)
+
+
+
+async def retry_fetch(
+    session: AsyncSession, *, owner_id: int, video_id: int
+) -> dict:
+    """Re-queue a failed / unfinished URL fetch."""
+    video = await get_video(session, owner_id=owner_id, video_id=video_id)
+    if video.source_type != "url" or not video.source_url:
+        from app.core.errors import BadRequestError
+
+        raise BadRequestError("只有 URL 来源可以重新抓取")
+    if video.status == "ready" and video.storage_key:
+        return _video_to_dict(video)
+    video.status = "pending"
+    video.error_message = None
+    session.add(video)
+    await session.commit()
+    await session.refresh(video)
+    from app.sources.fetch import kick_fetch_job
+
+    kick_fetch_job(video.id)
+    return _video_to_dict(video)
 
 
 async def rename_video(

@@ -120,6 +120,10 @@ async function regenerateSource(access: string, videoId: number): Promise<void> 
   await api(`/sources/${videoId}/subtitle/regenerate`, { method: "POST", access });
 }
 
+async function retryFetchSource(access: string, videoId: number): Promise<VideoRead> {
+  return api<VideoRead>(`/sources/${videoId}/retry-fetch`, { method: "POST", access });
+}
+
 function fmtDuration(ms: number | null): string {
   if (!ms) return "—";
   const total = Math.floor(ms / 1000);
@@ -159,6 +163,8 @@ export default function NotebookPage() {
       const busy = sources.some((source) => {
         const video = source.video;
         return (
+          video.status === "pending" ||
+          video.status === "probing" ||
           video.subtitle_status === "pending" ||
           video.subtitle_status === "processing" ||
           video.overview_status === "processing"
@@ -241,6 +247,11 @@ export default function NotebookPage() {
       qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
       qc.invalidateQueries({ queryKey: ["subtitle", videoId] });
     },
+  });
+
+  const retryFetch = useMutation({
+    mutationFn: (videoId: number) => retryFetchSource(token, videoId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notebook", notebookId] }),
   });
 
   const setSelection = useMutation({
@@ -562,7 +573,17 @@ export default function NotebookPage() {
                     onRemove={() => {
                       if (window.confirm("删除这个来源？")) removeSource.mutate(row.source.video_id);
                     }}
-                    onRegenerate={() => regenerate.mutate(row.source.video_id)}
+                    onRegenerate={
+                      row.source.video.status === "ready"
+                        ? () => regenerate.mutate(row.source.video_id)
+                        : undefined
+                    }
+                    onRetryFetch={
+                      row.source.video.status === "failed" &&
+                      row.source.video.source_type === "url"
+                        ? () => retryFetch.mutate(row.source.video_id)
+                        : undefined
+                    }
                     onToggleSelected={(selectedFlag) =>
                       setSelection.mutate({ videoId: row.source.video_id, selected: selectedFlag })
                     }
@@ -918,7 +939,18 @@ function StudioNote({
 }
 
 function sourceBusy(video: VideoRead): boolean {
-  return video.subtitle_status === "processing" || video.overview_status === "processing";
+  return (
+    video.status === "pending" ||
+    video.status === "probing" ||
+    video.subtitle_status === "processing" ||
+    video.overview_status === "processing"
+  );
+}
+
+function fetchLabel(video: VideoRead): string | null {
+  if (video.status === "pending" || video.status === "probing") return "正在抓取…";
+  if (video.status === "failed") return video.error_message || "抓取失败";
+  return null;
 }
 
 function subtitleLabel(status: VideoRead["subtitle_status"]): string | null {
@@ -963,19 +995,23 @@ function SimpleSourceRow({
   onRename,
   onRemove,
   onRegenerate,
+  onRetryFetch,
   onToggleSelected,
 }: {
   source: SourceSummary;
   onOpen: () => void;
   onRename: () => void;
   onRemove: () => void;
-  onRegenerate: () => void;
+  onRegenerate?: () => void;
+  onRetryFetch?: () => void;
   onToggleSelected: (selected: boolean) => void;
 }) {
   const v = source.video;
   const busy = sourceBusy(v);
+  const failed = v.status === "failed";
   const TypeIcon = v.source_type === "upload" ? UploadIcon : Link2;
-  const sub = subtitleLabel(v.subtitle_status);
+  const fetch = fetchLabel(v);
+  const sub = fetch ? null : subtitleLabel(v.subtitle_status);
   return (
     <div className="group flex items-start gap-2.5 px-4 py-2.5 hover:bg-muted/40">
       <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-red-50 text-red-600">
@@ -985,25 +1021,31 @@ function SimpleSourceRow({
         type="button"
         className={`min-w-0 flex-1 text-left ${busy ? "cursor-default" : ""}`}
         onClick={() => {
-          if (!busy) onOpen();
+          if (!busy && v.status === "ready") onOpen();
         }}
       >
         <div className="line-clamp-2 text-xs font-medium">
           {v.title || v.source_url || `来源 ${v.id}`}
         </div>
-        <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {fmtDuration(v.duration_ms)} ·{" "}
-          {v.width && v.height ? `${v.width}×${v.height}` : "—"} ·{" "}
-          {fmtSize(v.size_bytes)}
-          {sub ? ` · ${sub}` : ""}
+        <div className={`mt-0.5 text-[10px] ${v.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+          {fetch
+            ? fetch
+            : `${fmtDuration(v.duration_ms)} · ${
+                v.width && v.height ? `${v.width}×${v.height}` : "—"
+              } · ${fmtSize(v.size_bytes)}${sub ? ` · ${sub}` : ""}`}
         </div>
       </button>
       {busy ? null : (
-        <SourceRowMenu onRename={onRename} onRemove={onRemove} onRegenerate={onRegenerate} />
+        <SourceRowMenu
+          onRename={onRename}
+          onRemove={onRemove}
+          onRegenerate={onRegenerate}
+          onRetryFetch={onRetryFetch}
+        />
       )}
       {busy ? (
         <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-      ) : (
+      ) : failed ? null : (
         <input
           type="checkbox"
           className="mt-1.5 rounded"

@@ -12,34 +12,28 @@ dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",
   "python-multipart>=0.0.20",
-
   # Settings / validation
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
-
   # Logging
   "python-json-logger>=2.0.7",
-
   # Persistence (async)
   "sqlalchemy[asyncio]>=2.0.36",
   "alembic>=1.14",
   "asyncmy>=0.2.10",
   "cryptography>=44.0",   # asyncmy + AES-GCM
-
   # Cache / broker
   "redis>=5.2",
-
   # Task queue
   "celery>=5.4",
   "flower>=2.0",   # optional monitoring, kept for compose
-
   # HTTP client (LLM SDKs + tests)
   "httpx>=0.27",
   "anthropic>=0.39",   # minimax (Anthropic-兼容) 通过此 SDK
-
   # Auth (placeholder for Phase 2)
   "python-jose[cryptography]>=3.3",
   "passlib[bcrypt]>=1.7",
+  "yt-dlp>=2026.8.19",
 ]
 
 [project.optional-dependencies]

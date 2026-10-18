@@ -24,7 +24,7 @@
 - Python 3.12+（用 uv 管理）
 - Node 18+（用 npm 管理）
 - Docker（仅用于跑 mysql + redis）
-- 系统级：`ffmpeg`、`yt-dlp`（Phase 5 起需要）
+- 系统级：`ffmpeg`；URL 抓取依赖 Python 包 `yt-dlp`（已在 `api` 依赖中）
 
 ### 启动
 
@@ -59,7 +59,7 @@ make web
 | 2 | 鉴权与账号（User / JWT / admin users） | ⏳ |
 | 3 | 模型配置（LLM / ASR + 加密层） | ⏳ |
 | 4 | 笔记本 + 来源 + 上传 | ⏳ |
-| 5 | URL 抓取 + 字幕链 | ⏳ |
+| 5 | URL 抓取 + 字幕链 | ✅ |
 | 6 | ASR 流水线 | ⏳ |
 | 7 | 聊天 + SSE + 全上下文检索 | ⏳ |
 | 8 | Skills 管理 | ⏳ |
@@ -68,3 +68,15 @@ make web
 | 11 | Studio PPT | ⏳ |
 | 12 | Discover + Collections | ⏳ |
 | 13 | 打磨 | ⏳ |
+
+### URL 抓取（YouTube 等）
+
+YouTube 常要求登录态。开发机可在 `.env` 配置其一：
+
+```bash
+YTDLP_COOKIES_FROM_BROWSER=chrome
+# 或导出 Netscape cookies：
+# YTDLP_COOKIES_FILE=/absolute/path/cookies.txt
+```
+
+首次从浏览器读 cookie 时，macOS 可能弹出钥匙串授权，点「允许」即可。失败的来源可在卡片菜单里「重新抓取」。

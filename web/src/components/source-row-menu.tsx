@@ -8,10 +8,12 @@ export function SourceRowMenu({
   onRename,
   onRemove,
   onRegenerate,
+  onRetryFetch,
 }: {
   onRename: () => void;
   onRemove: () => void;
   onRegenerate?: () => void;
+  onRetryFetch?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -82,6 +84,17 @@ export function SourceRowMenu({
                 >
                   重命名
                 </MenuItem>
+                {onRetryFetch ? (
+                  <MenuItem
+                    icon={<RefreshCw className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setOpen(false);
+                      onRetryFetch();
+                    }}
+                  >
+                    重新抓取
+                  </MenuItem>
+                ) : null}
                 {onRegenerate ? (
                   <MenuItem
                     icon={<RefreshCw className="h-3.5 w-3.5" />}
