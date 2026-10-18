@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import Note, NotebookSource
 from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
-from app.schemas.studio import TaskCreate, TaskDetail, TaskRead
+from app.schemas.studio import TaskCreate, TaskDetail, TaskRead, TaskRename
 from app.services.notebooks import get_notebook
 from app.storage import get_storage
 
@@ -225,6 +225,22 @@ async def _require_notebook_notes(
     )
     if found != set(note_ids):
         raise BadRequestError("来源不属于该笔记本")
+
+
+async def rename_task(
+    session: AsyncSession, *, owner_id: int, task_id: int, body: TaskRename
+) -> StudioTask:
+    task = await session.get(StudioTask, task_id)
+    if task is None or task.deleted_at is not None or task.owner_id != owner_id:
+        raise NotFoundError("任务不存在")
+    title = body.title.strip()
+    if not title:
+        raise BadRequestError("标题不能为空")
+    task.title = title[:255]
+    session.add(task)
+    await session.commit()
+    await session.refresh(task)
+    return task
 
 
 async def delete_task(

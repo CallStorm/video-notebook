@@ -99,6 +99,58 @@ def test_fallback_symlink_outside_outputs_is_format_mismatch(tmp_path: Path):
         accept_outputs(get_format("file"), outputs)
 
 
+def test_skill_manifest_still_accepts_pptx(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    _write(outputs, "deck.pptx", b"PK pptx")
+    _write(outputs, "notes.md", b"side note")
+    (outputs / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "product_dimension": "presentation",
+                "main_file": "deck.pptx",
+                "main_file_mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "slides": [{"index": 1, "title": "封面"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    accepted = accept_outputs(get_format("slides"), outputs)
+    assert accepted.path.name == "deck.pptx"
+    assert accepted.mime == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
+def test_preferred_pptx_wins_when_manifest_has_no_main_name(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    _write(outputs, "deck.pptx", b"PK pptx")
+    _write(outputs, "extra.pptx", b"PK extra")
+    (outputs / "MANIFEST.json").write_text(
+        json.dumps({"theme": "Midnight", "slides": []}),
+        encoding="utf-8",
+    )
+    accepted = accept_outputs(get_format("slides"), outputs)
+    assert accepted.path.name == "deck.pptx"
+
+
+def test_studio_manifest_wrong_file_does_not_fall_back(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    _write(outputs, "notes.txt", b"hello")
+    _write(outputs, "deck.pptx", b"PK pptx")
+    (outputs / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "artifacts": [{"role": "main", "path": "outputs/notes.txt", "mime": "text/plain"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(FormatMismatch):
+        accept_outputs(get_format("slides"), outputs)
+
+
 def test_damaged_manifest_does_not_count_as_fallback_candidate(tmp_path: Path):
     outputs = tmp_path / "outputs"
     outputs.mkdir()

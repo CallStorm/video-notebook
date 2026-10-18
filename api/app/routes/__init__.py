@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.routes import (
     admin,
     admin_agents,
+    admin_claude,
     admin_credentials,
     admin_default_models,
     admin_models,
@@ -35,6 +36,7 @@ api_router.include_router(admin_models.router)
 api_router.include_router(admin_default_models.router)
 api_router.include_router(admin_skills.router)
 api_router.include_router(admin_agents.router)
+api_router.include_router(admin_claude.router)
 api_router.include_router(admin_studio.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)

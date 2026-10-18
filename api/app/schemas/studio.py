@@ -30,7 +30,6 @@ class SkillUpdate(BaseModel):
 class AgentWrite(BaseModel):
     name: str
     skill_id: int | None
-    model_name: str
     system_prompt: str
     timeout_seconds: int = 600
 
@@ -42,13 +41,24 @@ class AgentRead(BaseModel):
     name: str
     provider: str
     skill_id: int | None
-    model_name: str
     system_prompt: str
     timeout_seconds: int
     is_active: bool
     updated_by: int
     created_at: datetime | None
     updated_at: datetime | None
+
+
+class ClaudeCodeRead(BaseModel):
+    api_key_set: bool
+    base_url: str | None
+    model_name: str
+
+
+class ClaudeCodeUpdate(BaseModel):
+    api_key: str | None = None
+    base_url: str | None = None
+    model_name: str
 
 
 class FormatRead(BaseModel):
@@ -93,6 +103,10 @@ class TaskCreate(BaseModel):
     video_ids: list[int] = Field(default_factory=list)
     note_ids: list[int] = Field(default_factory=list)
     fields: dict[str, str] = Field(default_factory=dict)
+
+
+class TaskRename(BaseModel):
+    title: str
 
 
 class TaskRead(BaseModel):

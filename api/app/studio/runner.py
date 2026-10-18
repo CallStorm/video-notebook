@@ -18,7 +18,14 @@ from sqlalchemy import select, update
 
 from app.db.session import get_sessionmaker
 from app.models.notebook import Note, Video
-from app.models.studio import Agent, Skill, StudioArtifact, StudioCapability, StudioTask
+from app.models.studio import (
+    Agent,
+    ClaudeCodeConfig,
+    Skill,
+    StudioArtifact,
+    StudioCapability,
+    StudioTask,
+)
 from app.storage import get_storage
 from app.studio.formats import FormatMismatch, NoOutput, accept_outputs, get_format
 from app.subtitles.store import load_subtitle
@@ -26,6 +33,7 @@ from app.subtitles.store import load_subtitle
 _FIXED_PROMPT = (
     "阅读 inputs.json。若存在 .claude/skills 则使用其中的技能。"
     "不要修改 inputs.json。主文件和 MANIFEST.json 写在 outputs/。"
+    "MANIFEST.json 只用上面给出的 status、title、artifacts 结构，不要改成技能自己的清单字段。"
 )
 _POLL_SECONDS = 2.0
 _KILL_GRACE_SECONDS = 5.0
@@ -35,6 +43,8 @@ _STDERR_TAIL = 2000
 @dataclass
 class _Prepared:
     model_name: str
+    api_key: str
+    base_url: str | None
     system_prompt: str
     format_key: str
     language: object
@@ -194,8 +204,11 @@ async def _prepare(session, task: StudioTask) -> _Prepared:
         else:
             skill_src = path
             skill_dirname = _safe_skill_name(skill.name)
+    config = await session.get(ClaudeCodeConfig, 1)
     return _Prepared(
-        model_name=agent.model_name,
+        model_name=(config.model_name if config is not None else "").strip(),
+        api_key=config.get_api_key().strip() if config is not None else "",
+        base_url=(config.base_url or "").strip() or None if config is not None else None,
         system_prompt=agent.system_prompt or "",
         format_key=task.format_key,
         language=params.get("language"),
@@ -289,10 +302,22 @@ async def _mark_failed(factory, task_id: int, code: str, message: str, work: Pat
         await session.commit()
 
 
+def _claude_env(api_key: str, base_url: str | None) -> dict[str, str]:
+    env = os.environ.copy()
+    env["ANTHROPIC_API_KEY"] = api_key
+    if base_url:
+        env["ANTHROPIC_BASE_URL"] = base_url
+    else:
+        env.pop("ANTHROPIC_BASE_URL", None)
+    return env
+
+
 async def _run_claude(
     *,
     claude_bin: str,
     model_name: str,
+    api_key: str,
+    base_url: str | None,
     work: Path,
     prompt: str,
     task_id: int,
@@ -320,6 +345,7 @@ async def _run_claude(
                 stdout=stdout_f,
                 stderr=stderr_f,
                 cwd=work,
+                env=_claude_env(api_key, base_url),
                 start_new_session=True,
             )
         except OSError as exc:
@@ -558,10 +584,15 @@ async def execute_studio_task(
         if prepared.skill_missing:
             await _mark_failed(factory, task_id, "process_failed", "技能目录不存在", work)
             return
+        if not prepared.api_key or not prepared.model_name:
+            await _mark_failed(factory, task_id, "process_failed", "还没有配置 Claude Code", work)
+            return
 
         outcome, code, stderr = await _run_claude(
             claude_bin=claude_bin,
             model_name=prepared.model_name,
+            api_key=prepared.api_key,
+            base_url=prepared.base_url,
             work=work,
             prompt=prompt,
             task_id=task_id,

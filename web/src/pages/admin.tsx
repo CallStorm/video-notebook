@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { AdminClaudePage } from "@/pages/admin-claude";
 import { AdminUsersPage } from "@/pages/admin-users";
 import { AdminConfigsPage } from "@/pages/admin-configs";
 
@@ -49,6 +50,7 @@ export default function AdminPage() {
           </nav>
         </div>
 
+        <AdminClaudePage />
         <AdminConfigsPage />
         <AdminUsersPage />
       </div>

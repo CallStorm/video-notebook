@@ -42,7 +42,6 @@ async def create_agent(session: AsyncSession, *, updated_by: int, payload: Agent
         name=payload.name,
         provider=_PROVIDER,
         skill_id=payload.skill_id,
-        model_name=payload.model_name,
         system_prompt=payload.system_prompt,
         timeout_seconds=payload.timeout_seconds,
         is_active=True,
@@ -75,7 +74,6 @@ async def update_agent(
     agent = await _get_live_agent(session, agent_id)
     agent.name = payload.name
     agent.skill_id = payload.skill_id
-    agent.model_name = payload.model_name
     agent.system_prompt = payload.system_prompt
     agent.timeout_seconds = payload.timeout_seconds
     agent.updated_by = updated_by

@@ -450,10 +450,10 @@ export default function NotebookPage() {
       </header>
 
       {/* 三栏 */}
-      <div className="grid flex-1 grid-cols-[400px_1fr_320px] overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)] overflow-hidden">
         {/* 左：来源（仿 Gemini Notebook 风格） */}
         <aside
-          className={`flex min-h-0 flex-col border-r ${browsingList ? "overflow-y-auto" : "overflow-hidden"}`}
+          className={`flex min-h-0 min-w-0 flex-col border-r ${browsingList ? "overflow-y-auto" : "overflow-hidden"}`}
         >
           {/* 顶：Sources + 视图切换图标 */}
           <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur">
@@ -589,7 +589,7 @@ export default function NotebookPage() {
           ) : null}
         </aside>
 
-        <main className="flex min-h-0 flex-col overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <NotebookChat
             access={token}
             notebookId={notebookId}
@@ -606,7 +606,7 @@ export default function NotebookPage() {
           />
         </main>
 
-        <aside className="flex min-h-0 flex-col overflow-hidden border-l">
+        <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden border-l">
           {openNote ? (
             <StudioNote
               note={openNote}
@@ -621,7 +621,7 @@ export default function NotebookPage() {
               access={token}
               taskId={previewTaskId}
               title={preview.data?.title || "幻灯片"}
-              pdfError={preview.data?.pdf_error ?? null}
+              crumb={nb.title}
               artifacts={preview.data?.artifacts ?? []}
               pending={!preview.data && !preview.isError}
               notice={
@@ -631,6 +631,8 @@ export default function NotebookPage() {
                     : "加载失败"
                   : null
               }
+              videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
+              notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
               expanded={previewExpanded}
               onBack={() => {
                 setPreviewTaskId(null);
@@ -638,6 +640,15 @@ export default function NotebookPage() {
                 setPreviewExpanded(false);
               }}
               onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+              onOpenVideo={(videoId) => {
+                setPreviewExpanded(false);
+                setFocusCue(null);
+                setSelectedVideoId(videoId);
+              }}
+              onOpenNote={(noteId) => {
+                setPreviewExpanded(false);
+                setOpenNoteId(noteId);
+              }}
             />
           ) : previewTaskId != null && previewFormat === "file" ? (
             <StudioFile
@@ -655,6 +666,7 @@ export default function NotebookPage() {
           ) : previewTaskId != null ? (
             <StudioMindmap
               title={preview.data?.title || "导图"}
+              crumb={nb.title}
               text={previewMessage ? null : (preview.data?.text_content ?? null)}
               notice={previewMessage}
               noticeError={preview.isError}

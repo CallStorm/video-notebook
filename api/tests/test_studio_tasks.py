@@ -68,7 +68,6 @@ async def notebook_id(db_session, owner) -> int:
 async def capability_id(db_session, owner) -> int:
     agent = Agent(
         name="导图智能体",
-        model_name="claude-sonnet-4-6",
         system_prompt="写出导图",
         is_active=True,
         updated_by=owner.id,
@@ -476,3 +475,37 @@ async def test_artifact_url_is_signed(
     mapped = await client.get(f"/api/studio/tasks/{mind_map.id}", headers=owner_headers)
     assert mapped.status_code == 200
     assert mapped.json()["text_content"] == "# 灭佛\n- 原因\n"
+
+
+async def test_rename_task_updates_title_for_owner_only(
+    client, owner_headers, outsider_headers, notebook_id, capability_id, video_id
+):
+    created = await client.post(
+        f"/api/notebooks/{notebook_id}/studio/tasks",
+        headers=owner_headers,
+        json=_payload(capability_id, video_id),
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+
+    renamed = await client.patch(
+        f"/api/studio/tasks/{task_id}",
+        headers=owner_headers,
+        json={"title": "  灭佛 脑图  "},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "灭佛 脑图"
+
+    blank = await client.patch(
+        f"/api/studio/tasks/{task_id}",
+        headers=owner_headers,
+        json={"title": "   "},
+    )
+    assert blank.status_code == 400
+
+    denied = await client.patch(
+        f"/api/studio/tasks/{task_id}",
+        headers=outsider_headers,
+        json={"title": "别人的名字"},
+    )
+    assert denied.status_code == 404

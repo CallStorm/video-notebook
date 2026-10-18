@@ -7,14 +7,17 @@ from pathlib import Path
 _MIND_MAP_INSTRUCTIONS = """\
 - 主文件是 markmap 用的 Markdown：`#` 为中心主题，子节点为缩进的无序列表。
 - 路径 `outputs/mindmap.md`。
-- `outputs/MANIFEST.json` 的 `title` 是导图名称，`artifacts` 有一项 `role=main`，`mime` 为 `text/markdown`。"""
+- `outputs/MANIFEST.json` 必须是这一份，字段名不能改：
+  {"status":"success","title":"导图名称","artifacts":[{"role":"main","path":"outputs/mindmap.md","mime":"text/markdown"}]}"""
 
 _SLIDES_INSTRUCTIONS = """\
 - 主文件是 pptx，路径 `outputs/deck.pptx`。
-- 清单的 `mime` 为 `application/vnd.openxmlformats-officedocument.presentationml.presentation`。"""
+- `outputs/MANIFEST.json` 必须是这一份，字段名不能改，也不要写成技能自己的清单：
+  {"status":"success","title":"演示标题","artifacts":[{"role":"main","path":"outputs/deck.pptx","mime":"application/vnd.openxmlformats-officedocument.presentationml.presentation"}]}"""
 
 _FILE_INSTRUCTIONS = """\
-一个非空主文件放在 `outputs/`，清单指向它并写上 `mime`。"""
+一个非空主文件放在 `outputs/`。`outputs/MANIFEST.json` 必须是这一份，字段名不能改：
+{"status":"success","title":"文件名称","artifacts":[{"role":"main","path":"outputs/<文件名>","mime":"<mime>"}]}"""
 
 _MIME_BY_SUFFIX: dict[str, str] = {
     ".md": "text/markdown",
@@ -44,6 +47,12 @@ class FormatMismatch(Exception):
 
 class NoOutput(Exception):
     pass
+
+
+_PREFERRED_NAMES: dict[str, frozenset[str]] = {
+    "mind_map": frozenset({"mindmap.md", "mindmap.markdown"}),
+    "slides": frozenset({"deck.pptx"}),
+}
 
 
 _FORMATS: dict[str, OutputFormat] = {
@@ -79,7 +88,12 @@ def list_formats() -> list[OutputFormat]:
 def accept_outputs(fmt: OutputFormat, outputs_dir: Path) -> Accepted:
     manifest = _load_manifest(outputs_dir)
     if manifest is not None:
-        return _accept_from_manifest(fmt, outputs_dir, manifest)
+        studio = _accept_studio_manifest(fmt, outputs_dir, manifest)
+        if studio is not None:
+            return studio
+        named = _accept_named_file(fmt, outputs_dir, manifest)
+        if named is not None:
+            return named
     return _accept_fallback(fmt, outputs_dir)
 
 
@@ -123,31 +137,64 @@ def _ensure_valid_main_file(fmt: OutputFormat, path: Path) -> None:
         raise FormatMismatch
 
 
-def _accept_from_manifest(fmt: OutputFormat, outputs_dir: Path, data: dict) -> Accepted:
-    if data.get("status") != "success":
-        raise FormatMismatch
+def _studio_main(data: dict) -> dict | None:
     artifacts = data.get("artifacts")
     if not isinstance(artifacts, list):
-        raise FormatMismatch
-    main: dict | None = None
+        return None
     for item in artifacts:
         if isinstance(item, dict) and item.get("role") == "main":
-            main = item
-            break
+            return item
+    return None
+
+
+def _manifest_title(data: dict) -> str | None:
+    title = data.get("title")
+    if isinstance(title, str):
+        return title
+    return None
+
+
+def _accept_studio_manifest(fmt: OutputFormat, outputs_dir: Path, data: dict) -> Accepted | None:
+    """Accept the studio manifest. None means this is not that schema."""
+    main = _studio_main(data)
     if main is None:
+        return None
+    if data.get("status") != "success":
         raise FormatMismatch
     path_str = main.get("path")
     if not isinstance(path_str, str) or not path_str:
-        raise FormatMismatch
+        return None
     path = _resolve_artifact_path(outputs_dir, path_str)
     _ensure_valid_main_file(fmt, path)
     mime = main.get("mime")
     if not isinstance(mime, str) or not mime:
         mime = _guess_mime(path)
-    title = data.get("title")
-    if title is not None and not isinstance(title, str):
-        title = None
-    return Accepted(path=path, mime=mime, title=title)
+    return Accepted(path=path, mime=mime, title=_manifest_title(data))
+
+
+def _named_file(data: dict) -> str | None:
+    for key in ("main_file", "path", "file"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _accept_named_file(fmt: OutputFormat, outputs_dir: Path, data: dict) -> Accepted | None:
+    raw = _named_file(data)
+    if raw is None:
+        return None
+    path = _resolve_artifact_path(outputs_dir, raw)
+    try:
+        _ensure_valid_main_file(fmt, path)
+    except FormatMismatch:
+        return None
+    mime = data.get("main_file_mime")
+    if not isinstance(mime, str) or not mime:
+        mime = data.get("mime")
+    if not isinstance(mime, str) or not mime:
+        mime = _guess_mime(path)
+    return Accepted(path=path, mime=mime, title=_manifest_title(data))
 
 
 def _accept_fallback(fmt: OutputFormat, outputs_dir: Path) -> Accepted:
@@ -162,9 +209,15 @@ def _accept_fallback(fmt: OutputFormat, outputs_dir: Path) -> Accepted:
         if fmt.extensions and entry.suffix not in fmt.extensions:
             continue
         candidates.append(entry)
-    if len(candidates) != 1:
-        raise NoOutput
-    path = candidates[0].resolve()
+    if len(candidates) == 1:
+        path = candidates[0]
+    else:
+        preferred = _PREFERRED_NAMES.get(fmt.key, frozenset())
+        named = [item for item in candidates if item.name in preferred]
+        if len(named) != 1:
+            raise NoOutput
+        path = named[0]
+    path = path.resolve()
     _ensure_under_outputs(outputs_dir, path)
     return Accepted(path=path, mime=_guess_mime(path), title=None)
 

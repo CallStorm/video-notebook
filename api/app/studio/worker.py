@@ -42,6 +42,10 @@ celery_app = Celery(
 )
 celery_app.conf.update(
     task_default_queue="studio",
+    # macOS billiard defaults to spawn. The spawned child never fills
+    # Celery's fast-trace locals, so prefork crashes before the task runs
+    # and the broker message is already acked.
+    worker_pool="threads",
     broker_connection_retry_on_startup=True,
     beat_schedule={
         "sweep-studio-tasks": {

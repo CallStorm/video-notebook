@@ -8,7 +8,14 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.models.notebook import Note, Notebook, Subtitle, SubtitleLine, Video
-from app.models.studio import Agent, Skill, StudioArtifact, StudioCapability, StudioTask
+from app.models.studio import (
+    Agent,
+    ClaudeCodeConfig,
+    Skill,
+    StudioArtifact,
+    StudioCapability,
+    StudioTask,
+)
 from app.models.user import User
 from app.storage import get_storage
 from app.studio.runner import execute_studio_task
@@ -16,6 +23,7 @@ from app.studio.runner import execute_studio_task
 _FIXED = (
     "阅读 inputs.json。若存在 .claude/skills 则使用其中的技能。"
     "不要修改 inputs.json。主文件和 MANIFEST.json 写在 outputs/。"
+    "MANIFEST.json 只用上面给出的 status、title、artifacts 结构，不要改成技能自己的清单字段。"
 )
 _LONG = "不截断" * 80
 
@@ -56,7 +64,6 @@ async def _seed(
 
     agent = Agent(
         name="导图智能体",
-        model_name="claude-sonnet-4-6",
         system_prompt="写出导图",
         timeout_seconds=600,
         is_active=True,
@@ -64,6 +71,14 @@ async def _seed(
         skill_id=skill_id,
     )
     db_session.add(agent)
+    await db_session.flush()
+    config = await db_session.get(ClaudeCodeConfig, 1)
+    if config is None:
+        config = ClaudeCodeConfig(id=1)
+        db_session.add(config)
+    config.model_name = "claude-sonnet-4-6"
+    config.base_url = None
+    config.set_api_key("sk-test")
     await db_session.flush()
     cap = StudioCapability(
         name="思维导图" if format_key == "mind_map" else "PPT",
@@ -488,3 +503,51 @@ async def test_unexpected_error_after_running_is_process_failed(db_session, tmp_
     await db_session.refresh(task)
     assert task.status == "failed"
     assert task.error_code == "process_failed"
+
+
+async def test_missing_claude_config_does_not_start(db_session, tmp_path):
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    script = tmp_path / "claude"
+    _mindmap_script(script, capture)
+    task, _, _ = await _seed(db_session, with_sources=False)
+    config = await db_session.get(ClaudeCodeConfig, 1)
+    await db_session.delete(config)
+    await db_session.commit()
+    await execute_studio_task(task.id, claude_bin=str(script))
+    await db_session.refresh(task)
+    assert task.status == "failed"
+    assert task.error_code == "process_failed"
+    assert not (capture / "argv.txt").exists()
+
+
+async def test_claude_env_comes_from_config_not_shell(db_session, tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-shell")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://shell.example")
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    script = tmp_path / "claude"
+    env_file = capture / "env.txt"
+    _script(
+        script,
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$ANTHROPIC_API_KEY\" \"$ANTHROPIC_BASE_URL\" > '{env_file}'\n"
+        "mkdir -p outputs\n"
+        "printf '# 灭佛\\n' > outputs/mindmap.md\n"
+        "cat > outputs/MANIFEST.json <<'EOF'\n"
+        '{"version":1,"status":"success","title":"自动标题","artifacts":[{"role":"main","path":"outputs/mindmap.md","mime":"text/markdown"}]}\n'
+        "EOF\n",
+    )
+    task, _, _ = await _seed(db_session, with_sources=False)
+    config = await db_session.get(ClaudeCodeConfig, 1)
+    config.model_name = "claude-opus-4-6"
+    config.base_url = "https://config.example"
+    config.set_api_key("sk-from-config")
+    await db_session.commit()
+    await execute_studio_task(task.id, claude_bin=str(script))
+    await db_session.refresh(task)
+    assert task.status == "succeeded"
+    assert (capture / "env.txt").read_text(encoding="utf-8").splitlines() == [
+        "sk-from-config",
+        "https://config.example",
+    ]

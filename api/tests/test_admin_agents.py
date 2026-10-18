@@ -26,7 +26,6 @@ async def test_disable_agent_turns_off_capabilities(client, admin_headers, db_se
         json={
             "name": "导图智能体",
             "skill_id": None,
-            "model_name": "claude-sonnet-4-6",
             "system_prompt": "写出导图",
             "timeout_seconds": 600,
         },
@@ -59,7 +58,6 @@ async def test_create_agent_rejects_short_timeout(client, admin_headers):
         json={
             "name": "导图智能体",
             "skill_id": None,
-            "model_name": "claude-sonnet-4-6",
             "system_prompt": "写出导图",
             "timeout_seconds": 10,
         },

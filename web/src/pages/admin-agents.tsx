@@ -18,7 +18,6 @@ interface AgentRead {
   name: string;
   provider: string;
   skill_id: number | null;
-  model_name: string;
   system_prompt: string;
   timeout_seconds: number;
   is_active: boolean;
@@ -30,7 +29,6 @@ interface AgentRead {
 interface AgentWrite {
   name: string;
   skill_id: number | null;
-  model_name: string;
   system_prompt: string;
   timeout_seconds: number;
 }
@@ -38,7 +36,6 @@ interface AgentWrite {
 const EMPTY_FORM: AgentWrite = {
   name: "",
   skill_id: null,
-  model_name: "",
   system_prompt: "",
   timeout_seconds: 600,
 };
@@ -144,13 +141,15 @@ export default function AdminAgentsPage() {
             返回后台
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">智能体</h1>
-          <p className="text-sm text-muted-foreground">配置 Claude Code 运行用的技能、模型、提示和超时。</p>
+          <p className="text-sm text-muted-foreground">配置 Claude Code 运行用的技能、提示和超时。模型在后台首页。</p>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle>{editingId === null ? "新建智能体" : `编辑智能体 #${editingId}`}</CardTitle>
-            <CardDescription>提供方固定为 claude_code。超时 30–3600 秒，默认 600。</CardDescription>
+            <CardDescription>
+              提供方固定为 claude_code。模型在后台首页的 Claude Code 配置里。超时 30–3600 秒，默认 600。
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form
@@ -183,12 +182,6 @@ export default function AdminAgentsPage() {
                   </option>
                 ))}
               </select>
-              <Input
-                placeholder="模型名"
-                value={form.model_name}
-                onChange={(e) => setForm((f) => ({ ...f, model_name: e.target.value }))}
-                required
-              />
               <Input
                 type="number"
                 min={30}
@@ -254,7 +247,6 @@ export default function AdminAgentsPage() {
                     <tr className="border-b text-left text-muted-foreground">
                       <th className="py-2 pr-4">名称</th>
                       <th className="py-2 pr-4">技能名</th>
-                      <th className="py-2 pr-4">模型</th>
                       <th className="py-2 pr-4">超时</th>
                       <th className="py-2 pr-4">启用</th>
                       <th className="py-2 pr-4">操作</th>
@@ -265,7 +257,6 @@ export default function AdminAgentsPage() {
                       <tr key={agent.id} className="border-b">
                         <td className="py-2 pr-4">{agent.name}</td>
                         <td className="py-2 pr-4">{skillName(agent.skill_id)}</td>
-                        <td className="py-2 pr-4 font-mono">{agent.model_name}</td>
                         <td className="py-2 pr-4">{agent.timeout_seconds}s</td>
                         <td className="py-2 pr-4">{agent.is_active ? "启用" : "停用"}</td>
                         <td className="py-2 pr-4">
@@ -278,7 +269,6 @@ export default function AdminAgentsPage() {
                                 setForm({
                                   name: agent.name,
                                   skill_id: agent.skill_id,
-                                  model_name: agent.model_name,
                                   system_prompt: agent.system_prompt,
                                   timeout_seconds: agent.timeout_seconds,
                                 });

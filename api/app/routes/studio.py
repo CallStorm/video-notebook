@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_active_user
 from app.db.session import get_session
 from app.models.user import User
-from app.schemas.studio import CapabilityRead, TaskCreate, TaskDetail, TaskRead
+from app.schemas.studio import CapabilityRead, TaskCreate, TaskDetail, TaskRead, TaskRename
 from app.services import studio_tasks as svc
 
 router = APIRouter(tags=["studio"])
@@ -69,6 +69,16 @@ async def get_studio_artifact_url(
     return await svc.get_artifact_url(
         session, owner_id=user.id, task_id=task_id, artifact_id=artifact_id
     )
+
+
+@router.patch("/studio/tasks/{task_id}", response_model=TaskRead)
+async def rename_studio_task(
+    task_id: int,
+    body: TaskRename,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await svc.rename_task(session, owner_id=user.id, task_id=task_id, body=body)
 
 
 @router.delete("/studio/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

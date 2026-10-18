@@ -118,7 +118,6 @@ async def test_delete_skill_in_use_returns_409(client, admin_headers, db_session
         Agent(
             name="引用技能的智能体",
             skill_id=skill_id,
-            model_name="claude-sonnet-4-6",
             system_prompt="写出导图",
             updated_by=1,
         )

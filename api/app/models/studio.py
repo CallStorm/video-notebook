@@ -43,12 +43,32 @@ class Agent(Base, TimestampMixin):
     skill_id: Mapped[int | None] = mapped_column(
         ForeignKey("skills.id"), nullable=True, index=True
     )
-    model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     system_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=600, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     deleted_at: Mapped[object | None] = mapped_column(DateTime, nullable=True)
+
+
+class ClaudeCodeConfig(Base, TimestampMixin):
+    """全站一份 Claude Code 连接配置。id 固定为 1。"""
+
+    __tablename__ = "claude_code_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    api_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+
+    def set_api_key(self, raw: str | None) -> None:
+        from app.core.crypto import encrypt
+
+        self.api_key_enc = encrypt(raw) if raw else None
+
+    def get_api_key(self) -> str:
+        from app.core.crypto import decrypt
+
+        return decrypt(self.api_key_enc or "")
 
 
 class StudioCapability(Base, TimestampMixin):

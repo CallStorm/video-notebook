@@ -167,7 +167,6 @@ async def test_create_rejects_missing_agent(client, admin_headers):
 async def test_patch_enabled_capability_rejects_null_agent(client, admin_headers, db_session):
     agent = Agent(
         name="可用",
-        model_name="claude-sonnet-4-6",
         system_prompt="x",
         is_active=True,
         updated_by=1,

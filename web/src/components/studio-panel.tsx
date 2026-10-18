@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Download, Loader2, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SourceRenameDialog } from "@/components/source-row-menu";
 
 const ERROR_LABELS: Record<string, string> = {
   timeout: "超时",
@@ -35,8 +36,14 @@ interface StudioTask {
   id: number;
   title: string;
   status: string;
+  capability_id: number;
   format_key: string;
   error_code: string | null;
+  created_at: string | null;
+  params_json?: {
+    video_ids?: unknown;
+    note_ids?: unknown;
+  };
 }
 
 export interface StudioSource {
@@ -71,6 +78,31 @@ function toggleId(ids: number[], id: number): number[] {
   return ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
 }
 
+function idCount(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function capabilityIcon(capabilities: Capability[] | undefined, task: StudioTask): string | null {
+  return capabilities?.find((item) => item.id === task.capability_id)?.icon ?? null;
+}
+
+function sourceLabel(task: StudioTask): string {
+  const count = idCount(task.params_json?.video_ids) + idCount(task.params_json?.note_ids);
+  return count === 1 ? "1 source" : `${count} sources`;
+}
+
+function relativeTime(value: string | null): string {
+  if (!value) return "";
+  const hasZone = /(?:Z|[+-]\d{2}:\d{2})$/.test(value);
+  const then = new Date(hasZone ? value : `${value}Z`);
+  const seconds = Math.max(0, (Date.now() - then.getTime()) / 1000);
+  if (Number.isNaN(seconds)) return "";
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
 export function StudioPanel({
   access,
   notebookId,
@@ -87,6 +119,7 @@ export function StudioPanel({
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [renameTask, setRenameTask] = useState<StudioTask | null>(null);
 
   const capabilities = useQuery({
     queryKey: ["studio-capabilities", notebookId],
@@ -126,6 +159,54 @@ export function StudioPanel({
     mutationFn: (taskId: number) => api(`/studio/tasks/${taskId}`, { method: "DELETE", access, raw: true }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] }),
   });
+
+  const rename = useMutation({
+    mutationFn: ({ taskId, title }: { taskId: number; title: string }) =>
+      api<StudioTask>(`/studio/tasks/${taskId}`, { method: "PATCH", access, body: { title } }),
+    onSuccess: () => {
+      setRenameTask(null);
+      void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
+      void qc.invalidateQueries({ queryKey: ["studio-task", notebookId] });
+    },
+  });
+
+  async function downloadSlides(task: StudioTask) {
+    const detail = await api<{
+      title: string;
+      artifacts?: { id: number; role: string; filename: string }[];
+    }>(`/studio/tasks/${task.id}`, { access });
+    const artifact = detail.artifacts?.find((item) => item.role === "main");
+    if (!artifact) {
+      setFormError("没有幻灯片文件");
+      return;
+    }
+    const signed = await api<{ url: string }>(`/studio/tasks/${task.id}/artifacts/${artifact.id}`, { access });
+    const link = document.createElement("a");
+    link.href = signed.url;
+    link.download = artifact.filename || `${detail.title || task.title}.pptx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  async function downloadMindMap(task: StudioTask) {
+    const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
+      access,
+    });
+    if (!detail.text_content) {
+      setFormError("没有导图内容");
+      return;
+    }
+    const blob = new Blob([detail.text_content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${detail.title || task.title}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 
   function openCapability(capability: Capability) {
     const fields: Record<string, string> = {};
@@ -197,8 +278,52 @@ export function StudioPanel({
               task.status === "succeeded" &&
               (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file") &&
               !!onOpenTask;
+            const icon = capabilityIcon(capabilities.data, task);
+            if (task.format_key === "mind_map" || task.format_key === "slides") {
+              const when = relativeTime(task.created_at);
+              const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
+              return (
+                <div key={task.id} className="group flex items-start gap-2.5 px-4 py-2.5 hover:bg-muted/40">
+                  {icon ? (
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-base leading-none">
+                      {icon}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`min-w-0 flex-1 text-left ${openable ? "" : "cursor-default"}`}
+                    onClick={() => {
+                      if (openable) onOpenTask?.(task.id, task.format_key);
+                    }}
+                  >
+                    <div className="line-clamp-2 text-sm font-medium">{task.title}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {task.status === "failed" && errorLabel ? `${errorLabel} · ${meta}` : meta}
+                    </div>
+                  </button>
+                  {busy ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+                  <TaskMenu
+                    onRename={() => setRenameTask(task)}
+                    onRemove={() => {
+                      const label = task.format_key === "slides" ? "删除这个幻灯片？" : "删除这个导图？";
+                      if (window.confirm(label)) removeTask.mutate(task.id);
+                    }}
+                    onDownload={
+                      task.status !== "succeeded"
+                        ? undefined
+                        : () => void (task.format_key === "slides" ? downloadSlides(task) : downloadMindMap(task))
+                    }
+                  />
+                </div>
+              );
+            }
             return (
-              <div key={task.id} className="flex items-start gap-2 px-4 py-2.5">
+              <div key={task.id} className="flex items-start gap-2.5 px-4 py-2.5">
+                {icon ? (
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-base leading-none">
+                    {icon}
+                  </span>
+                ) : null}
                 <div className="min-w-0 flex-1">
                   {openable ? (
                     <button
@@ -229,6 +354,20 @@ export function StudioPanel({
           })}
         </div>
       </div>
+      <SourceRenameDialog
+        open={renameTask !== null}
+        title={renameTask?.title || ""}
+        heading={renameTask?.format_key === "slides" ? "重命名幻灯片" : "重命名导图"}
+        pending={rename.isPending}
+        error={rename.error instanceof ApiError ? rename.error.message : null}
+        onClose={() => {
+          if (!rename.isPending) setRenameTask(null);
+        }}
+        onSubmit={(title) => {
+          if (!renameTask) return;
+          rename.mutate({ taskId: renameTask.id, title });
+        }}
+      />
       {draft ? (
         <CapabilityDialog
           draft={draft}
@@ -244,6 +383,124 @@ export function StudioPanel({
         />
       ) : null}
     </div>
+  );
+}
+
+function TaskMenu({
+  onRename,
+  onRemove,
+  onDownload,
+}: {
+  onRename: () => void;
+  onRemove: () => void;
+  onDownload?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        title="更多"
+        className="rounded-full p-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+        onClick={(event) => {
+          event.stopPropagation();
+          const rect = triggerRef.current?.getBoundingClientRect();
+          if (rect) {
+            const menuWidth = 148;
+            const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
+            setAnchor({ top: rect.bottom + 6, left });
+          }
+          setOpen(true);
+        }}
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open && anchor
+        ? createPortal(
+            <div className="fixed inset-0 z-50" onClick={() => setOpen(false)}>
+              <div
+                role="menu"
+                className="absolute w-[148px] overflow-hidden rounded-xl border bg-popover py-1 text-popover-foreground shadow-lg"
+                style={{ top: anchor.top, left: anchor.left }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <MenuItem
+                  icon={<Pencil className="h-3.5 w-3.5" />}
+                  onClick={() => {
+                    setOpen(false);
+                    onRename();
+                  }}
+                >
+                  重命名
+                </MenuItem>
+                <MenuItem
+                  icon={<Trash2 className="h-3.5 w-3.5" />}
+                  onClick={() => {
+                    setOpen(false);
+                    onRemove();
+                  }}
+                >
+                  删除
+                </MenuItem>
+                {onDownload ? (
+                  <MenuItem
+                    icon={<Download className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setOpen(false);
+                      onDownload();
+                    }}
+                  >
+                    下载
+                  </MenuItem>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function MenuItem({
+  icon,
+  onClick,
+  children,
+}: {
+  icon: ReactNode;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+      onClick={onClick}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }
 

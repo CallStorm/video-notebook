@@ -50,7 +50,6 @@ async def _seed_task(
     await db_session.flush()
     agent = Agent(
         name="导图智能体",
-        model_name="claude-sonnet-4-6",
         system_prompt="写出导图",
         timeout_seconds=timeout_seconds,
         is_active=True,
