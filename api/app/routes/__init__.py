@@ -22,6 +22,7 @@ from app.routes import (
     icons,
     notebooks,
     providers,
+    search,
     sources,
     studio,
     users,
@@ -47,6 +48,7 @@ api_router.include_router(notebooks.router)
 api_router.include_router(collections.router)
 api_router.include_router(icons.router)
 api_router.include_router(sources.router)
+api_router.include_router(search.router)
 api_router.include_router(chat.router)
 api_router.include_router(studio.router)
 

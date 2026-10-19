@@ -12,7 +12,7 @@ export function Layout({ children, rightSlot, className }: LayoutProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b">
-        <div className="container flex h-14 items-center justify-between">
+        <div className="flex h-14 w-full items-center justify-between px-6 lg:px-8">
           <div className="flex items-center gap-6">
             <Link to="/" className="font-semibold tracking-tight">
               video-notebook
@@ -24,6 +24,9 @@ export function Layout({ children, rightSlot, className }: LayoutProps) {
               <Link to="/discover" className="hover:text-foreground">
                 发现
               </Link>
+              <Link to="/search" className="hover:text-foreground">
+                聚合搜索
+              </Link>
               <Link to="/collections" className="hover:text-foreground">
                 集合
               </Link>
@@ -32,7 +35,7 @@ export function Layout({ children, rightSlot, className }: LayoutProps) {
           <div className="flex items-center gap-2">{rightSlot}</div>
         </div>
       </header>
-      <main className={cn("container flex-1 py-6", className)}>{children}</main>
+      <main className={cn("w-full flex-1 px-6 py-6 lg:px-8", className)}>{children}</main>
     </div>
   );
 }

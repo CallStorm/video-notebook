@@ -136,7 +136,7 @@ export default function CollectionPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b bg-background">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
+        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
           <Link to="/" className="shrink-0">
             <Brand />
           </Link>
@@ -151,7 +151,7 @@ export default function CollectionPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl p-6">
+      <div className="w-full p-6 lg:px-8">
         <button
           type="button"
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -182,8 +182,7 @@ export default function CollectionPage() {
                 </div>
               </div>
               <Button
-                variant="outline"
-                className="rounded-full"
+                className="rounded-full shadow-none"
                 onClick={() => setShowEdit(true)}
               >
                 <Pencil className="mr-1.5 h-3.5 w-3.5" />
@@ -192,23 +191,26 @@ export default function CollectionPage() {
             </header>
 
             {notebooks.length === 0 ? (
-              <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
+              <div className="soft-tile px-8 py-20 text-center text-sm text-muted-foreground">
                 这个集合还没有笔记本。点「Edit」添加。
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                 {notebooks.map((nb) => (
                   <div
                     key={nb.id}
-                    className="group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+                    className="group relative flex min-h-[168px] flex-col soft-tile soft-tile-hover p-4"
                   >
-                    <header className="mb-3 flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-2">
                       <Link
                         to={`/notebooks/${nb.id}`}
-                        className="text-3xl leading-none"
+                        className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-background/70 text-xl"
                         aria-label={nb.title}
                       >
-                        {nb.icon || "📁"}
+                        <span aria-hidden>{nb.icon || "📁"}</span>
+                        {nb.is_pinned ? (
+                          <Pin className="absolute -right-1 -top-1 h-3 w-3 fill-amber-500 text-amber-500" />
+                        ) : null}
                       </Link>
                       <NotebookCardMenu
                         notebookId={nb.id}
@@ -225,25 +227,15 @@ export default function CollectionPage() {
                           if (confirm("删除这个笔记本？")) removeNb.mutate(nb.id);
                         }}
                       />
-                    </header>
-                    <Link to={`/notebooks/${nb.id}`} className="block space-y-1">
-                      <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
+                    </div>
+                    <Link to={`/notebooks/${nb.id}`} className="mt-auto flex flex-col pt-8">
+                      <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
                         {nb.title}
                       </h3>
-                      {nb.description ? (
-                        <p className="line-clamp-1 text-xs text-muted-foreground">
-                          {nb.description}
-                        </p>
-                      ) : null}
-                    </Link>
-                    <div className="mt-auto flex items-center justify-between pt-3 text-xs text-muted-foreground">
-                      <p>
+                      <p className="mt-1.5 text-xs text-muted-foreground">
                         {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
                       </p>
-                      {nb.is_pinned ? (
-                        <Pin className="h-3 w-3 fill-current text-amber-500" />
-                      ) : null}
-                    </div>
+                    </Link>
                   </div>
                 ))}
               </div>

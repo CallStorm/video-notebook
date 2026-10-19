@@ -4,32 +4,34 @@
 
 @layer base {
   :root {
-    /* Soft cool canvas — NotebookLM-like */
-    --background: 210 40% 97.5%;
-    --foreground: 222 28% 14%;
+    /* NotebookLM-like soft canvas */
+    --background: 210 20% 97%;
+    --foreground: 220 16% 16%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 28% 14%;
+    /* Soft grey tile — slightly deeper than page */
+    --card: 210 16% 94%;
+    --card-foreground: 220 16% 16%;
 
-    --primary: 222 28% 14%;
-    --primary-foreground: 210 40% 98%;
+    /* Soft ice-blue CTA */
+    --primary: 214 78% 82%;
+    --primary-foreground: 220 16% 16%;
 
-    --secondary: 210 28% 94%;
-    --secondary-foreground: 222 28% 18%;
+    --secondary: 210 16% 92%;
+    --secondary-foreground: 220 16% 20%;
 
-    --muted: 210 28% 94%;
-    --muted-foreground: 215 14% 46%;
+    --muted: 210 16% 92%;
+    --muted-foreground: 215 12% 46%;
 
-    --accent: 210 40% 94%;
-    --accent-foreground: 222 28% 18%;
+    --accent: 214 40% 92%;
+    --accent-foreground: 220 16% 18%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 28% 90%;
-    --input: 214 28% 90%;
-    --ring: 214 70% 55%;
-    --radius: 1rem;
+    --border: 210 14% 88%;
+    --input: 210 14% 88%;
+    --ring: 214 70% 60%;
+    --radius: 1.25rem;
   }
 
   .dark {
@@ -51,7 +53,15 @@
 }
 
 @layer utilities {
+  .soft-tile {
+    @apply rounded-3xl bg-card text-card-foreground transition-colors;
+  }
+
+  .soft-tile-hover {
+    @apply hover:bg-[hsl(210_16%_91%)];
+  }
+
   .panel-surface {
-    @apply rounded-2xl border border-border/60 bg-card shadow-sm;
+    @apply rounded-3xl bg-card;
   }
 }

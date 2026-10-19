@@ -26,7 +26,7 @@ export default function DiscoverPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
+        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
           <Link to="/">
             <Brand />
           </Link>
@@ -35,9 +35,9 @@ export default function DiscoverPage() {
           </div>
         </div>
       </header>
-      <div className="mx-auto max-w-6xl p-6">
-        <h1 className="mb-4 text-2xl font-semibold">发现</h1>
-        <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
+      <div className="w-full p-6 lg:px-8">
+        <h1 className="mb-6 text-2xl font-semibold tracking-tight">发现</h1>
+        <div className="soft-tile px-8 py-20 text-center text-sm text-muted-foreground">
           公开笔记本浏览 / Discover 留 Phase 12 实装（依赖 share_all 公开流）。
         </div>
       </div>

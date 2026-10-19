@@ -11,6 +11,7 @@ import AdminSkillsPage from "@/pages/admin-skills";
 import AdminAgentsPage from "@/pages/admin-agents";
 import AdminStudioPage from "@/pages/admin-studio";
 import DiscoverPage from "@/pages/discover";
+import SearchPage from "@/pages/search";
 import NotebookPage from "@/pages/notebook";
 import CollectionPage from "@/pages/collection";
 import { RequireAuth } from "@/components/require-auth";
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
       { path: "/", element: <HomePage /> },
       { path: "/login", element: <LoginPage /> },
       { path: "/discover", element: <DiscoverPage /> },
+      { path: "/search", element: <SearchPage /> },
       {
         path: "/notebooks/:id",
         element: (

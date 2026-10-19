@@ -75,7 +75,7 @@ async function updateNotebook(
 }
 
 type View = "grid" | "list";
-type Tab = "all" | "mine" | "discover" | "collections";
+type Tab = "mine" | "discover" | "collections";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -92,25 +92,9 @@ function formatSources(n: number): string {
   return n === 1 ? "1 个来源" : `${n} 个来源`;
 }
 
-/** Soft pastel covers — NotebookLM-like notebook tiles */
-const COVER_PALETTE = [
-  "from-sky-100 to-sky-50",
-  "from-emerald-100 to-emerald-50",
-  "from-amber-100 to-amber-50",
-  "from-rose-100 to-rose-50",
-  "from-teal-100 to-teal-50",
-  "from-lime-100 to-lime-50",
-  "from-orange-100 to-orange-50",
-  "from-cyan-100 to-cyan-50",
-] as const;
-
-function coverClass(id: number): string {
-  return COVER_PALETTE[Math.abs(id) % COVER_PALETTE.length];
-}
-
 function initialTab(params: URLSearchParams): Tab {
   const raw = params.get("tab");
-  if (raw === "collections" || raw === "discover" || raw === "mine" || raw === "all") return raw;
+  if (raw === "collections" || raw === "discover" || raw === "mine") return raw;
   return "mine";
 }
 
@@ -222,7 +206,7 @@ export default function HomePage() {
     return (
       <div className="min-h-screen bg-background">
         <header className="border-b border-border/60 bg-background/80 backdrop-blur">
-          <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
+          <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
             <Link to="/">
               <Brand />
             </Link>
@@ -249,21 +233,14 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* 顶栏：品牌 + tabs + 搜索 + 新建 + 头像 */}
-      <header className="sticky top-0 z-20 border-b border-border/50 bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
+      <header className="sticky top-0 z-20 border-b border-border/40 bg-background/85 backdrop-blur-md">
+        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
           <Link to="/" className="shrink-0">
             <Brand />
           </Link>
 
           {/* Tabs */}
-          <nav className="ml-4 flex items-center gap-1 rounded-full bg-muted/50 p-1">
-            <TabButton
-              active={tab === "all"}
-              disabled
-              title="全部（v2）"
-            >
-              全部
-            </TabButton>
+          <nav className="ml-4 flex items-center gap-1 rounded-full bg-muted/60 p-1">
             <TabButton
               active={tab === "mine"}
               onClick={() => setTab("mine")}
@@ -277,6 +254,9 @@ export default function HomePage() {
             >
               发现
             </TabButton>
+            <TabButton active={false} onClick={() => navigate("/search")}>
+              聚合搜索
+            </TabButton>
             <TabButton active={tab === "collections"} onClick={() => setTab("collections")}>
               集合
             </TabButton>
@@ -289,16 +269,16 @@ export default function HomePage() {
                 placeholder="搜索笔记本"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 rounded-full border-border/60 bg-card pl-9 shadow-sm"
+                className="h-9 rounded-full border-0 bg-card pl-9 shadow-none"
               />
             </div>
 
             {/* 视图切换 */}
-            <div className="hidden items-center rounded-full border border-border/60 bg-card p-0.5 shadow-sm md:flex">
+            <div className="hidden items-center rounded-full bg-card p-0.5 md:flex">
               <Button
                 size="icon"
                 variant={view === "grid" ? "secondary" : "ghost"}
-                className="h-7 w-7 rounded-full"
+                className="h-7 w-7 rounded-full shadow-none"
                 onClick={() => setView("grid")}
                 title="网格"
               >
@@ -307,7 +287,7 @@ export default function HomePage() {
               <Button
                 size="icon"
                 variant={view === "list" ? "secondary" : "ghost"}
-                className="h-7 w-7 rounded-full"
+                className="h-7 w-7 rounded-full shadow-none"
                 onClick={() => setView("list")}
                 title="列表"
               >
@@ -326,8 +306,8 @@ export default function HomePage() {
       </header>
 
       {/* 内容区 */}
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        {(tab === "all" || tab === "mine") && (
+      <div className="w-full px-6 py-8 lg:px-8">
+        {tab === "mine" && (
           <MyNotebooksSection
             notebooks={visible}
             isLoading={list.isLoading}
@@ -360,7 +340,7 @@ export default function HomePage() {
         )}
       </div>
 
-      <details className="mx-auto mb-8 max-w-6xl px-6 text-[11px] text-muted-foreground/70">
+      <details className="mb-8 w-full px-6 text-[11px] text-muted-foreground/70 lg:px-8">
         <summary className="cursor-pointer select-none hover:text-muted-foreground">
           API 健康检查（开发用）
         </summary>
@@ -439,7 +419,7 @@ function TabButton({
       title={title}
       className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
         active
-          ? "bg-card text-foreground shadow-sm"
+          ? "bg-background text-foreground shadow-sm"
           : disabled
             ? "cursor-not-allowed text-muted-foreground/40"
             : "text-muted-foreground hover:text-foreground"
@@ -474,10 +454,7 @@ function MyNotebooksSection({
     <section>
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">我的笔记本</h1>
-        <Button
-          onClick={onCreate}
-          className="rounded-full bg-foreground px-4 text-background hover:bg-foreground/90"
-        >
+        <Button onClick={onCreate} className="rounded-full px-4 shadow-none">
           <Plus className="h-4 w-4" />
           <span className="ml-1">新建笔记本</span>
         </Button>
@@ -486,21 +463,18 @@ function MyNotebooksSection({
       {isLoading ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
       ) : notebooks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/70 bg-card/60 px-8 py-20 text-center">
+        <div className="flex flex-col items-center justify-center soft-tile px-8 py-20 text-center">
           <p className="mb-1 text-base font-medium text-foreground">还没有笔记本</p>
           <p className="mb-5 max-w-sm text-sm text-muted-foreground">
             创建一本笔记本，上传或粘贴视频链接，开始整理与对话。
           </p>
-          <Button
-            onClick={onCreate}
-            className="rounded-full bg-foreground px-5 text-background hover:bg-foreground/90"
-          >
+          <Button onClick={onCreate} className="rounded-full px-5 shadow-none">
             <Plus className="h-4 w-4" />
             <span className="ml-1">新建笔记本</span>
           </Button>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {notebooks.map((nb) => (
             <NotebookCard
               key={nb.id}
@@ -549,10 +523,7 @@ function CollectionsSection({
     <section>
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">我的集合</h1>
-        <Button
-          onClick={onCreate}
-          className="rounded-full bg-foreground px-4 text-background hover:bg-foreground/90"
-        >
+        <Button onClick={onCreate} className="rounded-full px-4 shadow-none">
           <Plus className="h-4 w-4" />
           <span className="ml-1">新建集合</span>
         </Button>
@@ -561,25 +532,22 @@ function CollectionsSection({
       {isLoading ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
       ) : collections.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/70 bg-card/60 px-8 py-20 text-center">
+        <div className="flex flex-col items-center justify-center soft-tile px-8 py-20 text-center">
           <p className="mb-1 text-base font-medium text-foreground">还没有集合</p>
           <p className="mb-5 max-w-sm text-sm text-muted-foreground">
             用集合把相关笔记本归在一起，方便浏览与整理。
           </p>
-          <Button
-            onClick={onCreate}
-            className="rounded-full bg-foreground px-5 text-background hover:bg-foreground/90"
-          >
+          <Button onClick={onCreate} className="rounded-full px-5 shadow-none">
             <Plus className="h-4 w-4" />
             <span className="ml-1">新建集合</span>
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {collections.map((c) => (
             <div
               key={c.id}
-              className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="group relative flex min-h-[168px] cursor-pointer flex-col soft-tile soft-tile-hover p-4"
               onClick={() => onOpen(c.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -590,16 +558,14 @@ function CollectionsSection({
               role="link"
               tabIndex={0}
             >
-              <div
-                className={`relative flex h-24 items-end bg-gradient-to-br px-4 pb-3 ${coverClass(c.id)}`}
-              >
-                <span className="text-3xl leading-none drop-shadow-sm" aria-hidden>
-                  {c.icon || <Folder className="h-8 w-8 text-foreground/50" />}
-                </span>
-                <div
-                  className="absolute right-2 top-2"
-                  onClick={(e) => e.stopPropagation()}
+              <div className="flex items-start justify-between gap-2">
+                <span
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-background/70 text-xl"
+                  aria-hidden
                 >
+                  {c.icon || <Folder className="h-5 w-5 text-foreground/45" />}
+                </span>
+                <div onClick={(e) => e.stopPropagation()}>
                   <CollectionCardMenu
                     onEdit={() => onEdit(c.id)}
                     onDelete={() => onDelete(c.id)}
@@ -607,13 +573,15 @@ function CollectionsSection({
                   />
                 </div>
               </div>
-              <div className="flex flex-1 flex-col p-4 pt-3">
-                <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{c.name}</h3>
-                <div className="mt-auto pt-3 text-xs text-muted-foreground">
+              <div className="mt-auto pt-8">
+                <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
+                  {c.name}
+                </h3>
+                <p className="mt-1.5 text-xs text-muted-foreground">
                   {c.notebook_count === 1
                     ? "1 本笔记本"
                     : `${c.notebook_count} 本笔记本`}
-                </div>
+                </p>
               </div>
             </div>
           ))}
@@ -627,14 +595,14 @@ function PlaceholderSection({ title, hint }: { title: string; hint: string }) {
   return (
     <section>
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">{title}</h1>
-      <div className="rounded-3xl border border-dashed border-border/70 bg-card/60 px-8 py-20 text-center text-sm text-muted-foreground">
+      <div className="soft-tile px-8 py-20 text-center text-sm text-muted-foreground">
         {hint}
       </div>
     </section>
   );
 }
 
-// ── Card：仿 NotebookLM 封面条 ────────────────────────────
+// ── Card：NotebookLM 一体浅灰软卡片 ───────────────────────
 function NotebookCard({
   notebook: nb,
   onUpdateTitle,
@@ -649,18 +617,18 @@ function NotebookCard({
   onAddToCollection?: (id: number) => void;
 }) {
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
-      <Link
-        to={`/notebooks/${nb.id}`}
-        className={`relative flex h-24 items-end bg-gradient-to-br px-4 pb-3 ${coverClass(nb.id)}`}
-        aria-label={nb.title}
-      >
-        <span className="text-3xl leading-none drop-shadow-sm">{nb.icon || "📁"}</span>
-        {nb.is_pinned ? (
-          <Pin className="absolute left-3 top-3 h-3.5 w-3.5 fill-amber-500 text-amber-500" />
-        ) : null}
-      </Link>
-      <div className="absolute right-2 top-2 z-10">
+    <div className="group relative flex min-h-[168px] flex-col soft-tile soft-tile-hover p-4">
+      <div className="flex items-start justify-between gap-2">
+        <Link
+          to={`/notebooks/${nb.id}`}
+          className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-background/70 text-xl"
+          aria-label={nb.title}
+        >
+          <span aria-hidden>{nb.icon || "📁"}</span>
+          {nb.is_pinned ? (
+            <Pin className="absolute -right-1 -top-1 h-3 w-3 fill-amber-500 text-amber-500" />
+          ) : null}
+        </Link>
         <NotebookCardMenu
           notebookId={nb.id}
           isPinned={nb.is_pinned}
@@ -671,14 +639,13 @@ function NotebookCard({
         />
       </div>
 
-      <Link to={`/notebooks/${nb.id}`} className="flex flex-1 flex-col p-4 pt-3">
-        <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{nb.title}</h3>
-        {nb.description ? (
-          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{nb.description}</p>
-        ) : null}
-        <div className="mt-auto pt-3 text-xs text-muted-foreground">
+      <Link to={`/notebooks/${nb.id}`} className="mt-auto flex flex-col pt-8">
+        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
+          {nb.title}
+        </h3>
+        <p className="mt-1.5 text-xs text-muted-foreground">
           {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
-        </div>
+        </p>
       </Link>
     </div>
   );
@@ -695,15 +662,15 @@ function NotebookRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 shadow-sm transition-shadow hover:shadow-md">
+    <div className="group flex items-center gap-3 soft-tile soft-tile-hover px-3 py-3">
       <Link
         to={`/notebooks/${nb.id}`}
-        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-2xl ${coverClass(nb.id)}`}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-background/70 text-xl"
       >
         {nb.icon || "📁"}
       </Link>
       <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{nb.title}</div>
+        <div className="truncate text-sm font-semibold">{nb.title}</div>
         {nb.description && (
           <div className="truncate text-xs text-muted-foreground">
             {nb.description}
