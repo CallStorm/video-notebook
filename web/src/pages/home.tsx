@@ -4,7 +4,6 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Folder, Plus, Search, LayoutGrid, List, Pin, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
-import { HealthGate } from "@/components/health-gate";
 import { NewNotebookDialog } from "@/components/new-notebook-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { Brand } from "@/components/brand";
@@ -339,15 +338,6 @@ export default function HomePage() {
           />
         )}
       </div>
-
-      <details className="mb-8 w-full px-6 text-[11px] text-muted-foreground/70 lg:px-8">
-        <summary className="cursor-pointer select-none hover:text-muted-foreground">
-          API 健康检查（开发用）
-        </summary>
-        <div className="mt-2 rounded-xl border border-border/40 bg-muted/30 p-3">
-          <HealthGate />
-        </div>
-      </details>
 
       <NewNotebookDialog
         open={showNew}
