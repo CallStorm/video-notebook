@@ -50,6 +50,7 @@ from app.models.notebook import (  # noqa: E402,F401
     SubtitleLine,
     Video,
 )
+from app.models.fetch_network import FetchNetworkConfig  # noqa: E402,F401
 from app.models.studio import (  # noqa: E402,F401
     Agent,
     ClaudeCodeConfig,

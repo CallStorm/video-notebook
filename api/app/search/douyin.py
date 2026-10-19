@@ -23,14 +23,20 @@ _VIDEO_ID_RE = re.compile(
 
 def search_douyin(query: str, *, limit: int) -> list[SearchResultItem]:
     """Search Douyin videos via Bing videos page, keeping only douyin links."""
+    from app.fetch_network.runtime import resolve_for_platform
+
     q = f"site:douyin.com/video {query}"
     url = f"https://www.bing.com/videos/search?q={quote_plus(q)}&FORM=HDRSC3"
     headers = {
         "User-Agent": _UA,
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
+    net = resolve_for_platform("douyin")
+    client_kwargs: dict = {"timeout": 25.0, "headers": headers, "follow_redirects": True}
+    if net.proxy:
+        client_kwargs["proxy"] = net.proxy
     try:
-        with httpx.Client(timeout=25.0, headers=headers, follow_redirects=True) as client:
+        with httpx.Client(**client_kwargs) as client:
             resp = client.get(url)
             resp.raise_for_status()
             html = resp.text

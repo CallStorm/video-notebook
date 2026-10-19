@@ -86,18 +86,11 @@ make web
 - **YouTube**：yt-dlp + Deno（EJS）解 challenge；带 cookie 时使用 `default,web_embedded` 客户端
 - 失败来源可在卡片菜单「重新抓取」
 
-### Cookie（YouTube 等常需要）
+### Cookie / 代理（后台配置）
 
-优先用 **Netscape 格式 cookie 文件**（避免 macOS 钥匙串卡住）：
+在 **后台 → 抓取与网络** 按平台（YouTube / B站 / 抖音）上传或手动粘贴 Netscape Cookie；代理按类型/地址/端口配置，并可勾选应用到哪些平台（常见：仅 YouTube）。账号管理在 **后台 → 账号**。
 
-```bash
-# .env（仓库根目录）
-YTDLP_COOKIES_FILE=/absolute/path/to/youtube-cookies.txt
-# YTDLP_COOKIES_FROM_BROWSER=chrome   # 易卡钥匙串，不推荐作默认
-```
-
-导出建议：Chrome 登录 YouTube → 扩展选 **Netscape** → 保存到上述路径。  
-有效 cookie 应包含 `LOGIN_INFO`、`SID`、`SAPISID` 等；只有 `VISITOR_*` 不够。
+导出建议：Chrome 登录对应站 → 扩展导出 **Netscape** → 粘贴到后台。YouTube 有效 cookie 宜含 `LOGIN_INFO`、`SID`、`SAPISID` 等。
 
 Deno（YouTube JS challenge）：
 
@@ -106,7 +99,7 @@ curl -fsSL https://deno.land/install.sh | sh
 export PATH="$HOME/.deno/bin:$PATH"
 ```
 
-改 `.env` 后需**重启 API**（settings 有缓存）。
+保存后即时生效，无需改 `.env`。
 
 ### 概览失败说明
 概览走当前默认 LLM。若返回类似 `input new_sensitive` / 内容安全错误，是模型侧审核拦截，不是抓取失败；可换模型或换视频后再「重新生成」。

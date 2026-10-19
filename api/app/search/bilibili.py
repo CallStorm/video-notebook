@@ -19,6 +19,9 @@ _UA = (
 
 
 def search_bilibili(query: str, *, limit: int) -> list[SearchResultItem]:
+    from app.fetch_network.cookies_fs import cookie_header_from_file
+    from app.fetch_network.runtime import resolve_for_platform
+
     params = {
         "search_type": "video",
         "keyword": query,
@@ -30,8 +33,16 @@ def search_bilibili(query: str, *, limit: int) -> list[SearchResultItem]:
         "Referer": "https://search.bilibili.com/",
         "Origin": "https://search.bilibili.com",
     }
+    net = resolve_for_platform("bilibili")
+    if net.cookiefile is not None:
+        cookie = cookie_header_from_file("bilibili")
+        if cookie:
+            headers["Cookie"] = cookie
+    client_kwargs: dict = {"timeout": 20.0, "headers": headers, "follow_redirects": True}
+    if net.proxy:
+        client_kwargs["proxy"] = net.proxy
     try:
-        with httpx.Client(timeout=20.0, headers=headers, follow_redirects=True) as client:
+        with httpx.Client(**client_kwargs) as client:
             resp = client.get(_API, params=params)
             resp.raise_for_status()
             payload = resp.json()

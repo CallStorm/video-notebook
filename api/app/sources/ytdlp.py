@@ -95,9 +95,8 @@ def _download_direct(url: str, work_dir: Path) -> DownloadResult:
 def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
     import yt_dlp
 
-    from app.core.config import get_settings
+    from app.fetch_network.runtime import apply_ytdlp_opts
 
-    settings = get_settings()
     outtmpl = str(work_dir / "%(id)s.%(ext)s")
     opts: dict = {
         "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
@@ -125,16 +124,7 @@ def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
         # YouTube EJS challenge solver (requires deno/node on PATH or explicit path).
         "js_runtimes": _js_runtimes(),
     }
-    cookies_file = getattr(settings, "ytdlp_cookies_file", None)
-    cookies_browser = getattr(settings, "ytdlp_cookies_from_browser", None)
-    if cookies_file:
-        path = Path(cookies_file)
-        if path.is_file():
-            opts["cookiefile"] = str(path)
-    elif cookies_browser:
-        # e.g. "chrome" or "chrome:Default"
-        parts = str(cookies_browser).split(":", 1)
-        opts["cookiesfrombrowser"] = tuple(parts)
+    opts = apply_ytdlp_opts(opts, url=url)
 
     info: dict | None = None
     try:
@@ -150,23 +140,19 @@ def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
                 info = fut.result(timeout=180)
             except FuturesTimeout as exc:
                 raise FetchDownloadError(
-                    "抓取超时（可能卡在浏览器 Cookie/钥匙串授权）。"
-                    "请在本机允许钥匙串访问，或改用 YTDLP_COOKIES_FILE。"
+                    "抓取超时。请检查网络/代理，或在后台「抓取与网络」配置 Cookie 后重试。"
                 ) from exc
     except FetchDownloadError:
         raise
     except Exception as exc:  # noqa: BLE001
         msg = _clean_error(exc)
         if "Sign in to confirm" in msg or "not a bot" in msg:
-            msg += (
-                " 请在 .env 设置 YTDLP_COOKIES_FROM_BROWSER=chrome "
-                "或 YTDLP_COOKIES_FILE=/path/to/cookies.txt 后重试。"
-            )
+            msg += " 请在后台「抓取与网络」为 YouTube 启用并上传 Cookie 后重试。"
         elif "needs to be reloaded" in msg.lower():
             msg += (
                 " 这通常是 YouTube 对带 cookie 的客户端限制。"
                 "请确认已安装 deno（或 node），并确保 yt-dlp / yt-dlp-ejs 为最新；"
-                "也可重新导出 cookies 后再「重新抓取」。"
+                "也可在后台重新粘贴 cookies 后再「重新抓取」。"
             )
         raise FetchDownloadError(msg) from exc
 

@@ -116,10 +116,7 @@ class Settings(BaseSettings):
     seed_admin_phone: str | None = None
     seed_admin_password: str | None = None
 
-    # ─── yt-dlp（YouTube 等常需 cookie） ─────────────────────────────────
-    # 例：YTDLP_COOKIES_FROM_BROWSER=chrome  或  YTDLP_COOKIES_FILE=/path/cookies.txt
-    ytdlp_cookies_from_browser: str | None = None
-    ytdlp_cookies_file: Path | None = None
+    # Cookie / 代理改由后台「抓取与网络」配置，不再读 YTDLP_COOKIES_*。
 
     # ─── LLM 调用护栏 ────────────────────────────────────────────────────
     max_context_tokens: int = 60000

@@ -13,6 +13,8 @@ def search_with_ytdlp(query_spec: str, *, platform: Platform, limit: int) -> lis
     """Run a yt-dlp search URL like ``ytsearch12:foo`` / ``bilisearch12:foo``."""
     import yt_dlp
 
+    from app.fetch_network.runtime import apply_ytdlp_opts
+
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -22,6 +24,7 @@ def search_with_ytdlp(query_spec: str, *, platform: Platform, limit: int) -> lis
         "ignoreerrors": True,
         "socket_timeout": 20,
     }
+    opts = apply_ytdlp_opts(opts, platform=platform)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(query_spec, download=False)

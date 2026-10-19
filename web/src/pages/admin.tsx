@@ -5,21 +5,37 @@ import { useAuth } from "@/lib/auth";
 import { AdminClaudePage } from "@/pages/admin-claude";
 import { AdminUsersPage } from "@/pages/admin-users";
 import { AdminConfigsPage } from "@/pages/admin-configs";
+import { AdminFetchNetworkPage } from "@/pages/admin-fetch-network";
 import { AdminSkillsPanel } from "@/pages/admin-skills";
 import { AdminAgentsPanel } from "@/pages/admin-agents";
 import { AdminStudioPanel } from "@/pages/admin-studio";
 
-type AdminTab = "overview" | "skills" | "agents" | "studio";
+type AdminTab =
+  | "overview"
+  | "fetch-network"
+  | "accounts"
+  | "skills"
+  | "agents"
+  | "studio";
 
 const TABS: { id: AdminTab; label: string }[] = [
   { id: "overview", label: "概览" },
+  { id: "fetch-network", label: "抓取与网络" },
+  { id: "accounts", label: "账号" },
   { id: "skills", label: "技能" },
   { id: "agents", label: "智能体" },
   { id: "studio", label: "Studio 能力" },
 ];
 
 function parseTab(raw: string | null): AdminTab {
-  if (raw === "skills" || raw === "agents" || raw === "studio" || raw === "overview") {
+  if (
+    raw === "skills" ||
+    raw === "agents" ||
+    raw === "studio" ||
+    raw === "overview" ||
+    raw === "fetch-network" ||
+    raw === "accounts"
+  ) {
     return raw;
   }
   return "overview";
@@ -65,7 +81,7 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">后台</h1>
           <p className="text-sm text-muted-foreground">
-            账号、模型、技能、智能体与 Studio 能力管理。
+            模型、抓取网络、账号、技能、智能体与 Studio 能力管理。
           </p>
           <nav className="mt-4 flex flex-wrap gap-1 rounded-full bg-muted/50 p-1 w-fit">
             {TABS.map((item) => (
@@ -89,9 +105,10 @@ export default function AdminPage() {
           <div className="space-y-6">
             <AdminClaudePage />
             <AdminConfigsPage />
-            <AdminUsersPage />
           </div>
         ) : null}
+        {tab === "fetch-network" ? <AdminFetchNetworkPage /> : null}
+        {tab === "accounts" ? <AdminUsersPage /> : null}
         {tab === "skills" ? <AdminSkillsPanel /> : null}
         {tab === "agents" ? <AdminAgentsPanel /> : null}
         {tab === "studio" ? <AdminStudioPanel /> : null}

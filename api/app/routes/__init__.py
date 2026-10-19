@@ -12,6 +12,7 @@ from app.routes import (
     admin_claude,
     admin_credentials,
     admin_default_models,
+    admin_fetch_network,
     admin_models,
     admin_skills,
     admin_studio,
@@ -40,6 +41,7 @@ api_router.include_router(admin_default_models.router)
 api_router.include_router(admin_skills.router)
 api_router.include_router(admin_agents.router)
 api_router.include_router(admin_claude.router)
+api_router.include_router(admin_fetch_network.router)
 api_router.include_router(admin_studio.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)
