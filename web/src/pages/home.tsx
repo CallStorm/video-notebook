@@ -1,14 +1,16 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Search, LayoutGrid, List, Pin, Trash2 } from "lucide-react";
+import { Plus, Search, LayoutGrid, List, Pin, Trash2, Clapperboard, MessageSquareText, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import { isRemoteCover } from "@/lib/cover-gen";
 import { NewNotebookDialog } from "@/components/new-notebook-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
+import { AppHeader } from "@/components/app-header";
 import { Brand } from "@/components/brand";
 import { UserMenu } from "@/components/user-menu";
+import { formatDateZh } from "@/lib/utils";
 import { NotebookBookCard } from "@/components/notebook-book-card";
 import { GeneratedCover } from "@/components/generated-cover";
 import { CollectionCardMenu } from "@/components/collection-card-menu";
@@ -93,14 +95,7 @@ type View = "grid" | "list";
 type Tab = "mine" | "discover" | "collections";
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateZh(iso);
 }
 
 function formatSources(n: number): string {
@@ -123,6 +118,15 @@ export default function HomePage() {
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<View>("grid");
   const [tab, setTab] = useState<Tab>(() => initialTab(searchParams));
+
+  React.useEffect(() => {
+    const next = initialTab(searchParams);
+    if (next === "discover") {
+      navigate("/discover", { replace: true });
+      return;
+    }
+    setTab(next);
+  }, [searchParams, navigate]);
   const [collectionDialog, setCollectionDialog] = useState<
     { mode: "create" | "edit"; id: number | null } | null
   >(null);
@@ -247,38 +251,11 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* 顶栏：品牌 + tabs + 搜索 + 新建 + 头像 */}
-      <header className="sticky top-0 z-20 border-b border-border/40 bg-background/85 backdrop-blur-md">
-        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
-          <Link to="/" className="shrink-0">
-            <Brand />
-          </Link>
-
-          {/* Tabs */}
-          <nav className="ml-4 flex items-center gap-1 rounded-full border border-border/70 bg-card p-1 shadow-soft">
-            <TabButton
-              active={tab === "mine"}
-              onClick={() => setTab("mine")}
-            >
-              我的笔记本
-            </TabButton>
-            <TabButton
-              active={tab === "discover"}
-              onClick={() => setTab("discover")}
-              title="发现（v2）"
-            >
-              发现
-            </TabButton>
-            <TabButton active={false} onClick={() => navigate("/search")}>
-              聚合搜索
-            </TabButton>
-            <TabButton active={tab === "collections"} onClick={() => setTab("collections")}>
-              集合
-            </TabButton>
-          </nav>
-
-          <div className="ml-auto flex items-center gap-3">
-            <div className="relative w-72">
+      <AppHeader
+        active={tab === "collections" ? "collections" : "mine"}
+        afterNav={
+          <div className="flex justify-end">
+            <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="搜索笔记本"
@@ -287,9 +264,11 @@ export default function HomePage() {
                 className="h-9 rounded-full border border-border/80 bg-card pl-9 shadow-soft"
               />
             </div>
-
-            {/* 视图切换 */}
-            <div className="hidden items-center rounded-full bg-card p-0.5 md:flex">
+          </div>
+        }
+        rightSlot={
+          <>
+            <div className="hidden items-center rounded-full border border-border/60 bg-card p-0.5 md:flex">
               <Button
                 size="icon"
                 variant={view === "grid" ? "secondary" : "ghost"}
@@ -309,16 +288,15 @@ export default function HomePage() {
                 <List className="h-4 w-4" />
               </Button>
             </div>
-
             <UserMenu
               onLogout={() => {
                 logout();
                 navigate("/login", { replace: true });
               }}
             />
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {/* 内容区 */}
       <div className="w-full px-6 py-8 lg:px-8">
@@ -328,6 +306,7 @@ export default function HomePage() {
             isLoading={list.isLoading}
             view={view}
             onCreate={() => setShowNew(true)}
+            onSearch={() => navigate("/search")}
             onEdit={(id) => {
               const nb = items.find((n) => n.id === id);
               if (nb) setEditing(nb);
@@ -339,7 +318,9 @@ export default function HomePage() {
             onAddToCollection={setAddToCollectionId}
           />
         )}
-        {tab === "discover" && <PlaceholderSection title="发现" hint="Phase 12 实装 share_all / Discover 视图" />}
+        {tab === "discover" && (
+          <DiscoverRedirect />
+        )}
         {tab === "collections" && (
           <CollectionsSection
             collections={collections.data ?? []}
@@ -404,40 +385,6 @@ export default function HomePage() {
   );
 }
 
-// ── Tab 按钮（仿 NotebookLM 软胶囊） ──────────────────────
-function TabButton({
-  active,
-  onClick,
-  disabled,
-  title,
-  children,
-}: {
-  active: boolean;
-  onClick?: () => void;
-  disabled?: boolean;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={title}
-      className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-        active
-          ? "bg-primary text-primary-foreground shadow-sm"
-          : disabled
-            ? "cursor-not-allowed text-muted-foreground/40"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-// ── "我的笔记" section ────────────────────────────────────
 function MyNotebooksSection({
   notebooks,
   isLoading,
@@ -445,6 +392,7 @@ function MyNotebooksSection({
   onTogglePin,
   onDelete,
   onCreate,
+  onSearch,
   onEdit,
   onAddToCollection,
 }: {
@@ -455,12 +403,18 @@ function MyNotebooksSection({
   onDelete: (id: number) => void;
   onEdit: (id: number) => void;
   onCreate: () => void;
+  onSearch: () => void;
   onAddToCollection: (id: number) => void;
 }) {
   return (
     <section>
-      <header className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">我的笔记本</h1>
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">我的笔记本</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            书架上的每一本，都是「分析 → 学习 → 输出」的工作台
+          </p>
+        </div>
         <Button onClick={onCreate} className="rounded-full px-4 shadow-none">
           <Plus className="h-4 w-4" />
           <span className="ml-1">新建笔记本</span>
@@ -470,15 +424,38 @@ function MyNotebooksSection({
       {isLoading ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
       ) : notebooks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center soft-tile px-8 py-20 text-center">
-          <p className="mb-1 text-base font-medium text-foreground">还没有笔记本</p>
-          <p className="mb-5 max-w-sm text-sm text-muted-foreground">
-            创建一本笔记本，上传或粘贴视频链接，开始整理与对话。
+        <div className="soft-tile overflow-hidden px-6 py-14 text-center sm:px-10 sm:py-16">
+          <div className="mx-auto mb-6 flex max-w-md justify-center gap-2">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Clapperboard className="h-5 w-5" />
+            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[hsl(175_60%_94%)] text-[hsl(var(--success))]">
+              <MessageSquareText className="h-5 w-5" />
+            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
+              <Sparkles className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mb-1 text-lg font-semibold tracking-tight text-foreground">
+            从第一本笔记本开始
           </p>
-          <Button onClick={onCreate} className="rounded-full px-5 shadow-none">
-            <Plus className="h-4 w-4" />
-            <span className="ml-1">新建笔记本</span>
-          </Button>
+          <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
+            分析视频 → 学习提问 → Studio 输出。新建一本笔记本，或去聚合搜索找素材。
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <Button onClick={onCreate} className="rounded-full px-5 shadow-none">
+              <Plus className="h-4 w-4" />
+              <span className="ml-1">新建笔记本</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full px-5 border-border/70"
+              onClick={onSearch}
+            >
+              <Search className="h-4 w-4" />
+              <span className="ml-1">去聚合搜索</span>
+            </Button>
+          </div>
         </div>
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
@@ -567,13 +544,14 @@ function CollectionsSection({
   );
 }
 
-function PlaceholderSection({ title, hint }: { title: string; hint: string }) {
+function DiscoverRedirect() {
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    navigate("/discover", { replace: true });
+  }, [navigate]);
   return (
     <section>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">{title}</h1>
-      <div className="soft-tile px-8 py-20 text-center text-sm text-muted-foreground">
-        {hint}
-      </div>
+      <p className="text-sm text-muted-foreground">正在打开发现…</p>
     </section>
   );
 }

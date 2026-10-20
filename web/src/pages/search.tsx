@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
+  Clapperboard,
   ExternalLink,
   Eye,
   NotebookPen,
   Search as SearchIcon,
   X,
 } from "lucide-react";
-import { Brand } from "@/components/brand";
+import { AppHeader } from "@/components/app-header";
 import { UserMenu } from "@/components/user-menu";
 import {
   AddSearchToNotebookDialog,
@@ -46,6 +47,13 @@ interface SearchResponse {
   errors: PlatformSearchError[];
 }
 
+interface PreviewResolveResponse {
+  token: string;
+  play_url: string;
+  expires_in: number;
+  title: string | null;
+}
+
 const PLATFORM_CHIPS: { id: "all" | Platform; label: string }[] = [
   { id: "all", label: "全部" },
   { id: "bilibili", label: "B站" },
@@ -75,18 +83,6 @@ function formatViews(n: number | null): string | null {
   return String(n);
 }
 
-function embedUrl(item: SearchResultItem): string | null {
-  if (item.platform === "youtube") {
-    return `https://www.youtube.com/embed/${item.id}`;
-  }
-  if (item.platform === "bilibili") {
-    const bvid = item.id.startsWith("BV") ? item.id : null;
-    if (!bvid) return null;
-    return `https://player.bilibili.com/player.html?bvid=${bvid}&high_quality=1&autoplay=0`;
-  }
-  return null;
-}
-
 function SearchPageInner() {
   const { access, logout } = useAuth();
   const navigate = useNavigate();
@@ -95,6 +91,8 @@ function SearchPageInner() {
   const [platform, setPlatform] = useState<"all" | Platform>("all");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [preview, setPreview] = useState<SearchResultItem | null>(null);
+  const [previewPlayUrl, setPreviewPlayUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [addVideo, setAddVideo] = useState<SearchVideoRef | null>(null);
 
   const search = useMutation({
@@ -110,53 +108,57 @@ function SearchPageInner() {
     onSuccess: (data) => setResult(data),
   });
 
+  const resolvePreview = useMutation({
+    mutationFn: async (item: SearchResultItem) => {
+      return api<PreviewResolveResponse>("/search/preview", {
+        method: "POST",
+        access: token,
+        body: { url: item.url },
+      });
+    },
+    onSuccess: (data) => {
+      setPreviewPlayUrl(data.play_url);
+      setPreviewError(null);
+    },
+    onError: (err) => {
+      setPreviewPlayUrl(null);
+      setPreviewError(
+        err instanceof ApiError ? err.message : "预览解析失败，请重试或打开原站",
+      );
+    },
+  });
+
   const items = result?.items ?? [];
   const errors = result?.errors ?? [];
-  const previewEmbed = useMemo(
-    () => (preview ? embedUrl(preview) : null),
-    [preview],
-  );
+
+  const openPreview = (item: SearchResultItem) => {
+    setPreview(item);
+    setPreviewPlayUrl(null);
+    setPreviewError(null);
+    resolvePreview.mutate(item);
+  };
+
+  const closePreview = () => {
+    setPreview(null);
+    setPreviewPlayUrl(null);
+    setPreviewError(null);
+  };
+
+  const previewBusy = resolvePreview.isPending;
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border/50 bg-background/80 backdrop-blur-md">
-        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
-          <Link to="/" className="shrink-0">
-            <Brand />
-          </Link>
-          <nav className="ml-4 flex items-center gap-1 rounded-full bg-muted/60 p-1 text-sm">
-            <Link
-              to="/?tab=mine"
-              className="rounded-full px-3.5 py-1.5 text-muted-foreground hover:text-foreground"
-            >
-              我的笔记本
-            </Link>
-            <Link
-              to="/?tab=discover"
-              className="rounded-full px-3.5 py-1.5 text-muted-foreground hover:text-foreground"
-            >
-              发现
-            </Link>
-            <span className="rounded-full bg-background px-3.5 py-1.5 font-medium shadow-sm">
-              聚合搜索
-            </span>
-            <Link
-              to="/?tab=collections"
-              className="rounded-full px-3.5 py-1.5 text-muted-foreground hover:text-foreground"
-            >
-              集合
-            </Link>
-          </nav>
-          <div className="ml-auto">
-            <UserMenu
-              onLogout={() => {
-                logout();
-                navigate("/login", { replace: true });
-              }}
-            />
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        active="search"
+        rightSlot={
+          <UserMenu
+            onLogout={() => {
+              logout();
+              navigate("/login", { replace: true });
+            }}
+          />
+        }
+      />
 
       <main className="w-full px-6 py-8 lg:px-8">
         <div className="mx-auto max-w-3xl space-y-4">
@@ -225,9 +227,10 @@ function SearchPageInner() {
             </div>
 
             {items.length === 0 ? (
-              <p className="py-16 text-center text-sm text-muted-foreground">
-                没有结果，换个关键词试试
-              </p>
+              <div className="soft-tile py-14 text-center">
+                <p className="mb-1 text-sm font-medium">没有找到视频</p>
+                <p className="text-sm text-muted-foreground">换个关键词，或切换上方平台再试一次</p>
+              </div>
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                 {items.map((item) => {
@@ -289,7 +292,7 @@ function SearchPageInner() {
                             size="sm"
                             variant="ghost"
                             className="flex-1 gap-1 rounded-full text-xs text-emerald-700"
-                            onClick={() => setPreview(item)}
+                            onClick={() => openPreview(item)}
                           >
                             <Eye className="h-3.5 w-3.5" />
                             预览
@@ -317,16 +320,22 @@ function SearchPageInner() {
         )}
 
         {!result && !search.isPending && (
-          <p className="mt-20 text-center text-sm text-muted-foreground">
-            输入关键词，搜索 B站、YouTube、抖音视频
-          </p>
+          <div className="mx-auto mt-14 max-w-lg soft-tile px-8 py-14 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Clapperboard className="h-6 w-6" />
+            </div>
+            <p className="mb-1 text-base font-semibold tracking-tight">找视频，加进笔记本</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              输入关键词，搜索 B站、YouTube、抖音。预览后一键添加到笔记本，进入「分析 → 学习 → 输出」。
+            </p>
+          </div>
         )}
       </main>
 
       {preview && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setPreview(null)}
+          onClick={closePreview}
         >
           <div
             className="w-full max-w-3xl overflow-hidden rounded-xl border bg-background shadow-2xl"
@@ -339,33 +348,48 @@ function SearchPageInner() {
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8 shrink-0"
-                onClick={() => setPreview(null)}
+                onClick={closePreview}
               >
                 <X className="h-4 w-4" />
               </Button>
             </header>
             <div className="aspect-video bg-black">
-              {previewEmbed ? (
-                <iframe
-                  title={preview.title}
-                  src={previewEmbed}
+              {previewPlayUrl ? (
+                <video
+                  key={previewPlayUrl}
+                  src={previewPlayUrl}
                   className="h-full w-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  referrerPolicy="no-referrer"
+                  controls
+                  autoPlay
+                  playsInline
                 />
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-                  <p>该平台暂不支持页内预览</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() =>
-                      window.open(preview.url, "_blank", "noopener,noreferrer")
-                    }
-                  >
-                    打开原站观看
-                  </Button>
+                  {previewBusy ? (
+                    <p>正在解析可播放地址…</p>
+                  ) : (
+                    <>
+                      <p>{previewError || "该平台暂不支持页内预览"}</p>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => resolvePreview.mutate(preview)}
+                        >
+                          重试
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            window.open(preview.url, "_blank", "noopener,noreferrer")
+                          }
+                        >
+                          打开原站观看
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

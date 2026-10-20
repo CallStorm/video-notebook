@@ -1,44 +1,74 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { Compass, Plus, Search } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { Brand } from "@/components/brand";
-import { UserAvatar } from "@/components/user-avatar";
-import { Card, CardContent } from "@/components/ui/card";
+import { AppHeader } from "@/components/app-header";
+import { UserMenu } from "@/components/user-menu";
+import { Button } from "@/components/ui/button";
 
 export default function DiscoverPage() {
-  const { user, access } = useAuth();
+  const { access, logout } = useAuth();
+  const navigate = useNavigate();
   const token = access ?? "";
+
   if (!token) {
     return (
-      <div className="mx-auto max-w-md p-6">
-        <Card>
-          <CardContent className="pt-6 text-sm">
-            请先登录。
-            <div className="mt-3">
-              <Link className="text-blue-600 underline" to="/login">
-                跳到登录页
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
+        <div className="w-full soft-tile p-8 text-center">
+          <p className="mb-4 text-sm text-muted-foreground">请先登录后浏览公开笔记本。</p>
+          <Button asChild className="rounded-full">
+            <Link to="/login">跳到登录页</Link>
+          </Button>
+        </div>
       </div>
     );
   }
+
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
-          <Link to="/">
-            <Brand />
-          </Link>
-          <div className="ml-auto">
-            <UserAvatar name={user?.name} />
+      <AppHeader
+        active="discover"
+        rightSlot={
+          <UserMenu
+            onLogout={() => {
+              logout();
+              navigate("/login", { replace: true });
+            }}
+          />
+        }
+      />
+      <div className="w-full px-6 py-8 lg:px-8">
+        <header className="mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight">发现</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            浏览他人分享的公开笔记本，找灵感、复用学习路径
+          </p>
+        </header>
+
+        <div className="soft-tile overflow-hidden px-6 py-16 text-center sm:px-10">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <Compass className="h-7 w-7" />
           </div>
-        </div>
-      </header>
-      <div className="w-full p-6 lg:px-8">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight">发现</h1>
-        <div className="soft-tile px-8 py-20 text-center text-sm text-muted-foreground">
-          公开笔记本浏览 / Discover 留 Phase 12 实装（依赖 share_all 公开流）。
+          <p className="mb-1 text-lg font-semibold tracking-tight">公开笔记本即将上线</p>
+          <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
+            之后你可以在这里看到社区精选与同事分享的笔记本。现在先从自己的书架开始，或用聚合搜索找视频素材。
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <Button
+              className="rounded-full px-5 shadow-none"
+              onClick={() => navigate("/")}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="ml-1">回到我的笔记本</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full border-border/70 px-5"
+              onClick={() => navigate("/search")}
+            >
+              <Search className="h-4 w-4" />
+              <span className="ml-1">去聚合搜索</span>
+            </Button>
+          </div>
         </div>
       </div>
     </div>

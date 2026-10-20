@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
-import { Brand } from "@/components/brand";
+import { AppHeader } from "@/components/app-header";
 import { UserMenu } from "@/components/user-menu";
 import { NotebookBookCard } from "@/components/notebook-book-card";
 import { CollectionEditDialog } from "@/components/collection-edit-dialog";
@@ -128,21 +128,17 @@ export default function CollectionPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b bg-background">
-        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
-          <Link to="/" className="shrink-0">
-            <Brand />
-          </Link>
-          <div className="ml-auto">
-            <UserMenu
-              onLogout={() => {
-                logout();
-                navigate("/login", { replace: true });
-              }}
-            />
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        active="collections"
+        rightSlot={
+          <UserMenu
+            onLogout={() => {
+              logout();
+              navigate("/login", { replace: true });
+            }}
+          />
+        }
+      />
 
       <div className="w-full p-6 lg:px-8">
         <button

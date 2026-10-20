@@ -48,14 +48,48 @@
     --popover: 0 0% 100%;
     --popover-foreground: 220 39% 11%;
 
-    /* 播放器深色区 */
-    --player: 220 28% 10%;
+    /* 播放器深色岛（仅媒体区，非整站暗色） */
+    --player: 222 32% 8%;
     --player-foreground: 210 20% 96%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 222 28% 7%;
+    --foreground: 210 20% 96%;
+
+    --card: 222 24% 10%;
+    --card-foreground: 210 20% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 18% 14%;
+    --secondary-foreground: 210 20% 92%;
+
+    --muted: 220 16% 14%;
+    --muted-foreground: 215 12% 62%;
+
+    --accent: 217 40% 16%;
+    --accent-foreground: 214 100% 85%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 175 70% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 39% 11%;
+
+    --border: 220 16% 18%;
+    --input: 220 16% 18%;
+    --ring: 217 91% 60%;
+
+    --popover: 222 24% 10%;
+    --popover-foreground: 210 20% 96%;
+
+    --player: 222 36% 5%;
+    --player-foreground: 210 20% 96%;
   }
 
   * {
@@ -72,11 +106,20 @@
 
 @layer utilities {
   .soft-tile {
-    @apply rounded-2xl border border-border/80 bg-card text-card-foreground shadow-sm transition-colors;
+    @apply rounded-2xl border border-border/80 bg-card text-card-foreground shadow-soft transition-colors;
   }
 
   .soft-tile-hover {
-    @apply hover:border-border hover:bg-accent/60;
+    @apply hover:border-primary/25 hover:bg-accent/50;
+  }
+
+  /* 登录页氛围背景 */
+  .login-mesh {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 80% 60% at 10% 20%, hsl(217 91% 53% / 0.14), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 90% 10%, hsl(175 84% 32% / 0.12), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 70% 85%, hsl(217 91% 53% / 0.08), transparent 55%);
   }
 
   /* 立体书本舞台 */
@@ -128,7 +171,7 @@
 
   /* 书架：左分类名 + 右可滑动书本 */
   .shelf-row {
-    @apply relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-[box-shadow,border-color] duration-200 hover:border-primary/30 hover:shadow-md;
+    @apply relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-soft transition-[box-shadow,border-color] duration-200 hover:border-primary/30 hover:shadow-md;
   }
 
   .shelf-row-inner {
@@ -177,7 +220,7 @@
   }
 
   .panel-surface {
-    @apply rounded-2xl border border-border/80 bg-card shadow-sm;
+    @apply rounded-2xl border border-border/80 bg-card shadow-soft;
   }
 
   .source-selected {

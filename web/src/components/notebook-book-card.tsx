@@ -3,6 +3,7 @@ import { Pin } from "lucide-react";
 import { NotebookCardMenu } from "@/components/notebook-card-menu";
 import { GeneratedCover } from "@/components/generated-cover";
 import { isRemoteCover } from "@/lib/cover-gen";
+import { formatDateZh } from "@/lib/utils";
 
 export interface NotebookBookCardData {
   id: number;
@@ -16,14 +17,7 @@ export interface NotebookBookCardData {
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateZh(iso);
 }
 
 function formatSources(n: number): string {

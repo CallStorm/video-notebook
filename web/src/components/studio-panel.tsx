@@ -88,7 +88,7 @@ function capabilityIcon(capabilities: Capability[] | undefined, task: StudioTask
 
 function sourceLabel(task: StudioTask): string {
   const count = idCount(task.params_json?.video_ids) + idCount(task.params_json?.note_ids);
-  return count === 1 ? "1 source" : `${count} sources`;
+  return count === 1 ? "1 个来源" : `${count} 个来源`;
 }
 
 function relativeTime(value: string | null): string {
@@ -97,10 +97,10 @@ function relativeTime(value: string | null): string {
   const then = new Date(hasZone ? value : `${value}Z`);
   const seconds = Math.max(0, (Date.now() - then.getTime()) / 1000);
   if (Number.isNaN(seconds)) return "";
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
+  if (seconds < 60) return "刚刚";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
+  return `${Math.floor(seconds / 86400)} 天前`;
 }
 
 export function StudioPanel({
@@ -254,11 +254,19 @@ export function StudioPanel({
           <button
             key={capability.id}
             type="button"
-            className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/60"
+            className="flex items-center gap-2 rounded-2xl border border-border/70 bg-gradient-to-br from-card to-accent/40 px-3 py-3 text-left text-xs shadow-soft transition-colors hover:border-primary/30 hover:from-accent/50 hover:to-accent/70"
             onClick={() => openCapability(capability)}
           >
-            {capability.icon ? <span className="shrink-0">{capability.icon}</span> : null}
-            <span className="line-clamp-2">{capability.name}</span>
+            {capability.icon ? (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base leading-none">
+                {capability.icon}
+              </span>
+            ) : (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary text-xs font-semibold">
+                AI
+              </span>
+            )}
+            <span className="line-clamp-2 font-medium leading-snug">{capability.name}</span>
           </button>
         ))}
       </div>
@@ -267,7 +275,12 @@ export function StudioPanel({
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {taskRows.length === 0 && !tasks.isLoading ? (
-          <p className="px-4 text-xs text-muted-foreground">从左侧点开笔记，会在这里查看。</p>
+          <div className="mx-3 mb-3 rounded-2xl border border-dashed border-border/80 bg-muted/20 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-foreground">还没有 Studio 产出</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              点上方能力磁贴，把已分析的视频变成导图、幻灯片或笔记。左侧笔记打开后也会显示在这里。
+            </p>
+          </div>
         ) : null}
         <div className="divide-y">
           {taskRows.map((task) => {

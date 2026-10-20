@@ -149,7 +149,10 @@ export function SourceTranscript({
             ) : overviewStatus === "ready" && overviewText ? (
               <p className="whitespace-pre-wrap text-foreground">{overviewText}</p>
             ) : overviewStatus === "failed" ? (
-              <p className="text-destructive">{overviewError || "概览生成失败"}</p>
+              <div className="rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2 text-amber-900">
+                <p className="font-medium">概览生成失败</p>
+                <p className="mt-0.5 opacity-90">{overviewError || "可在来源菜单里点「重新生成」再试。"}</p>
+              </div>
             ) : (
               <p>还没有概览。在来源列表里点「重新生成」，会同时重做字幕和这段概览。</p>
             )}
@@ -157,7 +160,7 @@ export function SourceTranscript({
         ) : null}
       </section>
 
-      <section className="shrink-0 overflow-hidden rounded-2xl border border-border/60 bg-player text-player-foreground">
+      <section className="shrink-0 overflow-hidden rounded-2xl border border-black/40 bg-player text-player-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         {hasFile && play.data?.url ? (
           <video
             key={play.data.url}

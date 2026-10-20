@@ -841,7 +841,7 @@ function StudioHome({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center border-b border-border/50 px-4 py-2.5">
-        <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
+        <h2 className="text-sm font-semibold tracking-tight">Studio 输出</h2>
       </header>
       <StudioPanel
         access={access}
@@ -1061,7 +1061,7 @@ function SimpleSourceRow({
         <div
           className={`mt-0.5 text-[10px] ${
             failed
-              ? "text-destructive"
+              ? "text-amber-700"
               : busy
                 ? "status-busy"
                 : v.subtitle_status === "ready"
@@ -1075,6 +1075,23 @@ function SimpleSourceRow({
                 v.width && v.height ? `${v.width}×${v.height}` : "—"
               } · ${fmtSize(v.size_bytes)}${sub ? ` · ${sub}` : ""}`}
         </div>
+        {failed ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200/80 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-900">
+            <span className="min-w-0 flex-1 leading-snug">处理遇到问题，可重试或稍后再看。</span>
+            {onRetryFetch ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium hover:bg-amber-200"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRetryFetch();
+                }}
+              >
+                重试
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </button>
       <SourceRowMenu
         onRename={onRename}
