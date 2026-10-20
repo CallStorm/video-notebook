@@ -99,6 +99,16 @@ async def retry_fetch_url(
     return await svc.retry_fetch(session, owner_id=user.id, video_id=video_id)
 
 
+@router.post("/sources/{video_id}/cancel-fetch", response_model=VideoRead)
+async def cancel_fetch_url(
+    video_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """取消进行中的抓取 / 字幕任务。"""
+    return await svc.cancel_fetch(session, owner_id=user.id, video_id=video_id)
+
+
 @router.patch("/sources/{video_id}", response_model=VideoRead)
 async def rename_video(
     video_id: int,

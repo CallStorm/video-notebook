@@ -10,13 +10,15 @@ from pydantic import BaseModel, Field
 class NotebookCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
-    icon: str | None = Field(default=None, max_length=16)  # emoji
+    icon: str | None = Field(default=None, max_length=16)  # emoji（兼容旧客户端）
+    cover_url: str | None = Field(default=None, max_length=512)
 
 
 class NotebookUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
     icon: str | None = Field(default=None, max_length=16)
+    cover_url: str | None = Field(default=None, max_length=512)
     is_pinned: bool | None = None
 
 
@@ -25,6 +27,7 @@ class NotebookRead(BaseModel):
     title: str
     description: str | None
     icon: str | None
+    cover_url: str | None = None
     is_pinned: bool
     share_all: bool
     source_count: int = 0

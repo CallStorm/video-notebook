@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MoreVertical, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Ban, MoreVertical, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -9,11 +9,16 @@ export function SourceRowMenu({
   onRemove,
   onRegenerate,
   onRetryFetch,
+  onCancelFetch,
+  alwaysVisible = false,
 }: {
   onRename: () => void;
   onRemove: () => void;
   onRegenerate?: () => void;
   onRetryFetch?: () => void;
+  onCancelFetch?: () => void;
+  /** Keep the ⋮ control visible (e.g. while fetch is spinning). */
+  alwaysVisible?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -42,15 +47,20 @@ export function SourceRowMenu({
         type="button"
         title="更多"
         className={`rounded-full p-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground ${
-          open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          open || alwaysVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         }`}
         onClick={(event) => {
           event.stopPropagation();
           const rect = triggerRef.current?.getBoundingClientRect();
           if (rect) {
             const menuWidth = 168;
+            const menuHeight = 200;
             const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
-            setAnchor({ top: rect.bottom + 6, left });
+            const top =
+              rect.bottom + 6 + menuHeight > window.innerHeight
+                ? Math.max(8, rect.top - menuHeight - 6)
+                : rect.bottom + 6;
+            setAnchor({ top, left });
           }
           setOpen(true);
         }}
@@ -59,10 +69,10 @@ export function SourceRowMenu({
       </button>
       {open && anchor
         ? createPortal(
-            <div className="fixed inset-0 z-50" onClick={() => setOpen(false)}>
+            <div className="fixed inset-0 z-[200]" onClick={() => setOpen(false)}>
               <div
                 role="menu"
-                className="absolute w-[168px] overflow-hidden rounded-xl border bg-popover py-1 text-popover-foreground shadow-lg"
+                className="absolute w-[168px] overflow-hidden rounded-xl border border-border/80 bg-popover py-1 text-popover-foreground shadow-lg"
                 style={{ top: anchor.top, left: anchor.left }}
                 onClick={(event) => event.stopPropagation()}
               >
@@ -84,6 +94,17 @@ export function SourceRowMenu({
                 >
                   重命名
                 </MenuItem>
+                {onCancelFetch ? (
+                  <MenuItem
+                    icon={<Ban className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setOpen(false);
+                      onCancelFetch();
+                    }}
+                  >
+                    取消抓取
+                  </MenuItem>
+                ) : null}
                 {onRetryFetch ? (
                   <MenuItem
                     icon={<RefreshCw className="h-3.5 w-3.5" />}

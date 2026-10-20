@@ -34,12 +34,34 @@ async def _notebook_count(session: AsyncSession, collection_id: int) -> int:
     return int((await session.scalar(stmt)) or 0)
 
 
+async def _preview_notebooks(
+    session: AsyncSession, collection_id: int, *, limit: int = 24
+) -> list[dict]:
+    rows = (
+        await session.execute(
+            select(Notebook.id, Notebook.title, Notebook.cover_url)
+            .join(CollectionNotebook, CollectionNotebook.notebook_id == Notebook.id)
+            .where(
+                CollectionNotebook.collection_id == collection_id,
+                Notebook.deleted_at.is_(None),
+            )
+            .order_by(Notebook.is_pinned.desc(), Notebook.id.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        {"id": row.id, "title": row.title, "cover_url": row.cover_url}
+        for row in rows
+    ]
+
+
 async def _to_read(session: AsyncSession, collection: Collection) -> dict:
     return {
         "id": collection.id,
         "name": collection.name,
         "icon": collection.icon,
         "notebook_count": await _notebook_count(session, collection.id),
+        "preview_notebooks": await _preview_notebooks(session, collection.id),
         "created_at": _dt(collection.created_at),
         "updated_at": _dt(collection.updated_at),
     }

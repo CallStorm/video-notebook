@@ -56,6 +56,7 @@ async def create_notebook(
         title=body.title,
         description=body.description,
         icon=body.icon,
+        cover_url=body.cover_url,
     )
 
 
@@ -89,14 +90,17 @@ async def update_notebook(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
+    fields = body.model_dump(exclude_unset=True)
     return await svc.update_notebook(
         session,
         owner_id=user.id,
         notebook_id=notebook_id,
-        title=body.title,
-        description=body.description,
-        icon=body.icon,
-        is_pinned=body.is_pinned,
+        title=fields.get("title"),
+        description=fields.get("description"),
+        icon=fields.get("icon"),
+        cover_url=fields.get("cover_url"),
+        cover_url_set="cover_url" in fields,
+        is_pinned=fields.get("is_pinned"),
     )
 
 

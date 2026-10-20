@@ -11,16 +11,12 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.db.session import get_sessionmaker
 from app.models.notebook import Video
 from app.sources.ytdlp import FetchDownloadError, download_url
 from app.storage import get_storage
 
 logger = logging.getLogger(__name__)
-
-_running: set[int] = set()
-_lock = asyncio.Lock()
 
 
 @dataclass
@@ -33,19 +29,15 @@ class _Bundle:
 
 
 def job_running(video_id: int) -> bool:
-    return video_id in _running
+    """Fetch runs on the media worker; API process no longer tracks in-flight jobs."""
+    return False
 
 
 def kick_fetch_job(video_id: int) -> None:
-    """Start URL download after the request returns. Skipped in test env."""
-    if get_settings().app_env == "test":
-        return
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logger.warning("no running loop, skip fetch job video_id=%s", video_id)
-        return
-    loop.create_task(_guarded(video_id))
+    """Enqueue URL download + subtitle pipeline on the media worker."""
+    from app.media.enqueue import enqueue_pipeline
+
+    enqueue_pipeline(video_id, stage="full")
 
 
 async def run_fetch_pipeline(
@@ -126,18 +118,6 @@ async def run_fetch_pipeline(
     finally:
         if result is not None:
             _cleanup_work(result.work_dir)
-
-    async def _maybe_subtitle(db: AsyncSession) -> None:
-        video = await db.get(Video, video_id)
-        if video is None or not video.storage_key:
-            return
-        if video.subtitle_status == "ready":
-            return
-        from app.subtitles.pipeline import kick_subtitle_job
-
-        kick_subtitle_job(video.id)
-
-    await _use(_maybe_subtitle)
 
 
 def _download_into_temp(url: str) -> _Bundle:
@@ -234,26 +214,6 @@ async def _persist_success(db: AsyncSession, video_id: int, result: _Bundle) -> 
             )
 
 
-async def _guarded(video_id: int) -> None:
-    async with _lock:
-        if video_id in _running:
-            return
-        _running.add(video_id)
-    try:
-        async with get_sessionmaker()() as db:
-            video = await db.get(Video, video_id)
-            if video is None or video.source_type != "url":
-                return
-            if video.status == "ready" and video.storage_key:
-                return
-        await run_fetch_pipeline(video_id)
-    except Exception:
-        logger.exception("fetch job crashed video_id=%s", video_id)
-    finally:
-        async with _lock:
-            _running.discard(video_id)
-
-
 def _cleanup_work(work_dir: Path | None) -> None:
     if work_dir is None:
         return
@@ -264,3 +224,4 @@ def _error_message(exc: Exception) -> str:
     if isinstance(exc, FetchDownloadError):
         return f"抓取失败: {exc}"
     return f"抓取失败: {exc.__class__.__name__}: {exc}"
+

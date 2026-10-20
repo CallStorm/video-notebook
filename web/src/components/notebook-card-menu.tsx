@@ -96,11 +96,11 @@ export function NotebookCardMenu({
 
   return (
     <>
-      <div className="absolute right-2 top-2 flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-black/5 backdrop-blur-sm">
         {/* 通知铃：v1 仅装饰 */}
         <button
           type="button"
-          className="rounded-full p-1 text-muted-foreground/60 transition-colors hover:bg-foreground/5 hover:text-muted-foreground"
+          className="rounded-full p-1.5 text-muted-foreground/70 transition-colors hover:bg-black/[0.05] hover:text-muted-foreground"
           title={hasNotification ? "有新动态" : "无新动态"}
         >
           <Bell className="h-3.5 w-3.5" />
@@ -111,7 +111,7 @@ export function NotebookCardMenu({
           ref={triggerRef}
           type="button"
           onClick={onTrigger}
-          className="rounded-full p-1 text-muted-foreground/60 transition-colors hover:bg-foreground/5 hover:text-foreground"
+          className="rounded-full p-1.5 text-muted-foreground/70 transition-colors hover:bg-black/[0.05] hover:text-foreground"
           title="更多"
         >
           <MoreVertical className="h-3.5 w-3.5" />
@@ -122,13 +122,13 @@ export function NotebookCardMenu({
       {open && anchor && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="fixed inset-0 z-50"
+              className="fixed inset-0 z-[200]"
               onClick={() => setOpen(false)}
             >
               <div
                 role="menu"
                 onClick={(e) => e.stopPropagation()}
-                className="absolute w-48 overflow-hidden rounded-lg border bg-popover py-1 text-popover-foreground shadow-lg"
+                className="absolute w-48 overflow-hidden rounded-xl border border-border/80 bg-popover py-1 text-popover-foreground shadow-lg"
                 style={{
                   top: anchor.top,
                   left: anchor.align === "right" ? anchor.left : anchor.left,
@@ -143,7 +143,7 @@ export function NotebookCardMenu({
                         onRequestEdit(notebookId);
                       }}
                     >
-                      Edit title
+                      编辑
                     </Item>
                     <Item
                       icon={<FolderPlus className="h-3.5 w-3.5" />}

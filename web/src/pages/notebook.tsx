@@ -125,6 +125,10 @@ async function retryFetchSource(access: string, videoId: number): Promise<VideoR
   return api<VideoRead>(`/sources/${videoId}/retry-fetch`, { method: "POST", access });
 }
 
+async function cancelFetchSource(access: string, videoId: number): Promise<VideoRead> {
+  return api<VideoRead>(`/sources/${videoId}/cancel-fetch`, { method: "POST", access });
+}
+
 function fmtDuration(ms: number | null): string {
   if (!ms) return "—";
   const total = Math.floor(ms / 1000);
@@ -252,6 +256,11 @@ export default function NotebookPage() {
 
   const retryFetch = useMutation({
     mutationFn: (videoId: number) => retryFetchSource(token, videoId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notebook", notebookId] }),
+  });
+
+  const cancelFetch = useMutation({
+    mutationFn: (videoId: number) => cancelFetchSource(token, videoId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notebook", notebookId] }),
   });
 
@@ -556,6 +565,7 @@ export default function NotebookPage() {
                   <SimpleSourceRow
                     key={`source-${row.source.video_id}`}
                     source={row.source}
+                    active={selectedVideoId === row.source.video_id}
                     onOpen={() => {
                       setFocusCue(null);
                       setSelectedVideoId(row.source.video_id);
@@ -576,9 +586,18 @@ export default function NotebookPage() {
                         : undefined
                     }
                     onRetryFetch={
-                      row.source.video.status === "failed" &&
-                      row.source.video.source_type === "url"
+                      row.source.video.source_type === "url" &&
+                      row.source.video.status !== "ready"
                         ? () => retryFetch.mutate(row.source.video_id)
+                        : undefined
+                    }
+                    onCancelFetch={
+                      row.source.video.source_type === "url" &&
+                      (row.source.video.status === "pending" ||
+                        row.source.video.status === "probing" ||
+                        row.source.video.subtitle_status === "processing" ||
+                        row.source.video.overview_status === "processing")
+                        ? () => cancelFetch.mutate(row.source.video_id)
                         : undefined
                     }
                     onToggleSelected={(selectedFlag) =>
@@ -783,11 +802,11 @@ function NoteRow({
 }) {
   return (
     <div
-      className={`group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/50 ${
-        active ? "bg-sky-50/80" : ""
+      className={`group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/70 ${
+        active ? "source-selected" : ""
       }`}
     >
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[hsl(175_60%_94%)] text-[hsl(var(--success))]">
         <StickyNote className="h-3 w-3" />
       </div>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
@@ -995,19 +1014,23 @@ function SelectAll({
 
 function SimpleSourceRow({
   source,
+  active = false,
   onOpen,
   onRename,
   onRemove,
   onRegenerate,
   onRetryFetch,
+  onCancelFetch,
   onToggleSelected,
 }: {
   source: SourceSummary;
+  active?: boolean;
   onOpen: () => void;
   onRename: () => void;
   onRemove: () => void;
   onRegenerate?: () => void;
   onRetryFetch?: () => void;
+  onCancelFetch?: () => void;
   onToggleSelected: (selected: boolean) => void;
 }) {
   const v = source.video;
@@ -1017,8 +1040,12 @@ function SimpleSourceRow({
   const fetch = fetchLabel(v);
   const sub = fetch ? null : subtitleLabel(v.subtitle_status);
   return (
-    <div className="group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/50">
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
+    <div
+      className={`group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/70 ${
+        active ? "source-selected" : ""
+      }`}
+    >
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <TypeIcon className="h-3 w-3" />
       </div>
       <button
@@ -1031,7 +1058,17 @@ function SimpleSourceRow({
         <div className="line-clamp-2 text-xs font-medium">
           {v.title || v.source_url || `来源 ${v.id}`}
         </div>
-        <div className={`mt-0.5 text-[10px] ${v.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+        <div
+          className={`mt-0.5 text-[10px] ${
+            failed
+              ? "text-destructive"
+              : busy
+                ? "status-busy"
+                : v.subtitle_status === "ready"
+                  ? "status-success"
+                  : "text-muted-foreground"
+          }`}
+        >
           {fetch
             ? fetch
             : `${fmtDuration(v.duration_ms)} · ${
@@ -1039,16 +1076,16 @@ function SimpleSourceRow({
               } · ${fmtSize(v.size_bytes)}${sub ? ` · ${sub}` : ""}`}
         </div>
       </button>
-      {busy ? null : (
-        <SourceRowMenu
-          onRename={onRename}
-          onRemove={onRemove}
-          onRegenerate={onRegenerate}
-          onRetryFetch={onRetryFetch}
-        />
-      )}
+      <SourceRowMenu
+        onRename={onRename}
+        onRemove={onRemove}
+        onRegenerate={onRegenerate}
+        onRetryFetch={onRetryFetch}
+        onCancelFetch={onCancelFetch}
+        alwaysVisible={busy || Boolean(onRetryFetch) || Boolean(onCancelFetch)}
+      />
       {busy ? (
-        <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+        <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" />
       ) : failed ? null : (
         <input
           type="checkbox"

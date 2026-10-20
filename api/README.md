@@ -13,6 +13,16 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
+URL 抓取与字幕在独立 Celery worker 里跑（不要只起 API）：
+
+```bash
+# 仓库根
+make media-worker
+# 或：cd api && uv run celery -A app.media.worker:celery_app worker -Q media -c 8
+```
+
+Studio 任务仍用 `make worker`（队列 `studio`）。
+
 测试：
 
 ```bash

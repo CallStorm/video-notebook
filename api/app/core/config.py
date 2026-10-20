@@ -118,6 +118,10 @@ class Settings(BaseSettings):
 
     # Cookie / 代理改由后台「抓取与网络」配置，不再读 YTDLP_COOKIES_*。
 
+    # ffmpeg 目录或可执行文件路径（可选）。未设时会探测 PATH / WinGet / scoop。
+    # Celery media-worker 常缺交互终端的 PATH，建议显式配置或依赖自动探测。
+    ffmpeg_location: str | None = None
+
     # ─── LLM 调用护栏 ────────────────────────────────────────────────────
     max_context_tokens: int = 60000
 

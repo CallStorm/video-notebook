@@ -437,10 +437,10 @@ function TaskMenu({
       </button>
       {open && anchor
         ? createPortal(
-            <div className="fixed inset-0 z-50" onClick={() => setOpen(false)}>
+            <div className="fixed inset-0 z-[200]" onClick={() => setOpen(false)}>
               <div
                 role="menu"
-                className="absolute w-[148px] overflow-hidden rounded-xl border bg-popover py-1 text-popover-foreground shadow-lg"
+                className="absolute w-[148px] overflow-hidden rounded-xl border border-border/80 bg-popover py-1 text-popover-foreground shadow-lg"
                 style={{ top: anchor.top, left: anchor.left }}
                 onClick={(event) => event.stopPropagation()}
               >

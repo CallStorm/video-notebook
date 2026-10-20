@@ -190,7 +190,7 @@ export function NotebookChat({
           {formError || relay?.error ? (
             <p className="px-4 text-xs text-destructive">{formError || relay?.error}</p>
           ) : null}
-          <div className="flex items-center gap-3 rounded-full border border-border/60 bg-muted/40 px-4 py-1.5 shadow-sm">
+          <div className="flex items-center gap-3 rounded-full border border-border/80 bg-card px-4 py-1.5 shadow-soft">
             <input
               value={draft}
               placeholder="向来源提问，或生成新内容…"
@@ -211,7 +211,7 @@ export function NotebookChat({
               type="submit"
               title="发送"
               disabled={sending || !draft.trim() || selectedIds.length === 0}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition enabled:bg-foreground enabled:text-background disabled:opacity-70"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition enabled:bg-primary enabled:text-primary-foreground disabled:opacity-70"
             >
               <ArrowUp className="h-4 w-4" />
             </button>
@@ -240,7 +240,9 @@ function MessageBubble({
       <div className="max-w-[85%]">
         <div
           className={`rounded-2xl px-3 py-2 text-sm leading-6 ${
-            mine ? "bg-primary text-primary-foreground" : "bg-muted"
+            mine
+              ? "bg-primary text-primary-foreground"
+              : "border border-border/70 bg-card text-foreground shadow-soft"
           }`}
         >
           {mine ? (

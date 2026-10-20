@@ -1,25 +1,34 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Folder, Plus, Search, LayoutGrid, List, Pin, Trash2 } from "lucide-react";
+import { Plus, Search, LayoutGrid, List, Pin, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
+import { isRemoteCover } from "@/lib/cover-gen";
 import { NewNotebookDialog } from "@/components/new-notebook-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { Brand } from "@/components/brand";
 import { UserMenu } from "@/components/user-menu";
-import { NotebookCardMenu } from "@/components/notebook-card-menu";
+import { NotebookBookCard } from "@/components/notebook-book-card";
+import { GeneratedCover } from "@/components/generated-cover";
 import { CollectionCardMenu } from "@/components/collection-card-menu";
 import { CollectionEditDialog } from "@/components/collection-edit-dialog";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+interface CollectionNotebookPreview {
+  id: number;
+  title: string;
+  cover_url?: string | null;
+}
+
 interface Collection {
   id: number;
   name: string;
   icon: string | null;
   notebook_count: number;
+  preview_notebooks?: CollectionNotebookPreview[];
   created_at: string | null;
   updated_at: string | null;
 }
@@ -29,6 +38,7 @@ interface Notebook {
   title: string;
   description: string | null;
   icon: string | null;
+  cover_url?: string | null;
   is_pinned: boolean;
   share_all: boolean;
   source_count: number;
@@ -56,7 +66,7 @@ async function fetchNotebooks(
 
 async function createNotebook(
   access: string,
-  body: { title: string; description: string; icon: string | null },
+  body: { title: string; description: string; cover_url: string },
 ): Promise<Notebook> {
   return api<Notebook>("/notebooks", { method: "POST", body, access });
 }
@@ -68,7 +78,13 @@ async function deleteNotebook(access: string, id: number): Promise<void> {
 async function updateNotebook(
   access: string,
   id: number,
-  body: { is_pinned?: boolean; title?: string; description?: string | null; icon?: string | null },
+  body: {
+    is_pinned?: boolean;
+    title?: string;
+    description?: string | null;
+    icon?: string | null;
+    cover_url?: string | null;
+  },
 ): Promise<Notebook> {
   return api<Notebook>(`/notebooks/${id}`, { method: "PATCH", body, access });
 }
@@ -136,7 +152,7 @@ export default function HomePage() {
   });
 
   const create = useMutation({
-    mutationFn: (body: { title: string; description: string; icon: string | null }) =>
+    mutationFn: (body: { title: string; description: string; cover_url: string }) =>
       createNotebook(token, body),
     onSuccess: (nb) => {
       qc.invalidateQueries({ queryKey: ["notebooks"] });
@@ -150,17 +166,17 @@ export default function HomePage() {
       id,
       title,
       description,
-      icon,
+      cover_url,
     }: {
       id: number;
       title: string;
       description: string;
-      icon: string | null;
+      cover_url: string | null;
     }) =>
       updateNotebook(token, id, {
         title,
         description: description || null,
-        icon,
+        cover_url,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notebooks"] }),
   });
@@ -212,7 +228,7 @@ export default function HomePage() {
           </div>
         </header>
         <div className="mx-auto max-w-md p-12 text-center">
-          <div className="rounded-3xl border border-border/60 bg-card p-8 shadow-sm">
+          <div className="rounded-2xl border border-border/80 bg-card p-8 shadow-soft">
             <h1 className="mb-2 text-lg font-semibold">登录已过期</h1>
             <p className="mb-4 text-sm text-muted-foreground">
               请重新登录以继续。
@@ -239,7 +255,7 @@ export default function HomePage() {
           </Link>
 
           {/* Tabs */}
-          <nav className="ml-4 flex items-center gap-1 rounded-full bg-muted/60 p-1">
+          <nav className="ml-4 flex items-center gap-1 rounded-full border border-border/70 bg-card p-1 shadow-soft">
             <TabButton
               active={tab === "mine"}
               onClick={() => setTab("mine")}
@@ -268,7 +284,7 @@ export default function HomePage() {
                 placeholder="搜索笔记本"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 rounded-full border-0 bg-card pl-9 shadow-none"
+                className="h-9 rounded-full border border-border/80 bg-card pl-9 shadow-soft"
               />
             </div>
 
@@ -364,6 +380,7 @@ export default function HomePage() {
         }
       />
 
+
       <CollectionEditDialog
         open={collectionDialog !== null}
         mode={collectionDialog?.mode ?? "create"}
@@ -409,10 +426,10 @@ function TabButton({
       title={title}
       className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
         active
-          ? "bg-background text-foreground shadow-sm"
+          ? "bg-primary text-primary-foreground shadow-sm"
           : disabled
             ? "cursor-not-allowed text-muted-foreground/40"
-            : "text-muted-foreground hover:text-foreground"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground"
       }`}
     >
       {children}
@@ -464,9 +481,9 @@ function MyNotebooksSection({
           </Button>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
           {notebooks.map((nb) => (
-            <NotebookCard
+            <NotebookBookCard
               key={nb.id}
               notebook={nb}
               onUpdateTitle={onEdit}
@@ -533,47 +550,16 @@ function CollectionsSection({
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+        <div className="flex flex-col gap-4">
           {collections.map((c) => (
-            <div
+            <CollectionShelfRow
               key={c.id}
-              className="group relative flex min-h-[168px] cursor-pointer flex-col soft-tile soft-tile-hover p-4"
-              onClick={() => onOpen(c.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onOpen(c.id);
-                }
-              }}
-              role="link"
-              tabIndex={0}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span
-                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-background/70 text-xl"
-                  aria-hidden
-                >
-                  {c.icon || <Folder className="h-5 w-5 text-foreground/45" />}
-                </span>
-                <div onClick={(e) => e.stopPropagation()}>
-                  <CollectionCardMenu
-                    onEdit={() => onEdit(c.id)}
-                    onDelete={() => onDelete(c.id)}
-                    onRemoveEmoji={() => onRemoveEmoji(c.id)}
-                  />
-                </div>
-              </div>
-              <div className="mt-auto pt-8">
-                <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
-                  {c.name}
-                </h3>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {c.notebook_count === 1
-                    ? "1 本笔记本"
-                    : `${c.notebook_count} 本笔记本`}
-                </p>
-              </div>
-            </div>
+              collection={c}
+              onOpen={() => onOpen(c.id)}
+              onEdit={() => onEdit(c.id)}
+              onDelete={() => onDelete(c.id)}
+              onRemoveEmoji={() => onRemoveEmoji(c.id)}
+            />
           ))}
         </div>
       )}
@@ -592,51 +578,121 @@ function PlaceholderSection({ title, hint }: { title: string; hint: string }) {
   );
 }
 
-// ── Card：NotebookLM 一体浅灰软卡片 ───────────────────────
-function NotebookCard({
-  notebook: nb,
-  onUpdateTitle,
-  onTogglePin,
+/** 书架行：左分类名（无 logo），右可点可滑的缩略书本 */
+function CollectionShelfRow({
+  collection: c,
+  onOpen,
+  onEdit,
   onDelete,
-  onAddToCollection,
+  onRemoveEmoji,
 }: {
-  notebook: Notebook;
-  onUpdateTitle: (id: number) => void;
-  onTogglePin: (id: number) => void;
-  onDelete: (id: number) => void;
-  onAddToCollection?: (id: number) => void;
+  collection: Collection;
+  onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onRemoveEmoji: () => void;
 }) {
-  return (
-    <div className="group relative flex min-h-[168px] flex-col soft-tile soft-tile-hover p-4">
-      <div className="flex items-start justify-between gap-2">
-        <Link
-          to={`/notebooks/${nb.id}`}
-          className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-background/70 text-xl"
-          aria-label={nb.title}
-        >
-          <span aria-hidden>{nb.icon || "📁"}</span>
-          {nb.is_pinned ? (
-            <Pin className="absolute -right-1 -top-1 h-3 w-3 fill-amber-500 text-amber-500" />
-          ) : null}
-        </Link>
-        <NotebookCardMenu
-          notebookId={nb.id}
-          isPinned={nb.is_pinned}
-          onRequestEdit={onUpdateTitle}
-          onAddToCollection={onAddToCollection}
-          onTogglePin={onTogglePin}
-          onDelete={onDelete}
-        />
-      </div>
+  const previews = c.preview_notebooks ?? [];
+  const shown = previews.slice(0, 24);
+  const extras = Math.max(0, c.notebook_count - shown.length);
 
-      <Link to={`/notebooks/${nb.id}`} className="mt-auto flex flex-col pt-8">
-        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
-          {nb.title}
-        </h3>
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
-        </p>
-      </Link>
+  return (
+    <div className="shelf-row">
+      <div className="shelf-row-inner">
+        <div
+          className="shelf-plaque"
+          onClick={onOpen}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpen();
+            }
+          }}
+          role="link"
+          tabIndex={0}
+        >
+          <div
+            className="absolute right-1 top-1 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CollectionCardMenu
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onRemoveEmoji={onRemoveEmoji}
+            />
+          </div>
+          <div className="pr-6">
+            <h3 className="line-clamp-2 text-lg font-semibold leading-snug tracking-tight text-foreground sm:text-xl">
+              {c.name}
+            </h3>
+            <p className="mt-2 text-xs text-muted-foreground sm:text-sm">
+              {c.notebook_count === 0
+                ? "空书架"
+                : c.notebook_count === 1
+                  ? "1 本"
+                  : `${c.notebook_count} 本`}
+            </p>
+          </div>
+        </div>
+
+        <div
+          className="shelf-board"
+          onWheel={(e) => {
+            // 纵向滚轮 → 横向滑动书架
+            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+        >
+          {shown.length === 0 ? (
+            <button
+              type="button"
+              className="mb-0 self-center text-left text-sm text-muted-foreground hover:text-foreground"
+              onClick={onOpen}
+            >
+              还没有笔记本 · 点此添加
+            </button>
+          ) : (
+            <>
+              {shown.map((nb) => (
+                <Link
+                  key={nb.id}
+                  to={`/notebooks/${nb.id}`}
+                  className="shelf-book block"
+                  title={nb.title}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {isRemoteCover(nb.cover_url) ? (
+                    <img
+                      src={nb.cover_url!}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <GeneratedCover
+                      title={nb.title}
+                      coverUrl={nb.cover_url}
+                      variant={nb.id}
+                      className="h-full w-full"
+                    />
+                  )}
+                </Link>
+              ))}
+              {extras > 0 ? (
+                <button
+                  type="button"
+                  className="z-[1] flex aspect-[5/7] w-[3.25rem] shrink-0 items-center justify-center rounded-md bg-white/85 text-xs font-medium text-muted-foreground ring-1 ring-border/80 hover:bg-white hover:text-foreground sm:w-[3.75rem]"
+                  onClick={onOpen}
+                  title={`还有 ${extras} 本`}
+                >
+                  +{extras}
+                </button>
+              ) : null}
+            </>
+          )}
+          <div className="shelf-plank" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -651,35 +707,41 @@ function NotebookRow({
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
+  const remote = isRemoteCover(nb.cover_url);
+
   return (
-    <div className="group flex items-center gap-3 soft-tile soft-tile-hover px-3 py-3">
+    <div className="group flex items-center gap-3 rounded-2xl border border-border/80 bg-card px-3 py-3 shadow-soft transition-colors hover:border-primary/20 hover:bg-accent/40">
       <Link
         to={`/notebooks/${nb.id}`}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-background/70 text-xl"
+        className="relative h-14 w-10 shrink-0 overflow-hidden rounded-md shadow-sm ring-1 ring-black/10"
       >
-        {nb.icon || "📁"}
-      </Link>
-      <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold">{nb.title}</div>
-        {nb.description && (
-          <div className="truncate text-xs text-muted-foreground">
-            {nb.description}
-          </div>
+        {remote ? (
+          <img src={nb.cover_url!} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <GeneratedCover
+            title={nb.title}
+            coverUrl={nb.cover_url}
+            variant={nb.id}
+            meta={`${formatDate(nb.updated_at)} · ${formatSources(nb.source_count)}`}
+            className="h-full w-full"
+          />
         )}
       </Link>
-      <span className="text-xs text-muted-foreground">
+      <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 truncate text-sm font-semibold">
+          {nb.is_pinned ? <Pin className="h-3 w-3 shrink-0 fill-amber-500 text-amber-500" /> : null}
+          {nb.title}
+        </div>
+        {nb.description ? (
+          <div className="truncate text-xs text-muted-foreground">{nb.description}</div>
+        ) : null}
+      </Link>
+      <span className="hidden text-xs text-muted-foreground sm:inline">
         {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
       </span>
       <div className="hidden gap-0.5 group-hover:flex">
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={onTogglePin}
-          className="h-7 w-7 rounded-full"
-        >
-          <Pin
-            className={`h-3.5 w-3.5 ${nb.is_pinned ? "fill-current text-amber-500" : ""}`}
-          />
+        <Button size="icon" variant="ghost" onClick={onTogglePin} className="h-7 w-7 rounded-full">
+          <Pin className={`h-3.5 w-3.5 ${nb.is_pinned ? "fill-current text-amber-500" : ""}`} />
         </Button>
         <Button
           size="icon"

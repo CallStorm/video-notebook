@@ -8,7 +8,7 @@ export function UserAvatar({ name, size = "md" }: UserAvatarProps) {
   const dim = size === "sm" ? "h-7 w-7 text-xs" : "h-9 w-9 text-sm";
   return (
     <div
-      className={`flex ${dim} shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-emerald-500 font-medium text-white`}
+      className={`flex ${dim} shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground`}
       title={name ?? ""}
     >
       {initials}

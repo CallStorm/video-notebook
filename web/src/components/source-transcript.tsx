@@ -131,14 +131,14 @@ export function SourceTranscript({
       </div>
 
       <section
-        className={`rounded-2xl border bg-muted/40 ${guideOpen ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "shrink-0"}`}
+        className={`rounded-2xl border border-border/80 bg-card ${guideOpen ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "shrink-0"}`}
       >
         <button
           type="button"
           className="flex w-full shrink-0 items-center gap-2 px-3 py-2.5 text-left"
           onClick={() => setGuideOpen((open) => !open)}
         >
-          <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Sparkles className="h-4 w-4 shrink-0 text-[hsl(var(--success))]" />
           <span className="flex-1 text-sm font-medium">概览</span>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition ${guideOpen ? "" : "-rotate-90"}`} />
         </button>
@@ -157,18 +157,18 @@ export function SourceTranscript({
         ) : null}
       </section>
 
-      <section className="shrink-0 overflow-hidden rounded-2xl border bg-black">
+      <section className="shrink-0 overflow-hidden rounded-2xl border border-border/60 bg-player text-player-foreground">
         {hasFile && play.data?.url ? (
           <video
             key={play.data.url}
-            className="aspect-video w-full bg-black"
+            className="aspect-video w-full bg-player accent-primary"
             controls
             playsInline
             preload="metadata"
             src={play.data.url}
           />
         ) : (
-          <div className="flex aspect-video items-center justify-center px-4 text-center text-xs text-white/70">
+          <div className="flex aspect-video items-center justify-center px-4 text-center text-xs text-player-foreground/70">
             {!hasFile
               ? "视频还没保存到本地，暂时不能播放。"
               : play.isError
@@ -199,7 +199,7 @@ export function SourceTranscript({
             <p className="py-6 text-center text-xs text-muted-foreground">视频还没保存到本地，暂时无法生成字幕。</p>
           ) : null}
           {hasFile && busy && lines.length === 0 ? (
-            <p className="py-6 text-center text-xs text-muted-foreground">正在生成字幕…</p>
+            <p className="py-6 text-center text-xs status-busy">正在生成字幕…</p>
           ) : null}
           {hasFile && busy && lines.length > 0 ? (
             <p className="mb-2 text-[11px] text-muted-foreground">正在重新生成，当前仍是上一版。</p>
@@ -219,11 +219,17 @@ export function SourceTranscript({
                 <p
                   id={`cue-${line.line_no}`}
                   key={line.line_no}
-                  className={`rounded px-1 text-[13px] leading-6 ${
-                    focusLineNo === line.line_no ? "bg-amber-100" : ""
+                  className={`rounded-md px-1.5 text-[13px] leading-6 ${
+                    focusLineNo === line.line_no ? "bg-accent text-foreground ring-1 ring-primary/20" : ""
                   }`}
                 >
-                  <span className="mr-2 text-[10px] text-muted-foreground">{fmtClock(line.start_ms)}</span>
+                  <span
+                    className={`mr-2 text-[10px] ${
+                      focusLineNo === line.line_no ? "font-medium text-primary" : "text-muted-foreground"
+                    }`}
+                  >
+                    {fmtClock(line.start_ms)}
+                  </span>
                   {line.text}
                 </p>
               ))}

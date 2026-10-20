@@ -155,3 +155,68 @@ async def test_retry_fetch_requeues_failed(client: AsyncClient, db_session, monk
     body = r.json()
     assert body["status"] == "pending"
     assert body["error_message"] is None
+
+
+async def test_media_sweep_marks_stale_probing(db_session, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import text
+
+    from app.db.session import get_sessionmaker
+    from app.fetch_settings.runtime import FetchSettingsSnapshot, set_runtime_snapshot
+    from app.media.worker import sweep_stale_media
+
+    set_runtime_snapshot(
+        max_concurrent=2,
+        task_timeout_minutes=30,
+        chunk_parallel_enabled=True,
+        chunk_count=4,
+        chunk_min_mb=20,
+    )
+    monkeypatch.setattr(
+        "app.media.worker.get_settings_fresh",
+        lambda: FetchSettingsSnapshot(task_timeout_minutes=30),
+    )
+
+    u, _token = await _user(db_session, phone="13800000995")
+    video = Video(
+        owner_id=u.id,
+        source_type="url",
+        source_url="https://example.com/stuck.mp4",
+        title="stuck",
+        status="probing",
+        subtitle_status="pending",
+        overview_status="pending",
+    )
+    db_session.add(video)
+    await db_session.commit()
+    await db_session.refresh(video)
+    video_id = video.id
+    stale = (datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    await db_session.execute(
+        text("UPDATE videos SET updated_at = :ts WHERE id = :id"),
+        {"ts": stale, "id": video_id},
+    )
+    await db_session.commit()
+
+    count = await sweep_stale_media(datetime.utcnow())
+    assert count == 1
+
+    async with get_sessionmaker()() as session:
+        got = await session.get(Video, video_id)
+        assert got is not None
+        assert got.status == "failed"
+        assert "超时" in (got.error_message or "")
+
+
+async def test_kick_fetch_enqueues_pipeline(monkeypatch):
+    calls: list[tuple] = []
+
+    def fake_enqueue(video_id, *, stage="full", force=False):
+        calls.append((video_id, stage, force))
+
+    monkeypatch.setattr("app.media.enqueue.enqueue_pipeline", fake_enqueue)
+    from app.sources.fetch import kick_fetch_job
+
+    kick_fetch_job(42)
+    assert calls == [(42, "full", False)]

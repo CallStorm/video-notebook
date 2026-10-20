@@ -27,24 +27,17 @@ from app.subtitles.transcribe import TranscribeError, transcribe_file
 
 logger = logging.getLogger(__name__)
 
-_running: set[int] = set()
-_lock = asyncio.Lock()
-
 
 def job_running(video_id: int) -> bool:
-    return video_id in _running
+    """Subtitle runs on the media worker; API process no longer tracks in-flight jobs."""
+    return False
 
 
 def kick_subtitle_job(video_id: int, *, force: bool = False) -> None:
-    """请求返回后继续跑。force=True 用于「重新生成」，忽略 pending 状态。"""
-    if get_settings().app_env == "test":
-        return
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logger.warning("no running loop, skip subtitle job video_id=%s", video_id)
-        return
-    loop.create_task(_guarded(video_id, force=force))
+    """Enqueue subtitle pipeline on the media worker (shares concurrency slots)."""
+    from app.media.enqueue import enqueue_pipeline
+
+    enqueue_pipeline(video_id, stage="subtitle_only", force=force)
 
 
 async def read_subtitle_for_owner(
@@ -184,25 +177,6 @@ async def _transcribe(
     finally:
         if audio != path:
             audio.unlink(missing_ok=True)
-
-
-async def _guarded(video_id: int, *, force: bool) -> None:
-    async with _lock:
-        if video_id in _running:
-            return
-        _running.add(video_id)
-    try:
-        if not force:
-            async with get_sessionmaker()() as db:
-                video = await db.get(Video, video_id)
-                if video is None or not video.storage_key or video.subtitle_status != "pending":
-                    return
-        await run_subtitle_pipeline(video_id)
-    except Exception:
-        logger.exception("subtitle job crashed video_id=%s", video_id)
-    finally:
-        async with _lock:
-            _running.discard(video_id)
 
 
 def _local_path(key: str) -> Path:

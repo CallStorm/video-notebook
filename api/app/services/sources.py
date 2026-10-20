@@ -303,6 +303,9 @@ async def retry_fetch(
         raise BadRequestError("只有 URL 来源可以重新抓取")
     if video.status == "ready" and video.storage_key:
         return _video_to_dict(video)
+    from app.media.enqueue import cancel_pipeline
+
+    cancel_pipeline(video.id)
     video.status = "pending"
     video.error_message = None
     session.add(video)
@@ -311,6 +314,36 @@ async def retry_fetch(
     from app.sources.fetch import kick_fetch_job
 
     kick_fetch_job(video.id)
+    return _video_to_dict(video)
+
+
+async def cancel_fetch(
+    session: AsyncSession, *, owner_id: int, video_id: int
+) -> dict:
+    """Cancel an in-flight URL fetch / subtitle pipeline."""
+    from app.core.errors import BadRequestError
+    from app.media.enqueue import cancel_pipeline
+
+    video = await get_video(session, owner_id=owner_id, video_id=video_id)
+    busy = video.status in ("pending", "probing") or video.subtitle_status in (
+        "pending",
+        "processing",
+    ) or video.overview_status == "processing"
+    if not busy and video.status == "ready":
+        raise BadRequestError("当前没有进行中的抓取任务")
+    cancel_pipeline(video.id)
+    if video.status in ("pending", "probing"):
+        video.status = "failed"
+        video.error_message = "已取消抓取"
+    if video.subtitle_status in ("pending", "processing"):
+        video.subtitle_status = "failed"
+        video.subtitle_error = "已取消"
+    if video.overview_status == "processing":
+        video.overview_status = "failed"
+        video.overview_error = "已取消"
+    session.add(video)
+    await session.commit()
+    await session.refresh(video)
     return _video_to_dict(video)
 
 
@@ -329,6 +362,9 @@ async def delete_video(
     session: AsyncSession, *, owner_id: int, video_id: int
 ) -> None:
     v = await get_video(session, owner_id=owner_id, video_id=video_id)
+    from app.media.enqueue import cancel_pipeline
+
+    cancel_pipeline(video_id)
     # 删文件（v1 简化：v1 删除会从所有 notebook 取消关联；storage 文件保留以防重
     # 复上传后命中。Phase 6 ASR 流水线落字幕后 v2 改成「无任何关联时再删文件」）
     session.add(v)

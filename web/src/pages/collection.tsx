@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Pencil, Pin } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import { Brand } from "@/components/brand";
 import { UserMenu } from "@/components/user-menu";
-import { NotebookCardMenu } from "@/components/notebook-card-menu";
+import { NotebookBookCard } from "@/components/notebook-book-card";
 import { CollectionEditDialog } from "@/components/collection-edit-dialog";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
@@ -17,6 +17,7 @@ interface Notebook {
   title: string;
   description: string | null;
   icon: string | null;
+  cover_url?: string | null;
   is_pinned: boolean;
   share_all: boolean;
   source_count: number;
@@ -33,21 +34,6 @@ interface CollectionDetail {
   notebooks: Notebook[];
   created_at: string | null;
   updated_at: string | null;
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatSources(n: number): string {
-  return n === 1 ? "1 source" : `${n} sources`;
 }
 
 export default function CollectionPage() {
@@ -92,19 +78,26 @@ export default function CollectionPage() {
       id: nbId,
       title,
       description,
-      icon,
+      cover_url,
     }: {
       id: number;
-      title: string;
-      description: string;
-      icon: string | null;
+      title?: string;
+      description?: string;
+      cover_url?: string | null;
     }) =>
       api<Notebook>(`/notebooks/${nbId}`, {
         method: "PATCH",
         access: token,
-        body: { title, description: description || null, icon },
+        body: {
+          ...(title !== undefined ? { title } : {}),
+          ...(description !== undefined ? { description: description || null } : {}),
+          ...(cover_url !== undefined ? { cover_url } : {}),
+        },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["collection", collectionId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collection", collectionId] });
+      qc.invalidateQueries({ queryKey: ["notebooks"] });
+    },
   });
 
   if (!token) {
@@ -170,16 +163,13 @@ export default function CollectionPage() {
         ) : data ? (
           <>
             <header className="mb-6 flex items-start justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="text-4xl leading-none">{data.icon || "📂"}</span>
-                <div className="min-w-0">
-                  <h1 className="truncate text-2xl font-semibold">{data.name}</h1>
-                  <p className="text-sm text-muted-foreground">
-                    {data.notebook_count === 1
-                      ? "1 notebook"
-                      : `${data.notebook_count} notebooks`}
-                  </p>
-                </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-2xl font-semibold">{data.name}</h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {data.notebook_count === 1
+                    ? "1 本笔记本"
+                    : `${data.notebook_count} 本笔记本`}
+                </p>
               </div>
               <Button
                 className="rounded-full shadow-none"
@@ -195,48 +185,23 @@ export default function CollectionPage() {
                 这个集合还没有笔记本。点「Edit」添加。
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
                 {notebooks.map((nb) => (
-                  <div
+                  <NotebookBookCard
                     key={nb.id}
-                    className="group relative flex min-h-[168px] flex-col soft-tile soft-tile-hover p-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <Link
-                        to={`/notebooks/${nb.id}`}
-                        className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-background/70 text-xl"
-                        aria-label={nb.title}
-                      >
-                        <span aria-hidden>{nb.icon || "📁"}</span>
-                        {nb.is_pinned ? (
-                          <Pin className="absolute -right-1 -top-1 h-3 w-3 fill-amber-500 text-amber-500" />
-                        ) : null}
-                      </Link>
-                      <NotebookCardMenu
-                        notebookId={nb.id}
-                        isPinned={nb.is_pinned}
-                        onRequestEdit={(nid) => {
-                          const found = notebooks.find((n) => n.id === nid);
-                          if (found) setEditingNb(found);
-                        }}
-                        onAddToCollection={setAddToCollectionId}
-                        onTogglePin={() =>
-                          togglePin.mutate({ id: nb.id, is_pinned: !nb.is_pinned })
-                        }
-                        onDelete={() => {
-                          if (confirm("删除这个笔记本？")) removeNb.mutate(nb.id);
-                        }}
-                      />
-                    </div>
-                    <Link to={`/notebooks/${nb.id}`} className="mt-auto flex flex-col pt-8">
-                      <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
-                        {nb.title}
-                      </h3>
-                      <p className="mt-1.5 text-xs text-muted-foreground">
-                        {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
-                      </p>
-                    </Link>
-                  </div>
+                    notebook={nb}
+                    onUpdateTitle={(nid) => {
+                      const found = notebooks.find((n) => n.id === nid);
+                      if (found) setEditingNb(found);
+                    }}
+                    onAddToCollection={setAddToCollectionId}
+                    onTogglePin={() =>
+                      togglePin.mutate({ id: nb.id, is_pinned: !nb.is_pinned })
+                    }
+                    onDelete={() => {
+                      if (confirm("删除这个笔记本？")) removeNb.mutate(nb.id);
+                    }}
+                  />
                 ))}
               </div>
             )}
@@ -262,7 +227,12 @@ export default function CollectionPage() {
         notebook={editingNb}
         onSubmit={(body) => {
           if (!editingNb) return;
-          updateNb.mutate({ id: editingNb.id, ...body });
+          updateNb.mutate({
+            id: editingNb.id,
+            title: body.title,
+            description: body.description,
+            cover_url: body.cover_url,
+          });
           setEditingNb(null);
         }}
         isPending={updateNb.isPending}

@@ -52,18 +52,24 @@ def _load_snapshot() -> _Snapshot:
     global _snapshot
     if _snapshot is not None:
         return _snapshot
-    # 冷启动：同步读 DB；失败则空配置
+    # 冷启动：同步读 DB；失败则空配置（不永久缓存失败结果，下次再试）
     try:
         snap = _load_snapshot_from_db()
     except Exception as exc:  # noqa: BLE001
         logger.warning("load fetch_network config failed: %s", exc)
-        snap = _Snapshot(
+        return _Snapshot(
             cookie_enabled={p: False for p in PLATFORMS},
             proxy_enabled=False,
             proxy_url=None,
             proxy_apply_to=set(),
         )
     _snapshot = snap
+    logger.info(
+        "fetch_network loaded proxy_enabled=%s apply_to=%s cookies=%s",
+        snap.proxy_enabled,
+        sorted(snap.proxy_apply_to),
+        {k: v for k, v in snap.cookie_enabled.items() if v},
+    )
     return snap
 
 

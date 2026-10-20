@@ -16,11 +16,18 @@ class CollectionUpdate(BaseModel):
     icon: str | None = Field(default=None, max_length=16)
 
 
+class CollectionNotebookPreview(BaseModel):
+    id: int
+    title: str
+    cover_url: str | None = None
+
+
 class CollectionRead(BaseModel):
     id: int
     name: str
     icon: str | None
     notebook_count: int
+    preview_notebooks: list[CollectionNotebookPreview] = []
     created_at: str | None
     updated_at: str | None
 

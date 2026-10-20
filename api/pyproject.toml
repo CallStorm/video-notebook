@@ -21,6 +21,7 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0.36",
   "alembic>=1.14",
   "asyncmy>=0.2.10",
+  "pymysql>=1.1",         # alembic + media-worker sync 读抓取网络配置
   "cryptography>=44.0",   # asyncmy + AES-GCM
   # Cache / broker
   "redis>=5.2",

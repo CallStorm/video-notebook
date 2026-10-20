@@ -3,24 +3,32 @@ import { createPortal } from "react-dom";
 import { Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GeneratedCover } from "@/components/generated-cover";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
-import { generateIcon } from "@/lib/generate-icon";
-
-const EMOJI_OPTIONS = ["🎬", "📚", "🎓", "🔬", "💡", "🚀", "🎵", "📁", "🧠", "🌐"];
+import { encodeCoverVariant, isRemoteCover } from "@/lib/cover-gen";
+import { generateCover } from "@/lib/generate-cover";
 
 interface NotebookForEdit {
   id: number;
   title: string;
   description: string | null;
   icon: string | null;
+  cover_url?: string | null;
+  source_count?: number;
+  note_count?: number;
+  updated_at?: string | null;
 }
 
 interface EditNotebookDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   notebook: NotebookForEdit | null;
-  onSubmit: (data: { title: string; description: string; icon: string | null }) => void;
+  onSubmit: (data: {
+    title: string;
+    description: string;
+    cover_url: string | null;
+  }) => void;
   isPending?: boolean;
   error?: { code: string; message: string } | null;
 }
@@ -36,7 +44,7 @@ export function EditNotebookDialog({
   const { access } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [icon, setIcon] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [genPending, setGenPending] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
@@ -44,7 +52,9 @@ export function EditNotebookDialog({
     if (open && notebook) {
       setTitle(notebook.title);
       setDescription(notebook.description ?? "");
-      setIcon(notebook.icon);
+      setCoverUrl(
+        notebook.cover_url ?? encodeCoverVariant(notebook.id % 12),
+      );
       setGenError(null);
       setGenPending(false);
     }
@@ -61,22 +71,39 @@ export function EditNotebookDialog({
 
   if (!open || !notebook) return null;
 
+  const previewMeta = [
+    notebook.updated_at
+      ? new Date(notebook.updated_at).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      : "—",
+    (notebook.source_count ?? 0) === 1
+      ? "1 个来源"
+      : `${notebook.source_count ?? 0} 个来源`,
+  ].join(" · ");
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const t = title.trim();
     if (!t) return;
-    onSubmit({ title: t, description: description.trim(), icon });
+    onSubmit({
+      title: t,
+      description: description.trim(),
+      cover_url: coverUrl,
+    });
   };
 
-  async function onGenerate() {
+  async function onGenerateCover() {
     if (!access || !title.trim() || genPending) return;
     setGenPending(true);
     setGenError(null);
     try {
-      const next = await generateIcon(access, title.trim());
-      setIcon(next);
+      const result = await generateCover(access, title.trim(), description.trim());
+      setCoverUrl(result.cover_url);
     } catch (err) {
-      setGenError(err instanceof ApiError ? err.message : "生成失败");
+      setGenError(err instanceof ApiError ? err.message : "生成失败，请重试");
     } finally {
       setGenPending(false);
     }
@@ -88,11 +115,11 @@ export function EditNotebookDialog({
       onClick={() => onOpenChange(false)}
     >
       <form
-        className="flex w-full max-w-md flex-col rounded-lg border bg-background shadow-xl"
+        className="flex max-h-[min(90vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
         onSubmit={submit}
       >
-        <header className="flex items-center justify-between border-b p-4">
+        <header className="flex shrink-0 items-center justify-between border-b px-5 py-3.5">
           <h2 className="text-base font-semibold">编辑笔记本</h2>
           <Button
             type="button"
@@ -105,87 +132,95 @@ export function EditNotebookDialog({
           </Button>
         </header>
 
-        <div className="space-y-4 p-4">
-          <div className="flex justify-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted text-4xl">
-              {icon || "📁"}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="nb-edit-title" className="text-sm font-medium">
-              名称 <span className="text-destructive">*</span>
-            </label>
-            <Input
-              id="nb-edit-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={255}
-              required
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="nb-edit-desc" className="text-sm font-medium">
-              描述
-            </label>
-            <textarea
-              id="nb-edit-desc"
-              placeholder="简单描述（可选）"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={2000}
-              rows={4}
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <p className="text-xs text-muted-foreground">
-              {description.length} / 2000
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-sm font-medium">图标</label>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+            {/* 左侧封面 */}
+            <aside className="flex w-full shrink-0 flex-col items-center gap-3 sm:w-[9.5rem]">
+              <div className="book-front relative w-[8.5rem] overflow-hidden shadow-md sm:w-full">
+                {isRemoteCover(coverUrl) ? (
+                  <img
+                    src={coverUrl!}
+                    alt=""
+                    className="aspect-[5/7] w-full object-cover"
+                  />
+                ) : (
+                  <GeneratedCover
+                    title={title.trim() || notebook.title}
+                    coverUrl={coverUrl}
+                    variant={notebook.id}
+                    meta={previewMeta}
+                    className="h-full w-full"
+                  />
+                )}
+                {genPending ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white backdrop-blur-[1px]">
+                    AI 生成中…
+                  </div>
+                ) : null}
+              </div>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-8 rounded-full"
+                className="h-8 w-full rounded-full"
                 disabled={!title.trim() || genPending || !access}
-                onClick={() => void onGenerate()}
+                onClick={() => void onGenerateCover()}
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                {genPending ? "生成中…" : "AI 生成"}
+                {genPending ? "生成中…" : "生成封面"}
               </Button>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {EMOJI_OPTIONS.map((e) => (
-                <button
-                  type="button"
-                  key={e}
-                  onClick={() => setIcon(e)}
-                  className={`rounded p-1.5 text-xl ${
-                    icon === e
-                      ? "bg-primary/10 ring-2 ring-primary"
-                      : "hover:bg-muted"
-                  }`}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
-            {genError ? <p className="text-xs text-destructive">{genError}</p> : null}
-          </div>
+              <p className="text-center text-[11px] leading-snug text-muted-foreground">
+                点击后由 AI 根据名称与描述生成
+              </p>
+              {genError ? (
+                <p className="text-center text-xs text-destructive">{genError}</p>
+              ) : null}
+            </aside>
 
-          {error && (
-            <p className="text-sm text-destructive">
-              {error.code}: {error.message}
-            </p>
-          )}
+            {/* 右侧表单 */}
+            <div className="min-w-0 flex-1 space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="nb-edit-title" className="text-sm font-medium">
+                  名称 <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  id="nb-edit-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={255}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="nb-edit-desc" className="text-sm font-medium">
+                  描述
+                </label>
+                <textarea
+                  id="nb-edit-desc"
+                  placeholder="简单描述（可选，生成封面时会参考）"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={2000}
+                  rows={8}
+                  className="flex min-h-[10rem] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {description.length} / 2000
+                </p>
+              </div>
+
+              {error && (
+                <p className="text-sm text-destructive">
+                  {error.code}: {error.message}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t p-3">
+        <footer className="flex shrink-0 items-center justify-end gap-2 border-t bg-background px-5 py-3">
           <Button
             type="button"
             variant="outline"
@@ -193,7 +228,7 @@ export function EditNotebookDialog({
           >
             取消
           </Button>
-          <Button type="submit" disabled={isPending || !title.trim()}>
+          <Button type="submit" disabled={isPending || !title.trim() || genPending}>
             {isPending ? "保存中…" : "保存"}
           </Button>
         </footer>

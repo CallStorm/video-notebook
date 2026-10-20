@@ -217,7 +217,7 @@ export function AdminFetchNetworkPage() {
                 key={platform}
                 className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-sm"
               >
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-semibold">{PLATFORM_LABEL[platform]}</h3>
                   {meta?.cookie_set ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -229,7 +229,43 @@ export function AdminFetchNetworkPage() {
                       未配置
                     </span>
                   )}
+                  {meta?.cookie_set ? (
+                    meta.enabled ? (
+                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-700">
+                        已启用
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        未启用
+                      </span>
+                    )
+                  ) : null}
                 </div>
+
+                <label className="mb-3 flex items-start gap-2.5 rounded-xl border border-border/50 bg-background/60 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={Boolean(meta?.enabled)}
+                    disabled={!meta?.cookie_set || saveCookie.isPending}
+                    onChange={(e) => {
+                      if (!meta?.cookie_set) return;
+                      saveCookie.mutate({
+                        platform,
+                        cookie_text: null,
+                        enabled: e.target.checked,
+                      });
+                    }}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">启用 Cookie</span>
+                    <span className="text-xs text-muted-foreground">
+                      {meta?.cookie_set
+                        ? "关闭后抓取/搜索不会使用该平台 Cookie"
+                        : "请先上传或手动粘贴 Cookie"}
+                    </span>
+                  </span>
+                </label>
 
                 <div className="flex flex-wrap gap-2">
                   <input
@@ -284,19 +320,7 @@ export function AdminFetchNetworkPage() {
 
                 {open && (
                   <div className="mt-4 space-y-3 border-t border-border/50 pt-4">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draftEnabled[platform]}
-                        onChange={(e) =>
-                          setDraftEnabled((prev) => ({
-                            ...prev,
-                            [platform]: e.target.checked,
-                          }))
-                        }
-                      />
-                      启用 Cookie
-                    </label>
+                    <p className="text-xs text-muted-foreground">粘贴 Netscape cookie 正文后保存（会同时按上方开关决定是否启用）。</p>
                     <textarea
                       className="min-h-[120px] w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-mono"
                       placeholder="粘贴 Netscape cookie，或 name=value; …"
@@ -314,7 +338,7 @@ export function AdminFetchNetworkPage() {
                         saveCookie.mutate({
                           platform,
                           cookie_text: draftText[platform],
-                          enabled: draftEnabled[platform],
+                          enabled: Boolean(meta?.enabled) || draftEnabled[platform],
                         })
                       }
                     >

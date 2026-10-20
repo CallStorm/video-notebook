@@ -45,6 +45,7 @@ def _to_read_dict(nb: Notebook, source_count: int = 0, note_count: int = 0) -> d
         "title": nb.title,
         "description": nb.description,
         "icon": nb.icon,
+        "cover_url": nb.cover_url,
         "is_pinned": nb.is_pinned,
         "share_all": nb.share_all,
         "source_count": source_count,
@@ -94,12 +95,14 @@ async def create_notebook(
     title: str,
     description: str | None = None,
     icon: str | None = None,
+    cover_url: str | None = None,
 ) -> dict:
     nb = Notebook(
         owner_id=owner_id,
         title=title,
         description=description,
         icon=icon,
+        cover_url=cover_url,
         is_pinned=False,
         share_all=False,
     )
@@ -117,6 +120,8 @@ async def update_notebook(
     title: str | None = None,
     description: str | None = None,
     icon: str | None = None,
+    cover_url: str | None = None,
+    cover_url_set: bool = False,
     is_pinned: bool | None = None,
 ) -> dict:
     nb = await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
@@ -126,6 +131,8 @@ async def update_notebook(
         nb.description = description
     if icon is not None:
         nb.icon = icon
+    if cover_url_set:
+        nb.cover_url = cover_url
     if is_pinned is not None:
         nb.is_pinned = is_pinned
     session.add(nb)

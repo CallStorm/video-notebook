@@ -46,7 +46,7 @@ export function LoginForm() {
   };
 
   return (
-    <Card className="w-full max-w-sm rounded-3xl border-border/60 shadow-sm">
+    <Card className="w-full max-w-sm rounded-2xl border-border/80 shadow-soft">
       <CardContent className="pt-6">
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">

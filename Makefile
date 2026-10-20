@@ -3,7 +3,7 @@
 # 装载 .env（如有）；uvicorn / vite 等会自动读。
 SHELL := /usr/bin/env bash
 
-.PHONY: help middleware up down api web worker migrate typecheck test build clean
+.PHONY: help middleware up down api web worker media-worker migrate typecheck test build clean
 
 help:
 	@echo "常用命令："
@@ -12,6 +12,7 @@ help:
 	@echo "  make api              # 本地起 api (uvicorn --reload)"
 	@echo "  make web              # 本地起 web (vite dev)"
 	@echo "  make worker           # 本地起 studio celery worker"
+	@echo "  make media-worker     # 本地起 media celery worker（抓取+字幕）"
 	@echo "  make migrate          # alembic upgrade head"
 	@echo "  make migration m=...  # 生成 alembic revision"
 	@echo "  make test             # api pytest"
@@ -33,6 +34,9 @@ web:
 
 worker:
 	cd api && uv run celery -A app.studio.worker:celery_app worker -Q studio -c 2
+
+media-worker:
+	cd api && uv run celery -A app.media.worker:celery_app worker -Q media -c 4 -n media@%h
 
 migrate:
 	cd api && uv run alembic upgrade head

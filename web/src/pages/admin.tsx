@@ -6,6 +6,7 @@ import { AdminClaudePage } from "@/pages/admin-claude";
 import { AdminUsersPage } from "@/pages/admin-users";
 import { AdminConfigsPage } from "@/pages/admin-configs";
 import { AdminFetchNetworkPage } from "@/pages/admin-fetch-network";
+import { AdminFetchSettingsPage } from "@/pages/admin-fetch-settings";
 import { AdminSkillsPanel } from "@/pages/admin-skills";
 import { AdminAgentsPanel } from "@/pages/admin-agents";
 import { AdminStudioPanel } from "@/pages/admin-studio";
@@ -13,6 +14,7 @@ import { AdminStudioPanel } from "@/pages/admin-studio";
 type AdminTab =
   | "overview"
   | "fetch-network"
+  | "fetch-settings"
   | "accounts"
   | "skills"
   | "agents"
@@ -21,6 +23,7 @@ type AdminTab =
 const TABS: { id: AdminTab; label: string }[] = [
   { id: "overview", label: "概览" },
   { id: "fetch-network", label: "抓取与网络" },
+  { id: "fetch-settings", label: "抓取设置" },
   { id: "accounts", label: "账号" },
   { id: "skills", label: "技能" },
   { id: "agents", label: "智能体" },
@@ -34,6 +37,7 @@ function parseTab(raw: string | null): AdminTab {
     raw === "studio" ||
     raw === "overview" ||
     raw === "fetch-network" ||
+    raw === "fetch-settings" ||
     raw === "accounts"
   ) {
     return raw;
@@ -108,6 +112,7 @@ export default function AdminPage() {
           </div>
         ) : null}
         {tab === "fetch-network" ? <AdminFetchNetworkPage /> : null}
+        {tab === "fetch-settings" ? <AdminFetchSettingsPage /> : null}
         {tab === "accounts" ? <AdminUsersPage /> : null}
         {tab === "skills" ? <AdminSkillsPanel /> : null}
         {tab === "agents" ? <AdminAgentsPanel /> : null}

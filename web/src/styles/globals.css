@@ -4,40 +4,58 @@
 
 @layer base {
   :root {
-    /* NotebookLM-like soft canvas */
-    --background: 210 20% 97%;
-    --foreground: 220 16% 16%;
+    /* AI 工作台：冷白灰 + 深空蓝 + 电光蓝（70/20/10） */
+    /* #F7F8FA */
+    --background: 220 14% 97%;
+    /* #111827 */
+    --foreground: 220 39% 11%;
 
-    /* Soft grey tile — slightly deeper than page */
-    --card: 210 16% 94%;
-    --card-foreground: 220 16% 16%;
+    /* #FFFFFF */
+    --card: 0 0% 100%;
+    --card-foreground: 220 39% 11%;
 
-    /* Soft ice-blue CTA */
-    --primary: 214 78% 82%;
-    --primary-foreground: 220 16% 16%;
+    /* #2563EB */
+    --primary: 217 91% 53%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 16% 92%;
-    --secondary-foreground: 220 16% 20%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 25% 20%;
 
-    --muted: 210 16% 92%;
-    --muted-foreground: 215 12% 46%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 215 14% 42%;
 
-    --accent: 214 40% 92%;
-    --accent-foreground: 220 16% 18%;
+    /* #EFF6FF 选中/强调浅底 */
+    --accent: 214 100% 97%;
+    --accent-foreground: 217 91% 40%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 210 14% 88%;
-    --input: 210 14% 88%;
-    --ring: 214 70% 60%;
-    --radius: 1.25rem;
+    /* #0D9488 AI 辅色 */
+    --success: 175 84% 32%;
+    --success-foreground: 0 0% 100%;
+
+    /* 警告橙 */
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 39% 11%;
+
+    --border: 220 13% 90%;
+    --input: 220 13% 90%;
+    --ring: 217 91% 53%;
+    --radius: 0.875rem;
+
+    /* 下拉菜单 / Popover（必须不透明，否则会透出下层按钮） */
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 39% 11%;
+
+    /* 播放器深色区 */
+    --player: 220 28% 10%;
+    --player-foreground: 210 20% 96%;
   }
 
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
-    /* dark mode 占位；v1 不启用 */
   }
 
   * {
@@ -54,14 +72,127 @@
 
 @layer utilities {
   .soft-tile {
-    @apply rounded-3xl bg-card text-card-foreground transition-colors;
+    @apply rounded-2xl border border-border/80 bg-card text-card-foreground shadow-sm transition-colors;
   }
 
   .soft-tile-hover {
-    @apply hover:bg-[hsl(210_16%_91%)];
+    @apply hover:border-border hover:bg-accent/60;
+  }
+
+  /* 立体书本舞台 */
+  .book-stage {
+    @apply flex flex-col gap-3;
+  }
+
+  .book-3d {
+    @apply relative ml-0 w-full max-w-[11.5rem] origin-left transition-transform duration-300 ease-out;
+    perspective: 900px;
+  }
+
+  .book-stage:hover .book-3d {
+    transform: translateY(-6px) rotateY(-4deg);
+  }
+
+  .book-front {
+    @apply relative aspect-[5/7] w-full overflow-hidden rounded-[4px_10px_10px_4px] bg-slate-900 shadow-[0_18px_40px_-18px_rgba(15,23,42,0.55),0_2px_0_rgba(255,255,255,0.12)_inset];
+  }
+
+  .book-cover-link {
+    @apply absolute inset-0 block;
+  }
+
+  .book-spine-edge {
+    @apply pointer-events-none absolute inset-y-[2%] left-0 z-20 w-[7px] rounded-l-[3px];
+    background: linear-gradient(
+      90deg,
+      rgba(15, 23, 42, 0.55) 0%,
+      rgba(255, 255, 255, 0.18) 35%,
+      rgba(15, 23, 42, 0.25) 100%
+    );
+  }
+
+  .book-pages {
+    @apply pointer-events-none absolute -right-[5px] top-[3%] bottom-[3%] z-0 w-[5px] rounded-r-[2px];
+    background: repeating-linear-gradient(
+      to right,
+      #f8fafc 0px,
+      #e2e8f0 1px,
+      #f1f5f9 2px
+    );
+    box-shadow: 1px 0 4px rgba(15, 23, 42, 0.12);
+  }
+
+  .book-cover-overlay {
+    @apply absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-10;
+  }
+
+  /* 书架：左分类名 + 右可滑动书本 */
+  .shelf-row {
+    @apply relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-[box-shadow,border-color] duration-200 hover:border-primary/30 hover:shadow-md;
+  }
+
+  .shelf-row-inner {
+    @apply flex min-h-[7.5rem] items-stretch sm:min-h-[8.25rem];
+  }
+
+  .shelf-plaque {
+    @apply relative flex w-[8rem] shrink-0 cursor-pointer flex-col justify-center border-r border-border/60 bg-[#E8EEF6] px-3.5 py-4 sm:w-44 sm:px-5;
+  }
+
+  .shelf-board {
+    @apply relative flex min-w-0 flex-1 items-end gap-2.5 overflow-x-auto overflow-y-hidden scroll-smooth px-3 pt-5 sm:gap-3 sm:px-5;
+    padding-bottom: 1.2rem;
+    background: linear-gradient(180deg, #dbe4f0 0%, #c5d0e0 72%, #b0bccf 100%);
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .shelf-board::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .shelf-board::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-300/80;
+  }
+
+  .shelf-plank {
+    @apply pointer-events-none absolute inset-x-0 bottom-0 h-3.5;
+    background: linear-gradient(to bottom, #94a3b8, #64748b 50%, #475569);
+    box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.16);
+  }
+
+  .shelf-book {
+    @apply relative z-[1] aspect-[5/7] w-[3.25rem] shrink-0 overflow-hidden rounded-[2px_5px_3px_2px] shadow-[1px_4px_12px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-transform duration-150 hover:-translate-y-1 hover:shadow-[2px_8px_16px_rgba(15,23,42,0.3)] sm:w-[3.75rem];
+  }
+
+  .shelf-book::before {
+    content: "";
+    @apply pointer-events-none absolute inset-y-0 left-0 z-10 w-[3px];
+    background: linear-gradient(
+      90deg,
+      rgba(15, 23, 42, 0.28),
+      rgba(255, 255, 255, 0.25),
+      transparent
+    );
   }
 
   .panel-surface {
-    @apply rounded-3xl bg-card;
+    @apply rounded-2xl border border-border/80 bg-card shadow-sm;
+  }
+
+  .source-selected {
+    @apply bg-accent;
+  }
+
+  .status-busy {
+    @apply text-primary;
+  }
+
+  .status-success {
+    @apply text-[hsl(var(--success))];
+  }
+
+  .status-warn {
+    @apply text-[hsl(var(--warning))];
   }
 }

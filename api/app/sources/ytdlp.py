@@ -92,12 +92,50 @@ def _download_direct(url: str, work_dir: Path) -> DownloadResult:
     )
 
 
+def _ytdlp_progress_hook(state: dict) -> None:
+    """Log download progress to media-worker logs (throttled ~every 5%)."""
+    status = state.get("status")
+    if status == "downloading":
+        total = state.get("total_bytes") or state.get("total_bytes_estimate") or 0
+        done = int(state.get("downloaded_bytes") or 0)
+        pct = (state.get("_percent_str") or "").strip()
+        speed = (state.get("_speed_str") or "").strip()
+        eta = (state.get("_eta_str") or "").strip()
+        key = int(done / max(int(total), 1) * 20) if total else done // (5 * 1024 * 1024)
+        last = getattr(_ytdlp_progress_hook, "_last_key", None)
+        if key == last:
+            return
+        setattr(_ytdlp_progress_hook, "_last_key", key)
+        frag = ""
+        if state.get("fragment_index") is not None and state.get("fragment_count"):
+            frag = f" fragment {state['fragment_index']}/{state['fragment_count']}"
+        logger.info(
+            "yt-dlp downloading%s %s bytes=%s/%s speed=%s eta=%s",
+            frag,
+            pct or "?",
+            done,
+            total or "?",
+            speed or "?",
+            eta or "?",
+        )
+    elif status == "finished":
+        setattr(_ytdlp_progress_hook, "_last_key", None)
+        logger.info(
+            "yt-dlp download finished, post-processing… filename=%s",
+            state.get("filename"),
+        )
+    elif status == "error":
+        logger.warning("yt-dlp progress error: %s", state)
+
+
 def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
     import yt_dlp
 
     from app.fetch_network.runtime import apply_ytdlp_opts
 
     outtmpl = str(work_dir / "%(id)s.%(ext)s")
+    setattr(_ytdlp_progress_hook, "_last_key", None)
+    logger.info("yt-dlp start url=%s work_dir=%s", url, work_dir)
     opts: dict = {
         "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
         "merge_output_format": "mp4",
@@ -109,6 +147,8 @@ def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "noprogress": False,
+        "progress_hooks": [_ytdlp_progress_hook],
         "retries": 3,
         "socket_timeout": 30,
         "http_headers": {
@@ -125,6 +165,16 @@ def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
         "js_runtimes": _js_runtimes(),
     }
     opts = apply_ytdlp_opts(opts, url=url)
+    from app.fetch_settings.runtime import apply_chunk_opts, get_settings_fresh
+    from app.media.ffmpeg_path import ytdlp_ffmpeg_location
+
+    opts = apply_chunk_opts(opts, filesize=None)
+    ffmpeg_loc = ytdlp_ffmpeg_location()
+    if ffmpeg_loc:
+        opts["ffmpeg_location"] = ffmpeg_loc
+    snap = get_settings_fresh()
+    # Celery hard limit is the real ceiling; this is a local safety net.
+    download_timeout = max(120, snap.hard_time_limit)
 
     info: dict | None = None
     try:
@@ -137,10 +187,10 @@ def _download_with_ytdlp(url: str, work_dir: Path) -> DownloadResult:
         with ThreadPoolExecutor(max_workers=1) as pool:
             fut = pool.submit(_run)
             try:
-                info = fut.result(timeout=180)
+                info = fut.result(timeout=download_timeout)
             except FuturesTimeout as exc:
                 raise FetchDownloadError(
-                    "抓取超时。请检查网络/代理，或在后台「抓取与网络」配置 Cookie 后重试。"
+                    "抓取超时。请检查网络/代理，或在后台「抓取设置」调高超时后重试。"
                 ) from exc
     except FetchDownloadError:
         raise

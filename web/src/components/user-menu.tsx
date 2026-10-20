@@ -13,31 +13,41 @@ interface UserMenuProps {
 export function UserMenu({ onLogout }: UserMenuProps) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
+    const close = () => setOpen(false);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") close();
     };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
     return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
     };
   }, [open]);
 
+  function toggleMenu() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const menuWidth = 224;
+      const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
+      setAnchor({ top: rect.bottom + 8, left });
+    }
+    setOpen((v) => !v);
+  }
+
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleMenu}
         onMouseDown={(e) => e.stopPropagation()}
         className="rounded-full transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title={user?.name ?? "用户"}
@@ -46,22 +56,19 @@ export function UserMenu({ onLogout }: UserMenuProps) {
       </button>
 
       {open &&
+        anchor &&
         typeof document !== "undefined" &&
         createPortal(
-          <div
-            className="fixed inset-0 z-50"
-            onMouseDown={() => setOpen(false)}
-          >
+          <div className="fixed inset-0 z-[200]" onMouseDown={() => setOpen(false)}>
             <div
               role="menu"
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
-              className="absolute right-4 top-14 w-56 overflow-hidden rounded-lg border bg-popover py-1 text-popover-foreground shadow-lg"
+              className="absolute w-56 overflow-hidden rounded-xl border border-border/80 bg-popover text-popover-foreground shadow-lg"
+              style={{ top: anchor.top, left: anchor.left }}
             >
-              <div className="border-b px-3 py-2">
-                <div className="truncate text-sm font-medium">
-                  {user?.name ?? "—"}
-                </div>
+              <div className="border-b border-border/70 px-3 py-2">
+                <div className="truncate text-sm font-medium">{user?.name ?? "—"}</div>
                 {user && (
                   <div className="truncate text-xs text-muted-foreground">
                     {user.role === "admin" ? "管理员" : "用户"} · {user.phone}
@@ -94,6 +101,6 @@ export function UserMenu({ onLogout }: UserMenuProps) {
           </div>,
           document.body,
         )}
-    </div>
+    </>
   );
 }
