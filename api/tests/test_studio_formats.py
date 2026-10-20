@@ -158,3 +158,16 @@ def test_damaged_manifest_does_not_count_as_fallback_candidate(tmp_path: Path):
     _write(outputs, "payload.bin", b"data")
     accepted = accept_outputs(get_format("file"), outputs)
     assert accepted.path.name == "payload.bin"
+
+
+def test_mind_map_instructions_treat_topic_as_focus_axis():
+    instructions = get_format("mind_map").instructions
+    assert "topic" in instructions
+    assert "focus_mode" in instructions
+    assert "extra_constraints" in instructions
+    assert "action" in instructions
+    assert "outline" in instructions
+    assert "本次主题硬约束" in instructions
+    assert "必要前提" in instructions
+    assert "禁止按视频/文档章节目录做全覆盖式导图" in instructions
+

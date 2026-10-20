@@ -110,7 +110,7 @@ class Settings(BaseSettings):
 
     # Claude Code
     anthropic_api_key: str | None = None
-    claude_cli_path: str = "/usr/local/bin/claude"
+    claude_cli_path: str = "claude"  # override with CLAUDE_CLI_PATH absolute path on Windows
 
     # ─── 首个管理员 seed ────────────────────────────────────────────────
     seed_admin_phone: str | None = None

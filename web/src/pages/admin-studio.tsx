@@ -41,7 +41,16 @@ type TextField = {
   required: boolean;
   multiline: boolean;
 };
-type FormField = SourcesField | LanguageField | TextField;
+type SelectOption = { value: string; label: string };
+type SelectField = {
+  type: "select";
+  key: string;
+  label: string;
+  required: boolean;
+  default?: string;
+  options: SelectOption[];
+};
+type FormField = SourcesField | LanguageField | TextField | SelectField;
 
 interface CapabilityFormState {
   name: string;
@@ -78,6 +87,27 @@ function parseForm(raw: unknown): FormField[] {
         required: Boolean(rec.required),
         multiline: Boolean(rec.multiline),
       });
+    } else if (rec.type === "select") {
+      const optionsRaw = Array.isArray(rec.options) ? rec.options : [];
+      const options: SelectOption[] = [];
+      for (const opt of optionsRaw) {
+        if (!opt || typeof opt !== "object") continue;
+        const o = opt as Record<string, unknown>;
+        if (typeof o.value !== "string" || !o.value) continue;
+        options.push({
+          value: o.value,
+          label: typeof o.label === "string" && o.label ? o.label : o.value,
+        });
+      }
+      const item: SelectField = {
+        type: "select",
+        key: typeof rec.key === "string" ? rec.key : "",
+        label: typeof rec.label === "string" ? rec.label : "",
+        required: Boolean(rec.required),
+        options,
+      };
+      if (typeof rec.default === "string" && rec.default) item.default = rec.default;
+      out.push(item);
     }
   }
   return out;
@@ -85,7 +115,18 @@ function parseForm(raw: unknown): FormField[] {
 
 function toApiForm(fields: FormField[]): Record<string, unknown>[] {
   return fields.map((field) => {
-    if (field.type !== "text") return { type: field.type };
+    if (field.type === "sources" || field.type === "language") return { type: field.type };
+    if (field.type === "select") {
+      const item: Record<string, unknown> = {
+        type: "select",
+        key: field.key,
+        label: field.label,
+        required: field.required,
+        options: field.options,
+      };
+      if (field.default) item.default = field.default;
+      return item;
+    }
     const item: Record<string, unknown> = {
       type: "text",
       key: field.key,
@@ -217,7 +258,7 @@ function FormFieldEditor({
         <div key={`${field.type}-${index}`} className="space-y-2 rounded-md border p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-medium">
-              {field.type === "sources" ? "来源" : field.type === "language" ? "语言" : "文本"}
+              {field.type === "sources" ? "来源" : field.type === "language" ? "语言" : field.type === "select" ? "下拉" : "文本"}
             </span>
             <Button
               type="button"
@@ -265,6 +306,22 @@ function FormFieldEditor({
                 <option value="single">单行</option>
                 <option value="multiline">多行</option>
               </select>
+            </div>
+          )}
+          {field.type === "select" && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                key=<span className="font-mono">{field.key || "—"}</span>
+                {field.default ? ` · 默认 ${field.default}` : ""}
+              </p>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {field.options.map((opt) => (
+                  <li key={opt.value}>
+                    {opt.label} <span className="font-mono text-[10px]">({opt.value})</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-muted-foreground">预置下拉由代码维护；保存时会原样回写。</p>
             </div>
           )}
         </div>

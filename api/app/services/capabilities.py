@@ -12,12 +12,38 @@ from app.models.studio import Agent, StudioCapability, StudioTask
 from app.studio.formats import get_format
 
 _TEXT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-_FIELD_TYPES = frozenset({"sources", "language", "text"})
+_FIELD_TYPES = frozenset({"sources", "language", "text", "select"})
 
 _MIND_MAP_FORM = [
     {"type": "language"},
     {"type": "sources"},
-    {"type": "text", "key": "topic", "label": "主题", "required": True, "multiline": False},
+    {
+        "type": "text",
+        "key": "topic",
+        "label": "主题",
+        "placeholder": "聚焦问题，如：年轻人如何应对（决定导图形态）",
+        "required": True,
+        "multiline": False,
+    },
+    {
+        "type": "select",
+        "key": "focus_mode",
+        "label": "导图模式",
+        "required": True,
+        "default": "action",
+        "options": [
+            {"value": "action", "label": "聚焦应对/行动（按主题裁剪）"},
+            {"value": "outline", "label": "完整大纲（全片/全书结构）"},
+        ],
+    },
+    {
+        "type": "text",
+        "key": "extra_constraints",
+        "label": "额外约束",
+        "placeholder": "可选：例如禁止扩写根标题、一级仅行动建议、最多一个必要前提…",
+        "required": False,
+        "multiline": True,
+    },
 ]
 _SLIDES_FORM = [
     {"type": "language"},
@@ -71,7 +97,45 @@ def validate_form(fields: list[dict]) -> list[dict]:
         if key in seen_keys:
             raise BadRequestError("文本字段 key 必须唯一")
         seen_keys.add(key)
-        item: dict = {
+        if ftype == "select":
+            options_raw = field.get("options")
+            if not isinstance(options_raw, list) or not options_raw:
+                raise BadRequestError("下拉选项无效")
+            options: list[dict] = []
+            values: set[str] = set()
+            for opt in options_raw:
+                if not isinstance(opt, dict):
+                    raise BadRequestError("下拉选项无效")
+                value = opt.get("value")
+                if not isinstance(value, str) or not value.strip():
+                    raise BadRequestError("下拉选项无效")
+                value = value.strip()
+                if value in values:
+                    raise BadRequestError("下拉选项不能重复")
+                values.add(value)
+                label = opt.get("label")
+                options.append(
+                    {
+                        "value": value,
+                        "label": label.strip() if isinstance(label, str) and label.strip() else value,
+                    }
+                )
+            item = {
+                "type": "select",
+                "key": key,
+                "label": field.get("label") or "",
+                "required": bool(field.get("required", False)),
+                "options": options,
+            }
+            default = field.get("default")
+            if isinstance(default, str) and default.strip():
+                default = default.strip()
+                if default not in values:
+                    raise BadRequestError("下拉默认值不在选项中")
+                item["default"] = default
+            normalized.append(item)
+            continue
+        item = {
             "type": "text",
             "key": key,
             "label": field.get("label") or "",
@@ -86,26 +150,31 @@ def validate_form(fields: list[dict]) -> list[dict]:
 
 
 async def seed_builtin_capabilities(session: AsyncSession) -> None:
+    """Create missing builtins; refresh form_json so code-owned fields stay current."""
     for spec in _BUILTINS:
-        existing = await session.scalar(
-            select(StudioCapability.id).where(
+        cap = await session.scalar(
+            select(StudioCapability).where(
                 StudioCapability.is_builtin.is_(True),
                 StudioCapability.format_key == spec["format_key"],
+                StudioCapability.deleted_at.is_(None),
             )
         )
-        if existing is not None:
+        if cap is None:
+            session.add(
+                StudioCapability(
+                    name=spec["name"],
+                    icon=spec["icon"],
+                    format_key=spec["format_key"],
+                    agent_id=None,
+                    enabled=False,
+                    is_builtin=True,
+                    form_json=spec["form_json"],
+                )
+            )
             continue
-        session.add(
-            StudioCapability(
-                name=spec["name"],
-                icon=spec["icon"],
-                format_key=spec["format_key"],
-                agent_id=None,
-                enabled=False,
-                is_builtin=True,
-                form_json=spec["form_json"],
-            )
-        )
+        # Builtin forms are owned by code (name/agent/enabled kept as admin set them).
+        cap.form_json = spec["form_json"]
+        session.add(cap)
     await session.commit()
 
 

@@ -10,6 +10,13 @@ import { useAuth } from "@/lib/auth";
 interface SkillRead {
   id: number;
   name: string;
+  description: string | null;
+}
+
+interface SystemPromptDraft {
+  skill_name: string;
+  skill_description: string | null;
+  system_prompt: string;
 }
 
 interface AgentRead {
@@ -70,11 +77,26 @@ async function deleteAgent(access: string, id: number): Promise<void> {
   await api(`/admin/agents/${id}`, { method: "DELETE", access, raw: true });
 }
 
+async function fetchSystemPromptDraft(
+  access: string,
+  skillId: number,
+  agentName: string,
+): Promise<SystemPromptDraft> {
+  const params = new URLSearchParams();
+  if (agentName.trim()) params.set("agent_name", agentName.trim());
+  const qs = params.toString();
+  return api<SystemPromptDraft>(
+    `/admin/skills/${skillId}/system-prompt-draft${qs ? `?${qs}` : ""}`,
+    { access },
+  );
+}
+
 export function AdminAgentsPanel() {
   const { access } = useAuth();
   const qc = useQueryClient();
   const [form, setForm] = useState<AgentWrite>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [promptHint, setPromptHint] = useState<string | null>(null);
 
   const skills = useQuery({
     queryKey: ["admin-skills"],
@@ -93,6 +115,7 @@ export function AdminAgentsPanel() {
       qc.invalidateQueries({ queryKey: ["admin-agents"] });
       setForm(EMPTY_FORM);
       setEditingId(null);
+      setPromptHint(null);
     },
   });
 
@@ -106,6 +129,32 @@ export function AdminAgentsPanel() {
     mutationFn: (id: number) => deleteAgent(access ?? "", id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-agents"] }),
   });
+
+  const generatePrompt = useMutation({
+    mutationFn: () => {
+      if (form.skill_id === null) {
+        throw new Error("请先选择技能");
+      }
+      return fetchSystemPromptDraft(access ?? "", form.skill_id, form.name);
+    },
+    onSuccess: (draft) => {
+      setForm((f) => ({ ...f, system_prompt: draft.system_prompt }));
+      setPromptHint(`已根据技能「${draft.skill_name}」生成系统提示，可再按需微调。`);
+    },
+    onError: () => {
+      setPromptHint(null);
+    },
+  });
+
+  const handleGeneratePrompt = () => {
+    if (form.skill_id === null) return;
+    if (form.system_prompt.trim()) {
+      const ok = window.confirm("当前系统提示已有内容，确定用根据技能生成的内容覆盖吗？");
+      if (!ok) return;
+    }
+    setPromptHint(null);
+    generatePrompt.mutate();
+  };
 
   const skillName = (skillId: number | null) => {
     if (skillId === null) return "—";
@@ -170,13 +219,41 @@ export function AdminAgentsPanel() {
                 }
                 required
               />
-              <textarea
-                className={`${TEXTAREA_CLASS} md:col-span-2`}
-                placeholder="系统提示"
-                value={form.system_prompt}
-                onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))}
-                required
-              />
+              <div className="space-y-2 md:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-sm font-medium" htmlFor="agent-system-prompt">
+                    系统提示
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={form.skill_id === null || generatePrompt.isPending}
+                    onClick={handleGeneratePrompt}
+                    title={form.skill_id === null ? "请先选择技能" : "根据所选技能生成互补系统提示"}
+                  >
+                    {generatePrompt.isPending ? "生成中…" : "根据技能生成"}
+                  </Button>
+                </div>
+                <textarea
+                  id="agent-system-prompt"
+                  className={TEXTAREA_CLASS}
+                  placeholder="系统提示（可点「根据技能生成」；运行时技能全文由 .claude/skills 注入，此处写角色与约束即可）"
+                  value={form.system_prompt}
+                  onChange={(e) => {
+                    setPromptHint(null);
+                    setForm((f) => ({ ...f, system_prompt: e.target.value }));
+                  }}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  运行时会把技能拷到工作区并加载 SKILL.md；系统提示与格式说明、固定约定拼接使用，请勿整份粘贴技能正文。
+                </p>
+                {promptHint && <p className="text-xs text-emerald-700">{promptHint}</p>}
+                {generatePrompt.error instanceof ApiError && (
+                  <p className="text-xs text-destructive">{generatePrompt.error.message}</p>
+                )}
+              </div>
               <div className="flex gap-2 md:col-span-2">
                 <Button type="submit" disabled={save.isPending}>
                   {save.isPending ? "保存中…" : editingId === null ? "创建" : "保存"}
@@ -188,6 +265,7 @@ export function AdminAgentsPanel() {
                     onClick={() => {
                       setEditingId(null);
                       setForm(EMPTY_FORM);
+                      setPromptHint(null);
                     }}
                   >
                     取消
@@ -243,6 +321,7 @@ export function AdminAgentsPanel() {
                               variant="outline"
                               onClick={() => {
                                 setEditingId(agent.id);
+                                setPromptHint(null);
                                 setForm({
                                   name: agent.name,
                                   skill_id: agent.skill_id,

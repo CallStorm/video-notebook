@@ -23,7 +23,20 @@ type TextField = {
   placeholder?: string;
 };
 
-type FormField = { type: "language" } | { type: "sources" } | TextField;
+type SelectOption = { value: string; label: string };
+
+type SelectField = {
+  type: "select";
+  key: string;
+  label?: string;
+  required?: boolean;
+  default?: string;
+  options: SelectOption[];
+};
+
+type ValueField = TextField | SelectField;
+
+type FormField = { type: "language" } | { type: "sources" } | ValueField;
 
 interface Capability {
   id: number;
@@ -70,8 +83,16 @@ function sourceTitle(source: StudioSource): string {
   return source.video.title || source.video.source_url || `来源 ${source.video_id}`;
 }
 
-function textFields(form: FormField[]): TextField[] {
-  return form.filter((field): field is TextField => field.type === "text");
+function valueFields(form: FormField[]): ValueField[] {
+  return form.filter((field): field is ValueField => field.type === "text" || field.type === "select");
+}
+
+function defaultFieldValue(field: ValueField): string {
+  if (field.type === "select") {
+    if (field.default) return field.default;
+    return field.options[0]?.value ?? "";
+  }
+  return "";
 }
 
 function toggleId(ids: number[], id: number): number[] {
@@ -210,7 +231,9 @@ export function StudioPanel({
 
   function openCapability(capability: Capability) {
     const fields: Record<string, string> = {};
-    for (const field of textFields(capability.form_json ?? [])) fields[field.key] = "";
+    for (const field of valueFields(capability.form_json ?? [])) {
+      fields[field.key] = defaultFieldValue(field);
+    }
     setFormError(null);
     setDraft({
       capability,
@@ -226,9 +249,9 @@ export function StudioPanel({
     const form = draft.capability.form_json ?? [];
     const hasLanguage = form.some((field) => field.type === "language");
     const hasSources = form.some((field) => field.type === "sources");
-    for (const field of textFields(form)) {
+    for (const field of valueFields(form)) {
       if (field.required && !(draft.fields[field.key] ?? "").trim()) {
-        setFormError("必填文本不能为空");
+        setFormError(field.type === "select" ? "必填选项不能为空" : "必填文本不能为空");
         return;
       }
     }
@@ -616,6 +639,30 @@ function CapabilityDialog({
                     ) : null}
                   </div>
                 </fieldset>
+              );
+            }
+            if (field.type === "select") {
+              const value = draft.fields[field.key] ?? defaultFieldValue(field);
+              return (
+                <label key={field.key} className="block text-xs">
+                  <span className="mb-1 block text-muted-foreground">
+                    {field.label || field.key}
+                    {field.required ? " *" : ""}
+                  </span>
+                  <select
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={value}
+                    onChange={(event) =>
+                      onChange({ ...draft, fields: { ...draft.fields, [field.key]: event.target.value } })
+                    }
+                  >
+                    {field.options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               );
             }
             const value = draft.fields[field.key] ?? "";
