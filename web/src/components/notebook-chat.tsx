@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, Copy } from "lucide-react";
+import { ArrowUp, Check, Copy, MessageSquare } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { authedHeaders } from "@/lib/auth";
 import { MarkdownMessage } from "@/components/chat-markdown";
@@ -154,15 +154,17 @@ export function NotebookChat({
         {history.isLoading ? (
           <p className="text-sm text-muted-foreground">加载对话…</p>
         ) : shown.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
-            <p>
-              向勾选的来源提问。
-              <br />
-              回答里的编号可以点，会打开对应字幕。
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-primary/10 text-primary shadow-soft">
+              <MessageSquare className="h-6 w-6" />
+            </span>
+            <p className="text-sm font-medium text-foreground">开始与来源对话</p>
+            <p className="mt-2 max-w-xs text-xs leading-relaxed text-muted-foreground">
+              在左侧勾选来源或笔记，在下方提问。回答中的编号可点击，会跳到对应字幕。
             </p>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-2xl flex-col gap-4">
+          <div className="mx-auto flex max-w-2xl flex-col gap-5">
             {shown.map((message) => (
               <MessageBubble
                 key={`${message.role}-${message.id}-${message.created_at ?? "live"}`}
@@ -180,7 +182,7 @@ export function NotebookChat({
         )}
       </div>
       <form
-        className="px-6 pb-4 pt-2"
+        className="border-t border-border/30 bg-gradient-to-t from-card/80 to-transparent px-6 pb-5 pt-3"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
@@ -190,10 +192,10 @@ export function NotebookChat({
           {formError || relay?.error ? (
             <p className="px-4 text-xs text-destructive">{formError || relay?.error}</p>
           ) : null}
-          <div className="flex items-center gap-3 rounded-full border border-border/80 bg-card px-4 py-1.5 shadow-soft">
+          <div className="chat-composer">
             <input
               value={draft}
-              placeholder="向来源提问，或生成新内容…"
+              placeholder={selectedIds.length === 0 ? "请先在左侧勾选来源…" : "向来源提问…"}
               disabled={sending || selectedIds.length === 0}
               className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
               onChange={(event) => setDraft(event.target.value)}
@@ -204,14 +206,14 @@ export function NotebookChat({
                 }
               }}
             />
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
               {selectedIds.length} 个来源
             </span>
             <button
               type="submit"
               title="发送"
               disabled={sending || !draft.trim() || selectedIds.length === 0}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition enabled:bg-primary enabled:text-primary-foreground disabled:opacity-70"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition enabled:bg-primary enabled:text-primary-foreground enabled:shadow-soft disabled:opacity-50"
             >
               <ArrowUp className="h-4 w-4" />
             </button>
@@ -238,13 +240,7 @@ function MessageBubble({
   return (
     <div className={mine ? "flex justify-end" : "flex justify-start"}>
       <div className="max-w-[85%]">
-        <div
-          className={`rounded-2xl px-3 py-2 text-sm leading-6 ${
-            mine
-              ? "bg-primary text-primary-foreground"
-              : "border border-border/70 bg-card text-foreground shadow-soft"
-          }`}
-        >
+        <div className={mine ? "chat-bubble-user" : "chat-bubble-assistant"}>
           {mine ? (
             <p className="whitespace-pre-wrap">{message.content_text}</p>
           ) : (
@@ -314,13 +310,18 @@ function AnswerActions({
     <div className="mt-1.5 flex items-center gap-3 px-1 text-xs text-muted-foreground">
       <button
         type="button"
-        className="hover:text-foreground disabled:hover:text-muted-foreground"
+        className="rounded-full px-2 py-0.5 hover:bg-accent hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         disabled={!!noteId || saving}
         onClick={() => void saveNote()}
       >
-        {noteId ? "Saved" : saving ? "Saving…" : "Save to note"}
+        {noteId ? "已保存" : saving ? "保存中…" : "保存为笔记"}
       </button>
-      <button type="button" title={copied ? "已复制" : "复制"} onClick={() => void copyAnswer()}>
+      <button
+        type="button"
+        className="rounded-full p-1 hover:bg-accent hover:text-foreground"
+        title={copied ? "已复制" : "复制"}
+        onClick={() => void copyAnswer()}
+      >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
       {error ? <span className="text-destructive">{error}</span> : null}

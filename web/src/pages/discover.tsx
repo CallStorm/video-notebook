@@ -12,7 +12,7 @@ export default function DiscoverPage() {
 
   if (!token) {
     return (
-      <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
+      <div className="page-ambient mx-auto flex min-h-screen max-w-md items-center p-6">
         <div className="w-full soft-tile p-8 text-center">
           <p className="mb-4 text-sm text-muted-foreground">请先登录后浏览公开笔记本。</p>
           <Button asChild className="rounded-full">
@@ -24,7 +24,7 @@ export default function DiscoverPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="page-ambient min-h-screen">
       <AppHeader
         active="discover"
         rightSlot={
@@ -37,26 +37,25 @@ export default function DiscoverPage() {
         }
       />
       <div className="w-full px-6 py-8 lg:px-8">
-        <header className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">发现</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            浏览他人分享的公开笔记本，找灵感、复用学习路径
-          </p>
+        <header className="page-hero">
+          <div>
+            <h1 className="page-hero-title">发现</h1>
+            <p className="page-hero-desc">
+              浏览他人分享的公开笔记本
+            </p>
+          </div>
         </header>
 
-        <div className="soft-tile overflow-hidden px-6 py-16 text-center sm:px-10">
-          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <div className="empty-hero">
+          <div className="empty-hero-icon">
             <Compass className="h-7 w-7" />
           </div>
           <p className="mb-1 text-lg font-semibold tracking-tight">公开笔记本即将上线</p>
           <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
-            之后你可以在这里看到社区精选与同事分享的笔记本。现在先从自己的书架开始，或用聚合搜索找视频素材。
+            功能尚未开放。可先回自己的笔记本，或去聚合搜索找视频。
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2.5">
-            <Button
-              className="rounded-full px-5 shadow-none"
-              onClick={() => navigate("/")}
-            >
+            <Button className="rounded-full px-5" onClick={() => navigate("/")}>
               <Plus className="h-4 w-4" />
               <span className="ml-1">回到我的笔记本</span>
             </Button>

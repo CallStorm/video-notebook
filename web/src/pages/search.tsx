@@ -5,7 +5,9 @@ import {
   Clapperboard,
   ExternalLink,
   Eye,
+  Loader2,
   NotebookPen,
+  Play,
   Search as SearchIcon,
   X,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import { RequireAuth } from "@/components/require-auth";
+import { cn } from "@/lib/utils";
 
 type Platform = "youtube" | "bilibili" | "douyin";
 
@@ -54,17 +57,43 @@ interface PreviewResolveResponse {
   title: string | null;
 }
 
-const PLATFORM_CHIPS: { id: "all" | Platform; label: string }[] = [
-  { id: "all", label: "全部" },
-  { id: "bilibili", label: "B站" },
-  { id: "youtube", label: "YouTube" },
-  { id: "douyin", label: "抖音" },
+const PLATFORM_CHIPS: {
+  id: "all" | Platform;
+  label: string;
+  hint: string;
+  tone: string;
+}[] = [
+  { id: "all", label: "全部", hint: "三平台一起搜", tone: "platform-chip-all" },
+  { id: "bilibili", label: "B站", hint: "Bilibili", tone: "platform-chip-bili" },
+  { id: "youtube", label: "YouTube", hint: "YouTube", tone: "platform-chip-yt" },
+  { id: "douyin", label: "抖音", hint: "抖音", tone: "platform-chip-dy" },
 ];
 
-const PLATFORM_BADGE: Record<Platform, { label: string; className: string }> = {
-  youtube: { label: "YT", className: "bg-red-600 text-white" },
-  bilibili: { label: "B站", className: "bg-pink-500 text-white" },
-  douyin: { label: "抖音", className: "bg-zinc-900 text-white" },
+const PLATFORM_BADGE: Record<
+  Platform,
+  { label: string; className: string; soft: string }
+> = {
+  youtube: {
+    label: "YouTube",
+    className: "bg-red-600 text-white",
+    soft: "bg-red-50 text-red-700 ring-red-200/80",
+  },
+  bilibili: {
+    label: "B站",
+    className: "bg-[#FB7299] text-white",
+    soft: "bg-pink-50 text-pink-700 ring-pink-200/80",
+  },
+  douyin: {
+    label: "抖音",
+    className: "bg-zinc-900 text-white",
+    soft: "bg-zinc-100 text-zinc-800 ring-zinc-200/80",
+  },
+};
+
+const PLATFORM_ERROR_LABEL: Record<Platform, string> = {
+  bilibili: "B站",
+  youtube: "YouTube",
+  douyin: "抖音",
 };
 
 function formatDuration(sec: number | null): string | null {
@@ -83,6 +112,23 @@ function formatViews(n: number | null): string | null {
   return String(n);
 }
 
+function SearchSkeleton() {
+  return (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {Array.from({ length: 10 }).map((_, i) => (
+        <div key={i} className="search-skel-card">
+          <div className="search-skel aspect-video rounded-none" />
+          <div className="space-y-2.5 p-4">
+            <div className="search-skel h-4 w-[92%]" />
+            <div className="search-skel h-4 w-[68%]" />
+            <div className="search-skel h-3 w-[42%]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SearchPageInner() {
   const { access, logout } = useAuth();
   const navigate = useNavigate();
@@ -94,6 +140,7 @@ function SearchPageInner() {
   const [previewPlayUrl, setPreviewPlayUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [addVideo, setAddVideo] = useState<SearchVideoRef | null>(null);
+  const [searchedQuery, setSearchedQuery] = useState("");
 
   const search = useMutation({
     mutationFn: async () => {
@@ -105,7 +152,10 @@ function SearchPageInner() {
         body: { query: query.trim(), platforms, limit_per_platform: 12 },
       });
     },
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data) => {
+      setResult(data);
+      setSearchedQuery(query.trim());
+    },
   });
 
   const resolvePreview = useMutation({
@@ -130,6 +180,13 @@ function SearchPageInner() {
 
   const items = result?.items ?? [];
   const errors = result?.errors ?? [];
+  const previewBusy = resolvePreview.isPending;
+  const activeChip = PLATFORM_CHIPS.find((c) => c.id === platform);
+
+  const runSearch = () => {
+    if (!query.trim() || search.isPending) return;
+    search.mutate();
+  };
 
   const openPreview = (item: SearchResultItem) => {
     setPreview(item);
@@ -144,10 +201,8 @@ function SearchPageInner() {
     setPreviewError(null);
   };
 
-  const previewBusy = resolvePreview.isPending;
-
   return (
-    <div className="min-h-screen bg-background">
+    <div className="page-ambient min-h-screen">
       <AppHeader
         active="search"
         rightSlot={
@@ -160,79 +215,124 @@ function SearchPageInner() {
         }
       />
 
-      <main className="w-full px-6 py-8 lg:px-8">
-        <div className="mx-auto max-w-3xl space-y-4">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="search-dock sticky top-16 z-10">
+        <div className="search-dock-inner">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="page-hero-title">聚合搜索</h1>
+              <p className="page-hero-desc">跨平台找视频 · 预览后加入笔记本</p>
+            </div>
+            {result && !search.isPending && (
+              <p className="text-xs text-muted-foreground">
+                {searchedQuery ? `「${searchedQuery}」` : ""} · {items.length} 条
+                {activeChip && platform !== "all" ? ` · ${activeChip.label}` : ""}
+              </p>
+            )}
+          </div>
+
+          <div className="search-shell search-shell-lg">
+            <div className="relative min-w-0 flex-1">
+              <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-11 pl-9"
-                placeholder="输入关键词搜索视频…"
+                className="h-12 border-0 bg-transparent pl-11 text-[15px] shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0"
+                placeholder="输入关键词，例如：AI 学习方法、经济下行应对…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && query.trim() && !search.isPending) {
-                    search.mutate();
-                  }
+                  if (e.key === "Enter") runSearch();
                 }}
+                aria-label="搜索关键词"
               />
             </div>
             <Button
-              className="h-11 rounded-full px-6 shadow-none"
+              className="h-11 shrink-0 rounded-full px-7 text-[15px] shadow-glow"
               disabled={!query.trim() || search.isPending}
-              onClick={() => search.mutate()}
+              onClick={runSearch}
             >
-              {search.isPending ? "搜索中…" : "搜索"}
+              {search.isPending ? (
+                <>
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  搜索中
+                </>
+              ) : (
+                "搜索"
+              )}
             </Button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {PLATFORM_CHIPS.map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => setPlatform(chip.id)}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
-                  platform === chip.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {chip.label}
-              </button>
-            ))}
-            <span className="self-center text-xs text-muted-foreground">仅视频</span>
+          <div className="mt-3.5 flex flex-wrap items-center gap-2">
+            {PLATFORM_CHIPS.map((chip) => {
+              const active = platform === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  title={chip.hint}
+                  onClick={() => setPlatform(chip.id)}
+                  className={cn(
+                    "platform-filter",
+                    chip.tone,
+                    active ? "platform-filter-active" : "platform-filter-idle",
+                  )}
+                >
+                  <span className="platform-filter-dot" aria-hidden />
+                  {chip.label}
+                </button>
+              );
+            })}
+            <span className="ml-1 hidden text-xs text-muted-foreground sm:inline">
+              仅视频结果
+            </span>
           </div>
         </div>
+      </div>
 
+      <main className="w-full px-6 pb-12 pt-6 lg:px-8">
         {search.isError && (
-          <p className="mt-6 text-center text-sm text-destructive">
+          <div className="search-alert search-alert-error mb-6">
             {search.error instanceof ApiError
               ? search.error.message
-              : "搜索失败"}
-          </p>
+              : "搜索失败，请稍后重试"}
+          </div>
         )}
 
-        {result && (
-          <div className="mt-8 space-y-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
+        {search.isPending && <SearchSkeleton />}
+
+        {!search.isPending && result && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground">
-                共找到约 {items.length} 个结果
+                {items.length > 0
+                  ? `找到 ${items.length} 个视频`
+                  : "没有匹配的视频"}
               </p>
               {errors.length > 0 && (
-                <p className="text-xs text-amber-600">
-                  {errors.map((e) => `${e.platform}: ${e.message}`).join(" · ")}
+                <p className="max-w-xl text-xs leading-relaxed text-amber-700">
+                  部分平台未返回：
+                  {errors
+                    .map(
+                      (e) =>
+                        `${PLATFORM_ERROR_LABEL[e.platform] || e.platform}（${e.message}）`,
+                    )
+                    .join(" · ")}
                 </p>
               )}
             </div>
 
             {items.length === 0 ? (
-              <div className="soft-tile py-14 text-center">
-                <p className="mb-1 text-sm font-medium">没有找到视频</p>
-                <p className="text-sm text-muted-foreground">换个关键词，或切换上方平台再试一次</p>
+              <div className="empty-hero py-14">
+                <div className="empty-hero-icon">
+                  <SearchIcon className="h-6 w-6" />
+                </div>
+                <p className="mb-1 text-base font-semibold tracking-tight">
+                  没有找到视频
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  换个关键词，或切换上方平台再试
+                </p>
               </div>
             ) : (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                 {items.map((item) => {
                   const badge = PLATFORM_BADGE[item.platform];
                   const duration = formatDuration(item.duration);
@@ -240,74 +340,90 @@ function SearchPageInner() {
                   return (
                     <article
                       key={`${item.platform}-${item.id}`}
-                      className="flex flex-col overflow-hidden soft-tile soft-tile-hover"
+                      className="search-result-card group"
                     >
-                      <div className="relative aspect-video overflow-hidden bg-background/60">
+                      <button
+                        type="button"
+                        className="search-thumb"
+                        onClick={() => openPreview(item)}
+                        aria-label={`预览：${item.title}`}
+                      >
                         {item.thumbnail ? (
                           <img
                             src={item.thumbnail}
                             alt=""
-                            className="h-full w-full object-cover"
+                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
                             loading="lazy"
                             referrerPolicy="no-referrer"
                           />
                         ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                          <div className="flex h-full items-center justify-center bg-muted/50 text-xs text-muted-foreground">
                             无封面
                           </div>
                         )}
                         <span
-                          className={`absolute left-2.5 top-2.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${badge.className}`}
+                          className={cn(
+                            "absolute left-2.5 top-2.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold shadow-sm",
+                            badge.className,
+                          )}
                         >
                           {badge.label}
                         </span>
                         {duration && (
-                          <span className="absolute bottom-2.5 right-2.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] text-white">
+                          <span className="absolute bottom-2.5 right-2.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                             {duration}
                           </span>
                         )}
-                      </div>
-                      <div className="flex flex-1 flex-col gap-2 p-4">
-                        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight">
+                        <span className="search-thumb-play" aria-hidden>
+                          <Play className="h-5 w-5 fill-current" />
+                        </span>
+                      </button>
+
+                      <div className="flex flex-1 flex-col gap-2.5 p-3.5 pt-3">
+                        <h3
+                          className="line-clamp-2 min-h-[2.5rem] text-[14px] font-semibold leading-snug tracking-tight text-foreground"
+                          title={item.title}
+                        >
                           {item.title}
                         </h3>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="truncate text-xs text-muted-foreground">
                           {[item.uploader, views ? `${views} 次观看` : null]
                             .filter(Boolean)
                             .join(" · ") || "—"}
                         </p>
-                        <div className="mt-auto flex gap-1 pt-1">
+                        <div className="mt-auto flex items-center gap-1.5 pt-0.5">
                           <Button
                             type="button"
                             size="sm"
-                            variant="ghost"
-                            className="flex-1 gap-1 rounded-full text-xs"
-                            onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            跳转
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="flex-1 gap-1 rounded-full text-xs text-emerald-700"
-                            onClick={() => openPreview(item)}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            预览
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="flex-1 gap-1 rounded-full text-xs shadow-none"
+                            className="h-8 flex-1 gap-1 rounded-full text-xs shadow-none"
                             onClick={() =>
                               setAddVideo({ title: item.title, url: item.url })
                             }
                           >
                             <NotebookPen className="h-3.5 w-3.5" />
-                            添加
+                            加入笔记本
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 shrink-0 rounded-full border-border/70"
+                            title="页内预览"
+                            onClick={() => openPreview(item)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 shrink-0 rounded-full"
+                            title="打开原站"
+                            onClick={() =>
+                              window.open(item.url, "_blank", "noopener,noreferrer")
+                            }
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
@@ -319,41 +435,80 @@ function SearchPageInner() {
           </div>
         )}
 
-        {!result && !search.isPending && (
-          <div className="mx-auto mt-14 max-w-lg soft-tile px-8 py-14 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        {!result && !search.isPending && !search.isError && (
+          <div className="empty-hero mx-auto mt-4 max-w-2xl">
+            <div className="empty-hero-icon">
               <Clapperboard className="h-6 w-6" />
             </div>
-            <p className="mb-1 text-base font-semibold tracking-tight">找视频，加进笔记本</p>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              输入关键词，搜索 B站、YouTube、抖音。预览后一键添加到笔记本，进入「分析 → 学习 → 输出」。
+            <p className="mb-1 text-base font-semibold tracking-tight">
+              输入关键词开始搜索
             </p>
+            <p className="mb-6 text-sm leading-relaxed text-muted-foreground">
+              支持 B站、YouTube、抖音。点封面可预览，再加入笔记本。
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {PLATFORM_CHIPS.filter((c) => c.id !== "all").map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setPlatform(chip.id)}
+                  className={cn(
+                    "platform-filter platform-filter-idle",
+                    chip.tone,
+                  )}
+                >
+                  <span className="platform-filter-dot" aria-hidden />
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </main>
 
       {preview && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
           onClick={closePreview}
         >
           <div
-            className="w-full max-w-3xl overflow-hidden rounded-xl border bg-background shadow-2xl"
+            className="search-preview-modal w-full max-w-3xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <header className="flex items-center justify-between border-b px-4 py-3">
-              <h2 className="truncate pr-4 text-sm font-semibold">{preview.title}</h2>
+            <header className="flex items-start justify-between gap-3 border-b border-border/50 px-4 py-3">
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                      PLATFORM_BADGE[preview.platform].soft,
+                    )}
+                  >
+                    {PLATFORM_BADGE[preview.platform].label}
+                  </span>
+                  {preview.uploader && (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {preview.uploader}
+                    </span>
+                  )}
+                </div>
+                <h2 className="line-clamp-2 text-sm font-semibold leading-snug">
+                  {preview.title}
+                </h2>
+              </div>
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-8 w-8 shrink-0"
+                className="h-8 w-8 shrink-0 rounded-full"
                 onClick={closePreview}
+                aria-label="关闭预览"
               >
                 <X className="h-4 w-4" />
               </Button>
             </header>
-            <div className="aspect-video bg-black">
+
+            <div className="aspect-video bg-player">
               {previewPlayUrl ? (
                 <video
                   key={previewPlayUrl}
@@ -364,16 +519,22 @@ function SearchPageInner() {
                   playsInline
                 />
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-player-foreground/80">
                   {previewBusy ? (
-                    <p>正在解析可播放地址…</p>
+                    <>
+                      <Loader2 className="h-6 w-6 animate-spin text-white/80" />
+                      <p>正在解析可播放地址…</p>
+                    </>
                   ) : (
                     <>
-                      <p>{previewError || "该平台暂不支持页内预览"}</p>
+                      <p className="max-w-sm text-white/85">
+                        {previewError || "该平台暂不支持页内预览"}
+                      </p>
                       <div className="flex flex-wrap justify-center gap-2">
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="secondary"
+                          className="rounded-full"
                           onClick={() => resolvePreview.mutate(preview)}
                         >
                           重试
@@ -381,11 +542,12 @@ function SearchPageInner() {
                         <Button
                           type="button"
                           variant="outline"
+                          className="rounded-full border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
                           onClick={() =>
                             window.open(preview.url, "_blank", "noopener,noreferrer")
                           }
                         >
-                          打开原站观看
+                          打开原站
                         </Button>
                       </div>
                     </>
@@ -393,6 +555,35 @@ function SearchPageInner() {
                 </div>
               )}
             </div>
+
+            <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 bg-card px-4 py-3">
+              <p className="text-xs text-muted-foreground">
+                预览走本地代理，不影响原站播放
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full"
+                  onClick={() =>
+                    window.open(preview.url, "_blank", "noopener,noreferrer")
+                  }
+                >
+                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                  原站
+                </Button>
+                <Button
+                  type="button"
+                  className="h-9 rounded-full"
+                  onClick={() => {
+                    setAddVideo({ title: preview.title, url: preview.url });
+                  }}
+                >
+                  <NotebookPen className="mr-1.5 h-3.5 w-3.5" />
+                  加入笔记本
+                </Button>
+              </div>
+            </footer>
           </div>
         </div>
       )}

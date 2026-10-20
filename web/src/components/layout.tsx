@@ -17,7 +17,7 @@ export function Layout({
   activeNav = null,
 }: LayoutProps) {
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="page-ambient flex min-h-screen flex-col">
       <AppHeader active={activeNav} rightSlot={rightSlot} sticky={false} />
       <main className={cn("w-full flex-1 px-6 py-6 lg:px-8", className)}>
         {children}

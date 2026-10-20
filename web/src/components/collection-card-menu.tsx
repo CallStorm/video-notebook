@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MoreVertical, Pencil, Trash2, Type } from "lucide-react";
+import { MoreVertical, Pencil, Sparkles, Trash2 } from "lucide-react";
 
 const MENU_W = 192;
 const MENU_H = 160;
@@ -9,11 +9,13 @@ const GAP = 6;
 export function CollectionCardMenu({
   onEdit,
   onDelete,
-  onRemoveEmoji,
+  onGenerateCover,
+  generatingCover,
 }: {
   onEdit: () => void;
   onDelete: () => void;
-  onRemoveEmoji: () => void;
+  onGenerateCover?: () => void;
+  generatingCover?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -85,8 +87,19 @@ export function CollectionCardMenu({
                     onEdit();
                   }}
                 >
-                  Edit
+                  编辑
                 </MenuItem>
+                {onGenerateCover ? (
+                  <MenuItem
+                    icon={<Sparkles className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setOpen(false);
+                      onGenerateCover();
+                    }}
+                  >
+                    {generatingCover ? "生成封面中…" : "生成封面"}
+                  </MenuItem>
+                ) : null}
                 <MenuItem
                   icon={<Trash2 className="h-3.5 w-3.5" />}
                   danger
@@ -95,16 +108,7 @@ export function CollectionCardMenu({
                     onDelete();
                   }}
                 >
-                  Delete
-                </MenuItem>
-                <MenuItem
-                  icon={<Type className="h-3.5 w-3.5" />}
-                  onClick={() => {
-                    setOpen(false);
-                    onRemoveEmoji();
-                  }}
-                >
-                  Remove emoji
+                  删除
                 </MenuItem>
               </div>
             </div>,

@@ -131,7 +131,7 @@ export function SourceTranscript({
       </div>
 
       <section
-        className={`rounded-2xl border border-border/80 bg-card ${guideOpen ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "shrink-0"}`}
+        className={`rounded-2xl border border-border/60 bg-gradient-to-br from-card to-accent/30 shadow-soft ${guideOpen ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "shrink-0"}`}
       >
         <button
           type="button"
@@ -160,7 +160,7 @@ export function SourceTranscript({
         ) : null}
       </section>
 
-      <section className="shrink-0 overflow-hidden rounded-2xl border border-black/40 bg-player text-player-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+      <section className="player-island">
         {hasFile && play.data?.url ? (
           <video
             key={play.data.url}
@@ -183,7 +183,7 @@ export function SourceTranscript({
 
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-          <h4 className="text-sm font-medium">字幕</h4>
+          <h4 className="text-sm font-semibold tracking-tight">字幕</h4>
           <div className="flex gap-1">
             <Button
               size="sm"
@@ -222,8 +222,8 @@ export function SourceTranscript({
                 <p
                   id={`cue-${line.line_no}`}
                   key={line.line_no}
-                  className={`rounded-md px-1.5 text-[13px] leading-6 ${
-                    focusLineNo === line.line_no ? "bg-accent text-foreground ring-1 ring-primary/20" : ""
+                  className={`rounded-lg px-2 py-1 text-[13px] leading-6 transition-colors hover:bg-accent/40 ${
+                    focusLineNo === line.line_no ? "bg-accent text-foreground ring-1 ring-primary/25" : ""
                   }`}
                 >
                   <span

@@ -30,20 +30,17 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        "z-20 border-b border-border/40 bg-background/85 backdrop-blur-md",
+        "app-header-shell",
         sticky && "sticky top-0",
         className,
       )}
     >
       <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
-        <Link to="/" className="shrink-0" aria-label="回到首页">
+        <Link to="/" className="shrink-0 transition-opacity hover:opacity-90" aria-label="回到首页">
           <Brand />
         </Link>
 
-        <nav
-          className="ml-2 flex items-center gap-1 rounded-full border border-border/70 bg-card p-1 shadow-soft"
-          aria-label="主导航"
-        >
+        <nav className="nav-pill ml-2" aria-label="主导航">
           {NAV_ITEMS.map((item) => {
             const isActive = active === item.key;
             return (
@@ -51,10 +48,8 @@ export function AppHeader({
                 key={item.key}
                 to={item.to}
                 className={cn(
-                  "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  "nav-pill-item",
+                  isActive ? "nav-pill-item-active" : "nav-pill-item-idle",
                 )}
               >
                 {item.label}

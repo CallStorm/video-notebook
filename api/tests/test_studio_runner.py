@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from sqlalchemy import select
@@ -300,15 +301,63 @@ async def test_exit_code_is_process_failed(db_session, tmp_path):
     assert (work / "stderr.log").read_text(encoding="utf-8").strip() == "boom"
 
 
+def _windows_safe_claude(path: Path, py_body: str) -> Path:
+    """Write a Python fake Claude; on Windows return a .cmd launcher."""
+    py_path = path.with_suffix(".py") if path.suffix else Path(str(path) + ".py")
+    py_path.write_text(py_body, encoding="utf-8")
+    if os.name != "nt":
+        path.write_text(
+            "#!/bin/sh\n"
+            f'exec "{sys.executable}" "{py_path.as_posix()}" "$@"\n',
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+        return path
+    cmd = path.with_suffix(".cmd")
+    cmd.write_text(
+        "@echo off\r\n"
+        f'"{sys.executable}" "{py_path}" %*\r\n',
+        encoding="utf-8",
+        newline="\r\n",
+    )
+    return cmd
+
+
 async def test_timeout(db_session, tmp_path):
-    script = tmp_path / "claude"
-    _script(script, "#!/bin/sh\nsleep 30\n")
+    script = _windows_safe_claude(
+        tmp_path / "claude",
+        "import sys, time\n"
+        "sys.stdin.read()\n"
+        "time.sleep(30)\n",
+    )
     task, _, _ = await _seed(db_session, with_sources=False)
     await execute_studio_task(task.id, claude_bin=str(script), timeout_seconds=1)
     await db_session.refresh(task)
     assert task.status == "failed"
     assert task.error_code == "timeout"
+    assert "超时上限 1 秒" in (task.error_message or "")
     assert Path(task.result_json["work_dir"]).is_dir()
+
+
+async def test_timeout_salvages_existing_output(db_session, tmp_path):
+    """If main artifact exists when the wall clock hits, accept it instead of failing."""
+    script = _windows_safe_claude(
+        tmp_path / "claude",
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        "sys.stdin.read()\n"
+        "out = Path('outputs')\n"
+        "out.mkdir(exist_ok=True)\n"
+        "(out / 'deck.pptx').write_bytes(b'pptx-bytes')\n"
+        "time.sleep(30)\n",
+    )
+    task, _, _ = await _seed(db_session, format_key="slides", with_sources=False)
+    await execute_studio_task(
+        task.id, claude_bin=str(script), timeout_seconds=1, pdf_convert=lambda *_: None
+    )
+    await db_session.refresh(task)
+    assert task.status == "succeeded"
+    assert task.error_code is None
 
 
 async def test_wrong_file_is_format_mismatch(db_session, tmp_path):

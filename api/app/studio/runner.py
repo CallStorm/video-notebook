@@ -144,10 +144,24 @@ def _pdf_convert_timeout() -> float:
 
 
 def _kill_popen_group(proc: subprocess.Popen[bytes]) -> None:
+    """Kill Claude and any child builders (Windows needs /T tree kill)."""
     if proc.poll() is None and proc.pid is not None:
-        if hasattr(os, 'killpg'):
+        if os.name == "nt":
             try:
-                os.killpg(proc.pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=15,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+        elif hasattr(os, "killpg"):
+            try:
+                os.killpg(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
             except (ProcessLookupError, OSError):
                 pass
         else:
@@ -197,14 +211,28 @@ def _soffice_convert(
 def _kill_group(proc: asyncio.subprocess.Process, sig: int) -> None:
     if proc.pid is None or proc.returncode is not None:
         return
-    if hasattr(os, 'killpg'):
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired, ProcessLookupError):
+            try:
+                proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
+        return
+    if hasattr(os, "killpg"):
         try:
             os.killpg(proc.pid, sig)
             return
         except (ProcessLookupError, OSError):
             return
     try:
-        if sig == getattr(signal, 'SIGKILL', object()):
+        if sig == getattr(signal, "SIGKILL", object()):
             proc.kill()
         else:
             proc.terminate()
@@ -464,14 +492,22 @@ def _get_sync_engine():
 
 
 def _stopped_sync(task_id: int) -> bool:
+    """Best-effort cancel check from a worker thread.
+
+    On failure (e.g. tests using SQLite while sync engine points at MySQL),
+    return False so the run continues until the wall-clock timeout.
+    """
     from sqlalchemy import text
 
-    engine = _get_sync_engine()
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT status, deleted_at FROM studio_tasks WHERE id = :id"),
-            {"id": task_id},
-        ).first()
+    try:
+        engine = _get_sync_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT status, deleted_at FROM studio_tasks WHERE id = :id"),
+                {"id": task_id},
+            ).first()
+    except Exception:  # noqa: BLE001 — cancel check must not abort the run
+        return False
     if row is None:
         return True
     status, deleted_at = row[0], row[1]
@@ -909,11 +945,32 @@ async def execute_studio_task(
         if outcome == "canceled" or await _stopped(factory, task_id):
             shutil.rmtree(work, ignore_errors=True)
             return
+        outputs = work / "outputs"
         if outcome == "timeout":
-            await _mark_failed(factory, task_id, "timeout", stderr or "timeout", work)
+            # Claude may have finished the main artifact but hung on cleanup/MANIFEST.
+            try:
+                accepted = accept_outputs(get_format(prepared.format_key), outputs)
+            except (FormatMismatch, NoOutput):
+                tail = (stderr or "").strip()
+                msg = f"已超过智能体超时上限 {limit} 秒仍未完成。"
+                if tail:
+                    msg = f"{msg}\n{tail}"
+                await _mark_failed(factory, task_id, "timeout", msg, work)
+                return
+            await _store_success(
+                factory,
+                task_id,
+                prepared=prepared,
+                accepted_path=accepted.path,
+                accepted_mime=accepted.mime,
+                accepted_title=accepted.title,
+                pdf_convert=pdf_convert,
+                pdf_timeout_seconds=pdf_timeout_seconds,
+                work=work,
+                stored_keys=stored_keys,
+            )
             return
         fail_detail = _claude_fail_detail(resolved_bin, code, stderr)
-        outputs = work / "outputs"
         try:
             accepted = accept_outputs(get_format(prepared.format_key), outputs)
         except FormatMismatch:

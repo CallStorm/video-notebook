@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Sparkles, X } from "lucide-react";
+import { GeneratedCover } from "@/components/generated-cover";
+import { generateCover } from "@/lib/generate-cover";
+import { isRemoteCover } from "@/lib/cover-gen";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { generateIcon } from "@/lib/generate-icon";
-
-const EMOJI_OPTIONS = ["📁", "🗂️", "📚", "🎬", "🧠", "🌐", "💡", "🚀", "🎯", "⭐"];
 
 interface NotebookItem {
   id: number;
@@ -18,6 +18,7 @@ interface CollectionDetail {
   id: number;
   name: string;
   icon: string | null;
+  cover_url?: string | null;
   notebooks: NotebookItem[];
 }
 
@@ -38,12 +39,12 @@ export function CollectionEditDialog({
 }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [genPending, setGenPending] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [coverPending, setCoverPending] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
 
   const notebooks = useQuery({
     queryKey: ["notebooks", ""],
@@ -61,18 +62,18 @@ export function CollectionEditDialog({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setGenError(null);
-    setGenPending(false);
+    setCoverError(null);
+    setCoverPending(false);
     setSearch("");
     if (mode === "create") {
       setName("");
-      setIcon(null);
+      setCoverUrl(null);
       setSelected(new Set());
       return;
     }
     if (detail.data) {
       setName(detail.data.name);
-      setIcon(detail.data.icon);
+      setCoverUrl(detail.data.cover_url ?? null);
       setSelected(new Set(detail.data.notebooks.map((n) => n.id)));
     }
   }, [open, mode, detail.data]);
@@ -93,7 +94,7 @@ export function CollectionEditDialog({
         const created = await api<{ id: number }>("/collections", {
           method: "POST",
           access,
-          body: { name: trimmed, icon },
+          body: { name: trimmed, cover_url: coverUrl },
         });
         await api(`/collections/${created.id}/notebooks`, {
           method: "PUT",
@@ -106,7 +107,7 @@ export function CollectionEditDialog({
       await api(`/collections/${collectionId}`, {
         method: "PATCH",
         access,
-        body: { name: trimmed, icon: icon ?? "" },
+        body: { name: trimmed, cover_url: coverUrl ?? "" },
       });
       await api(`/collections/${collectionId}/notebooks`, {
         method: "PUT",
@@ -125,17 +126,17 @@ export function CollectionEditDialog({
     },
   });
 
-  async function onGenerate() {
-    if (!access || !name.trim() || genPending) return;
-    setGenPending(true);
-    setGenError(null);
+  async function onGenerateCover() {
+    if (!access || !name.trim() || coverPending) return;
+    setCoverPending(true);
+    setCoverError(null);
     try {
-      const next = await generateIcon(access, name.trim());
-      setIcon(next);
+      const result = await generateCover(access, name.trim());
+      setCoverUrl(result.cover_url);
     } catch (err) {
-      setGenError(err instanceof ApiError ? err.message : "生成失败");
+      setCoverError(err instanceof ApiError ? err.message : "生成封面失败");
     } finally {
-      setGenPending(false);
+      setCoverPending(false);
     }
   }
 
@@ -160,56 +161,81 @@ export function CollectionEditDialog({
             <span className="font-medium">
               集合名称<span className="text-destructive">*</span>
             </span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="名称会用于生成封面"
+              autoFocus
+            />
           </label>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium">图标</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 rounded-full"
-                disabled={!name.trim() || genPending}
-                onClick={() => void onGenerate()}
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                {genPending ? "生成中…" : "AI 生成"}
-              </Button>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-3xl">
-                {icon || "📁"}
+              <div>
+                <span className="text-sm font-medium">集合封面</span>
+                <p className="text-[11px] text-muted-foreground">按上方名称生成，不同名称配色与字标不同</p>
               </div>
-              <div className="flex flex-wrap gap-1">
-                {EMOJI_OPTIONS.map((e) => (
-                  <button
+              <div className="flex items-center gap-1.5">
+                {coverUrl ? (
+                  <Button
                     type="button"
-                    key={e}
-                    onClick={() => setIcon(e)}
-                    className={`rounded p-1.5 text-xl ${
-                      icon === e ? "bg-primary/10 ring-2 ring-primary" : "hover:bg-muted"
-                    }`}
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 rounded-full text-xs"
+                    onClick={() => setCoverUrl(null)}
                   >
-                    {e}
-                  </button>
-                ))}
-                <button
+                    清除封面
+                  </Button>
+                ) : null}
+                <Button
                   type="button"
-                  className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-                  onClick={() => setIcon(null)}
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full"
+                  disabled={!name.trim() || coverPending || !access}
+                  onClick={() => void onGenerateCover()}
                 >
-                  清除
-                </button>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {coverPending ? "生成中…" : "生成封面"}
+                </Button>
               </div>
             </div>
-            {genError ? <p className="text-xs text-destructive">{genError}</p> : null}
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-muted/30">
+              <div className="collection-cover relative w-full">
+                {coverUrl ? (
+                  isRemoteCover(coverUrl) ? (
+                    <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <GeneratedCover
+                      title={name.trim() || "集合"}
+                      coverUrl={coverUrl}
+                      variant={(collectionId ?? 0) % 12}
+                      className="h-full w-full"
+                    />
+                  )
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br from-primary/5 via-card to-[hsl(258_78%_96%)] px-3 text-center">
+                    <span className="text-sm font-medium text-foreground/70">
+                      {name.trim() || "先填写名称"}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      未设置封面时显示笔记本拼贴
+                    </span>
+                  </div>
+                )}
+                {coverPending ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white backdrop-blur-[1px]">
+                    AI 生成中…
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            {coverError ? <p className="text-xs text-destructive">{coverError}</p> : null}
           </div>
 
           <div>
             <div className="mb-2 flex items-center justify-between text-sm text-muted-foreground">
-              <span>笔记本（{selected.size}）</span>
+              <span>笔记本 · {selected.size} 本</span>
             </div>
             <div className="relative mb-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -228,7 +254,6 @@ export function CollectionEditDialog({
                     key={item.id}
                     className="flex cursor-pointer items-center gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/40"
                   >
-                    <span className="text-lg">{item.icon || "📁"}</span>
                     <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
                     <input
                       type="checkbox"

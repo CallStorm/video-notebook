@@ -33,7 +33,7 @@ async def create_collection(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    return await svc.create_collection(session, user.id, name=body.name, icon=body.icon)
+    return await svc.create_collection(session, user.id, name=body.name, icon=body.icon, cover_url=body.cover_url)
 
 
 @router.get("/{collection_id}", response_model=CollectionDetail)
@@ -61,6 +61,8 @@ async def update_collection(
         name=body.name,
         icon_provided="icon" in raw,
         icon=body.icon,
+        cover_url_provided="cover_url" in raw,
+        cover_url=body.cover_url,
     )
 
 

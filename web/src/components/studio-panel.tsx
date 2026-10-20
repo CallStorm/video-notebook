@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Download, Loader2, MoreVertical, PanelRightOpen, Pencil, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,19 @@ const ERROR_LABELS: Record<string, string> = {
   no_output: "没有主产物",
   format_mismatch: "格式不对",
 };
+
+function failureLabel(task: { error_code: string | null; error_message?: string | null }): string | null {
+  if (!task.error_code) return null;
+  const base = ERROR_LABELS[task.error_code] ?? task.error_code;
+  const msg = (task.error_message || "").trim();
+  if (task.error_code === "timeout") {
+    const m = msg.match(/超时上限\s*(\d+)\s*秒/);
+    if (m) return `超时（已达 ${m[1]} 秒上限）`;
+    return "超时（可在后台智能体提高超时）";
+  }
+  return base;
+}
+
 
 type TextField = {
   type: "text";
@@ -52,6 +65,7 @@ interface StudioTask {
   capability_id: number;
   format_key: string;
   error_code: string | null;
+  error_message?: string | null;
   created_at: string | null;
   params_json?: {
     video_ids?: unknown;
@@ -112,6 +126,15 @@ function sourceLabel(task: StudioTask): string {
   return count === 1 ? "1 个来源" : `${count} 个来源`;
 }
 
+
+function taskStatusChip(status: string): { label: string; className: string } | null {
+  if (status === "queued") return { label: "排队中", className: "status-chip status-chip-idle" };
+  if (status === "running") return { label: "生成中", className: "status-chip status-chip-busy" };
+  if (status === "succeeded") return { label: "已完成", className: "status-chip status-chip-ok" };
+  if (status === "failed") return { label: "失败", className: "status-chip status-chip-fail" };
+  return null;
+}
+
 function relativeTime(value: string | null): string {
   if (!value) return "";
   const hasZone = /(?:Z|[+-]\d{2}:\d{2})$/.test(value);
@@ -124,18 +147,136 @@ function relativeTime(value: string | null): string {
   return `${Math.floor(seconds / 86400)} 天前`;
 }
 
+export function StudioCollapsedRail({
+  access,
+  notebookId,
+  onExpand,
+  onOpenCapability,
+  onOpenTask,
+}: {
+  access: string;
+  notebookId: number;
+  onExpand: () => void;
+  onOpenCapability: (capabilityId: number) => void;
+  onOpenTask: (taskId: number, formatKey: string) => void;
+}) {
+  const capabilities = useQuery({
+    queryKey: ["studio-capabilities", notebookId],
+    queryFn: () => api<Capability[]>(`/notebooks/${notebookId}/studio/capabilities`, { access }),
+    enabled: !!access && !!notebookId,
+  });
+
+  const tasks = useQuery({
+    queryKey: ["studio-tasks", notebookId],
+    queryFn: () => api<StudioTask[]>(`/notebooks/${notebookId}/studio/tasks`, { access }),
+    enabled: !!access && !!notebookId,
+    refetchInterval: (query) => {
+      const rows = query.state.data ?? [];
+      return rows.some((task) => task.status === "queued" || task.status === "running") ? 2000 : false;
+    },
+  });
+
+  const caps = capabilities.data ?? [];
+  const taskRows = tasks.data ?? [];
+
+  return (
+    <div className="panel-rail">
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary"
+        title="展开 Studio"
+        aria-label="展开 Studio"
+        onClick={onExpand}
+      >
+        <PanelRightOpen className="h-4 w-4" />
+      </Button>
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto pb-2">
+        <span className="pt-1 text-[9px] font-medium tracking-wide text-muted-foreground">能力</span>
+        {caps.length === 0 && !capabilities.isLoading ? (
+          <span className="px-1 text-center text-[9px] leading-tight text-muted-foreground/80">暂无</span>
+        ) : null}
+        {caps.map((capability) => (
+          <button
+            key={capability.id}
+            type="button"
+            className="panel-rail-icon"
+            title={capability.name}
+            aria-label={capability.name}
+            onClick={() => onOpenCapability(capability.id)}
+          >
+            {capability.icon ? (
+              <span className="text-base leading-none">{capability.icon}</span>
+            ) : (
+              <span className="text-[10px] font-semibold text-primary">AI</span>
+            )}
+          </button>
+        ))}
+        <div className="my-1.5 h-px w-7 shrink-0 bg-border/70" />
+        <span className="text-[9px] font-medium tracking-wide text-muted-foreground">产出</span>
+        {taskRows.length === 0 && !tasks.isLoading ? (
+          <span className="px-1 text-center text-[9px] leading-tight text-muted-foreground/80">暂无</span>
+        ) : null}
+        {taskRows.map((task) => {
+          const busy = task.status === "queued" || task.status === "running";
+          const openable =
+            task.status === "succeeded" &&
+            (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file");
+          const icon = capabilityIcon(capabilities.data, task);
+          const chip = taskStatusChip(task.status);
+          const tip = chip ? `${task.title} · ${chip.label}` : task.title;
+          return (
+            <button
+              key={task.id}
+              type="button"
+              className="panel-rail-icon relative"
+              title={tip}
+              aria-label={tip}
+              onClick={() => {
+                if (openable) onOpenTask(task.id, task.format_key);
+                else onExpand();
+              }}
+            >
+              {icon ? (
+                <span className="text-base leading-none">{icon}</span>
+              ) : (
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  {task.format_key === "slides" ? "幻" : task.format_key === "file" ? "文" : "导"}
+                </span>
+              )}
+              {busy ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-card">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin text-primary" />
+                </span>
+              ) : null}
+              {task.status === "failed" ? (
+                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive" />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 export function StudioPanel({
   access,
   notebookId,
   sources,
   notes,
   onOpenTask,
+  pendingCapabilityId = null,
+  onPendingCapabilityHandled,
 }: {
   access: string;
   notebookId: number;
   sources: StudioSource[];
   notes: StudioNote[];
   onOpenTask?: (taskId: number, formatKey: string) => void;
+  pendingCapabilityId?: number | null;
+  onPendingCapabilityHandled?: () => void;
 }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -244,6 +385,18 @@ export function StudioPanel({
     });
   }
 
+  useEffect(() => {
+    if (pendingCapabilityId == null) return;
+    const capability = (capabilities.data ?? []).find((item) => item.id === pendingCapabilityId);
+    if (!capability) {
+      if (capabilities.isFetched) onPendingCapabilityHandled?.();
+      return;
+    }
+    openCapability(capability);
+    onPendingCapabilityHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open once when pending id arrives
+  }, [pendingCapabilityId, capabilities.data, capabilities.isFetched]);
+
   function submitDraft() {
     if (!draft || createTask.isPending) return;
     const form = draft.capability.form_json ?? [];
@@ -272,44 +425,50 @@ export function StudioPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid grid-cols-2 gap-2 p-3">
-        {(capabilities.data ?? []).map((capability) => (
-          <button
-            key={capability.id}
-            type="button"
-            className="flex items-center gap-2 rounded-2xl border border-border/70 bg-gradient-to-br from-card to-accent/40 px-3 py-3 text-left text-xs shadow-soft transition-colors hover:border-primary/30 hover:from-accent/50 hover:to-accent/70"
-            onClick={() => openCapability(capability)}
-          >
-            {capability.icon ? (
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base leading-none">
-                {capability.icon}
-              </span>
-            ) : (
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary text-xs font-semibold">
-                AI
-              </span>
-            )}
-            <span className="line-clamp-2 font-medium leading-snug">{capability.name}</span>
-          </button>
-        ))}
+      <div className="px-3.5 pt-3">
+        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">能力</p>
+        <div className="grid grid-cols-2 gap-2">
+          {(capabilities.data ?? []).map((capability) => (
+            <button
+              key={capability.id}
+              type="button"
+              className="studio-tile text-xs"
+              onClick={() => openCapability(capability)}
+            >
+              {capability.icon ? (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base leading-none">
+                  {capability.icon}
+                </span>
+              ) : (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">
+                  AI
+                </span>
+              )}
+              <span className="line-clamp-2 font-medium leading-snug">{capability.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
       {capabilities.error instanceof ApiError ? (
         <p className="px-4 text-xs text-destructive">{capabilities.error.message}</p>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="px-3.5 pb-1 pt-4">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">产出</p>
+        </div>
         {taskRows.length === 0 && !tasks.isLoading ? (
-          <div className="mx-3 mb-3 rounded-2xl border border-dashed border-border/80 bg-muted/20 px-4 py-8 text-center">
-            <p className="text-sm font-medium text-foreground">还没有 Studio 产出</p>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              点上方能力磁贴，把已分析的视频变成导图、幻灯片或笔记。左侧笔记打开后也会显示在这里。
+          <div className="empty-panel mx-3 mb-3 py-8">
+            <p className="text-sm font-medium text-foreground">还没有产出</p>
+            <p className="mt-1.5 max-w-[16rem] text-xs leading-relaxed text-muted-foreground">
+              点上方能力，生成导图、幻灯片或文件。
             </p>
           </div>
         ) : null}
-        <div className="divide-y">
+        <div className="pb-3">
           {taskRows.map((task) => {
             const busy = task.status === "queued" || task.status === "running";
             const errorLabel =
-              task.status === "failed" ? ERROR_LABELS[task.error_code ?? ""] ?? task.error_code : null;
+              task.status === "failed" ? failureLabel(task) : null;
             const openable =
               task.status === "succeeded" &&
               (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file") &&
@@ -318,10 +477,11 @@ export function StudioPanel({
             if (task.format_key === "mind_map" || task.format_key === "slides") {
               const when = relativeTime(task.created_at);
               const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
+              const chip = taskStatusChip(task.status);
               return (
-                <div key={task.id} className="group flex items-start gap-2.5 rounded-xl px-3 py-2.5 mx-1 transition-colors hover:bg-muted/50">
+                <div key={task.id} className="group task-card">
                   {icon ? (
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-base leading-none">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted/70 text-base leading-none">
                       {icon}
                     </span>
                   ) : null}
@@ -332,12 +492,16 @@ export function StudioPanel({
                       if (openable) onOpenTask?.(task.id, task.format_key);
                     }}
                   >
-                    <div className="line-clamp-2 text-sm font-medium">{task.title}</div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">
-                      {task.status === "failed" && errorLabel ? `${errorLabel} · ${meta}` : meta}
+                    <div className="line-clamp-2 text-[13px] font-medium leading-snug">{task.title}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {chip ? <span className={chip.className}>{chip.label}</span> : null}
+                      {task.status === "failed" && errorLabel ? (
+                        <span className="text-[10px] text-amber-800">{errorLabel}</span>
+                      ) : null}
+                      {meta ? <span className="text-[10px] text-muted-foreground">{meta}</span> : null}
                     </div>
                   </button>
-                  {busy ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+                  {busy ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" /> : null}
                   <TaskMenu
                     onRename={() => setRenameTask(task)}
                     onRemove={() => {
@@ -353,10 +517,11 @@ export function StudioPanel({
                 </div>
               );
             }
+            const chip = taskStatusChip(task.status);
             return (
-              <div key={task.id} className="mx-1 flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/50">
+              <div key={task.id} className="group task-card">
                 {icon ? (
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-base leading-none">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted/70 text-base leading-none">
                     {icon}
                   </span>
                 ) : null}
@@ -364,18 +529,24 @@ export function StudioPanel({
                   {openable ? (
                     <button
                       type="button"
-                      className="line-clamp-2 text-left text-xs font-medium hover:underline"
+                      className="line-clamp-2 text-left text-[13px] font-medium leading-snug hover:underline"
                       onClick={() => onOpenTask?.(task.id, task.format_key)}
                     >
                       {task.title}
                     </button>
                   ) : (
-                    <div className="line-clamp-2 text-xs font-medium">
-                      {task.status === "failed" && errorLabel ? errorLabel : task.title}
+                    <div className="line-clamp-2 text-[13px] font-medium leading-snug">
+                      {task.title}
                     </div>
                   )}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {chip ? <span className={chip.className}>{chip.label}</span> : null}
+                    {task.status === "failed" && errorLabel ? (
+                      <span className="text-[10px] text-amber-800">{errorLabel}</span>
+                    ) : null}
+                  </div>
                 </div>
-                {busy ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+                {busy ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin status-busy" /> : null}
                 <button
                   type="button"
                   className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
@@ -572,7 +743,7 @@ function CapabilityDialog({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <form
-        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg border bg-background p-4 shadow-xl"
+        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border/70 bg-card p-5 shadow-xl"
         onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault();

@@ -1,12 +1,14 @@
 /** Cover tokens stored in cover_url:
  *  - gen:v1:{0-11} legacy preset index
- *  - gen:v2:{pattern}:{a}:{b}:{c}:{ink}:{mist} AI-generated style (hex without #)
+ *  - gen:v2:{pattern}:{a}:{b}:{c}:{ink}:{mist} legacy AI style
+ *  - gen:v3:{layout}:{motif}:{pattern}:{a}:{b}:{c}:{ink}:{mist} layout+motif covers
  */
 
 export const COVER_VARIANT_COUNT = 12;
 
 export const GEN_V1_PREFIX = "gen:v1:";
 export const GEN_V2_PREFIX = "gen:v2:";
+export const GEN_V3_PREFIX = "gen:v3:";
 
 export type CoverPalette = {
   a: string;
@@ -31,14 +33,119 @@ export const COVER_PALETTES: CoverPalette[] = [
   { a: "#312E81", b: "#6366F1", c: "#C7D2FE", ink: "#EEF2FF", mist: "#818CF8" },
 ];
 
-export type CoverPattern = "orbs" | "waves" | "mesh" | "beams";
+export type CoverPattern = "orbs" | "waves" | "mesh" | "beams" | "rings" | "grid";
+export type CoverLayout = "accent" | "split" | "badge" | "bands" | "frame" | "hero";
+export type CoverMotif =
+  | "ev"
+  | "tech"
+  | "finance"
+  | "food"
+  | "nature"
+  | "creative"
+  | "study"
+  | "abstract";
 
-const PATTERNS: CoverPattern[] = ["orbs", "waves", "mesh", "beams"];
+const PATTERNS: CoverPattern[] = ["orbs", "waves", "mesh", "beams", "rings", "grid"];
+const LAYOUTS: CoverLayout[] = ["accent", "split", "badge", "bands", "frame", "hero"];
+const MOTIFS: CoverMotif[] = [
+  "ev",
+  "tech",
+  "finance",
+  "food",
+  "nature",
+  "creative",
+  "study",
+  "abstract",
+];
 
 export type CoverStyle = {
   palette: CoverPalette;
   pattern: CoverPattern;
+  layout: CoverLayout;
+  motif: CoverMotif;
+  label?: string;
 };
+
+type ThemeHit = {
+  motif: CoverMotif;
+  layouts: CoverLayout[];
+  label: string;
+};
+
+const THEME_RULES: { keys: string[]; motif: CoverMotif; layouts: CoverLayout[]; label: string }[] = [
+  {
+    keys: ["新能源", "电动", "汽车", "充电", "能源", "电池", "电车", "EV", "ev"],
+    motif: "ev",
+    layouts: ["hero", "split", "accent"],
+    label: "",
+  },
+  {
+    keys: ["科技", "编程", "代码", "AI", "算法", "数据", "数字", "互联网", "软件", "技术", "工程", "芯片"],
+    motif: "tech",
+    layouts: ["accent", "frame", "split"],
+    label: "",
+  },
+  {
+    keys: ["经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "管理", "财务"],
+    motif: "finance",
+    layouts: ["bands", "accent", "frame"],
+    label: "",
+  },
+  {
+    keys: ["自然", "健康", "运动", "环保", "植物", "旅行", "户外", "生态"],
+    motif: "nature",
+    layouts: ["hero", "split", "bands"],
+    label: "",
+  },
+  {
+    keys: ["美食", "餐饮", "料理", "烹饪", "探店", "食谱"],
+    motif: "food",
+    layouts: ["badge", "hero", "bands"],
+    label: "",
+  },
+  {
+    keys: ["创意", "设计", "艺术", "音乐", "电影", "娱乐", "游戏"],
+    motif: "creative",
+    layouts: ["badge", "split", "frame"],
+    label: "",
+  },
+  {
+    keys: ["学习", "教育", "考试", "课程", "笔记", "知识", "阅读", "书"],
+    motif: "study",
+    layouts: ["accent", "frame", "bands"],
+    label: "",
+  },
+  {
+    keys: ["情感", "恋爱", "生活", "日常", "人物", "故事"],
+    motif: "abstract",
+    layouts: ["badge", "hero", "bands"],
+    label: "",
+  },
+];
+
+function hashTitle(title: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < title.length; i++) {
+    h ^= title.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+export function inferThemeFromTitle(title: string): ThemeHit {
+  const t = title.trim();
+  for (const rule of THEME_RULES) {
+    if (rule.keys.some((k) => t.includes(k))) {
+      return { motif: rule.motif, layouts: rule.layouts, label: rule.label };
+    }
+  }
+  const seed = hashTitle(t || "未命名");
+  return {
+    motif: "abstract",
+    layouts: [LAYOUTS[seed % LAYOUTS.length]],
+    label: "",
+  };
+}
 
 export function isRemoteCover(coverUrl: string | null | undefined): boolean {
   if (!coverUrl) return false;
@@ -51,7 +158,9 @@ export function isRemoteCover(coverUrl: string | null | undefined): boolean {
 
 export function isGenCover(coverUrl: string | null | undefined): boolean {
   return Boolean(
-    coverUrl?.startsWith(GEN_V1_PREFIX) || coverUrl?.startsWith(GEN_V2_PREFIX),
+    coverUrl?.startsWith(GEN_V1_PREFIX) ||
+      coverUrl?.startsWith(GEN_V2_PREFIX) ||
+      coverUrl?.startsWith(GEN_V3_PREFIX),
   );
 }
 
@@ -61,19 +170,61 @@ function hex6(raw: string, fallback: string): string {
   return `#${s}`;
 }
 
+function asPattern(raw: string): CoverPattern {
+  return (PATTERNS.includes(raw as CoverPattern) ? raw : "orbs") as CoverPattern;
+}
+
+function asLayout(raw: string): CoverLayout {
+  return (LAYOUTS.includes(raw as CoverLayout) ? raw : "accent") as CoverLayout;
+}
+
+function asMotif(raw: string): CoverMotif {
+  return (MOTIFS.includes(raw as CoverMotif) ? raw : "abstract") as CoverMotif;
+}
+
+/** Derive layout/motif for legacy tokens so old covers also get the new look. */
+function layoutMotifFromTitle(
+  title: string | undefined,
+  seedHint = 0,
+): Pick<CoverStyle, "layout" | "motif" | "label"> {
+  const theme = inferThemeFromTitle(title ?? "");
+  const seed = hashTitle(title ?? "") ^ seedHint;
+  const layout = theme.layouts[seed % theme.layouts.length];
+  return { layout, motif: theme.motif, label: "" };
+}
+
 export function parseCoverStyle(
   coverUrl: string | null | undefined,
   fallbackId = 0,
+  titleForLegacy?: string,
 ): CoverStyle {
+  if (coverUrl?.startsWith(GEN_V3_PREFIX)) {
+    const parts = coverUrl.slice(GEN_V3_PREFIX.length).split(":");
+    if (parts.length >= 8) {
+      const [layoutRaw, motifRaw, patternRaw, a, b, c, ink, mist] = parts;
+      return {
+        layout: asLayout(layoutRaw),
+        motif: asMotif(motifRaw),
+        pattern: asPattern(patternRaw),
+        palette: {
+          a: hex6(a, "#0B1F4A"),
+          b: hex6(b, "#2563EB"),
+          c: hex6(c, "#93C5FD"),
+          ink: hex6(ink, "#F8FAFC"),
+          mist: hex6(mist, "#60A5FA"),
+        },
+        label: "",
+      };
+    }
+  }
   if (coverUrl?.startsWith(GEN_V2_PREFIX)) {
     const parts = coverUrl.slice(GEN_V2_PREFIX.length).split(":");
     if (parts.length >= 6) {
       const [patternRaw, a, b, c, ink, mist] = parts;
-      const pattern = (PATTERNS.includes(patternRaw as CoverPattern)
-        ? patternRaw
-        : "orbs") as CoverPattern;
+      const lm = layoutMotifFromTitle(titleForLegacy, fallbackId);
       return {
-        pattern,
+        ...lm,
+        pattern: asPattern(patternRaw),
         palette: {
           a: hex6(a, "#0B1F4A"),
           b: hex6(b, "#2563EB"),
@@ -87,17 +238,22 @@ export function parseCoverStyle(
   if (coverUrl?.startsWith(GEN_V1_PREFIX)) {
     const n = Number(coverUrl.slice(GEN_V1_PREFIX.length));
     if (Number.isFinite(n) && n >= 0) {
-      return coverStyleFromVariant(Math.abs(Math.trunc(n)) % COVER_VARIANT_COUNT);
+      return coverStyleFromVariant(
+        Math.abs(Math.trunc(n)) % COVER_VARIANT_COUNT,
+        titleForLegacy,
+      );
     }
   }
-  return coverStyleFromVariant(Math.abs(fallbackId) % COVER_VARIANT_COUNT);
+  return coverStyleFromVariant(Math.abs(fallbackId) % COVER_VARIANT_COUNT, titleForLegacy);
 }
 
-export function coverStyleFromVariant(variant: number): CoverStyle {
+export function coverStyleFromVariant(variant: number, titleForLegacy?: string): CoverStyle {
   const v = Math.abs(variant) % COVER_VARIANT_COUNT;
+  const lm = layoutMotifFromTitle(titleForLegacy, v);
   return {
     palette: COVER_PALETTES[v],
     pattern: PATTERNS[v % PATTERNS.length],
+    ...lm,
   };
 }
 

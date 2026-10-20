@@ -16,6 +16,7 @@ class Collection(Base, TimestampMixin):
     owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    cover_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class CollectionNotebook(Base):

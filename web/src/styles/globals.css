@@ -4,51 +4,48 @@
 
 @layer base {
   :root {
-    /* AI 工作台：冷白灰 + 深空蓝 + 电光蓝（70/20/10） */
-    /* #F7F8FA */
-    --background: 220 14% 97%;
-    /* #111827 */
-    --foreground: 220 39% 11%;
+    /* AI 工作台 2026：冷白中性 + 电光蓝主色 + 淡紫辉光辅色 */
+    --background: 220 20% 97.5%;
+    --foreground: 222 35% 12%;
 
-    /* #FFFFFF */
     --card: 0 0% 100%;
-    --card-foreground: 220 39% 11%;
+    --card-foreground: 222 35% 12%;
 
-    /* #2563EB */
-    --primary: 217 91% 53%;
+    /* #2563EB → 略偏靛的蓝，更「AI」 */
+    --primary: 224 86% 54%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 220 25% 20%;
+    --secondary: 220 18% 96%;
+    --secondary-foreground: 222 28% 22%;
 
-    --muted: 220 14% 95%;
-    --muted-foreground: 215 14% 42%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 215 14% 44%;
 
-    /* #EFF6FF 选中/强调浅底 */
-    --accent: 214 100% 97%;
-    --accent-foreground: 217 91% 40%;
+    --accent: 224 100% 97%;
+    --accent-foreground: 224 78% 42%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    /* #0D9488 AI 辅色 */
-    --success: 175 84% 32%;
+    --success: 172 66% 34%;
     --success-foreground: 0 0% 100%;
 
-    /* 警告橙 */
     --warning: 38 92% 50%;
-    --warning-foreground: 220 39% 11%;
+    --warning-foreground: 222 35% 12%;
 
-    --border: 220 13% 90%;
-    --input: 220 13% 90%;
-    --ring: 217 91% 53%;
-    --radius: 0.875rem;
+    --border: 220 16% 90%;
+    --input: 220 16% 90%;
+    --ring: 224 86% 54%;
+    --radius: 0.9rem;
 
-    /* 下拉菜单 / Popover（必须不透明，否则会透出下层按钮） */
     --popover: 0 0% 100%;
-    --popover-foreground: 220 39% 11%;
+    --popover-foreground: 222 35% 12%;
 
-    /* 播放器深色岛（仅媒体区，非整站暗色） */
+    /* 辅色：靛紫辉光（仅氛围，不抢主操作） */
+    --violet: 258 78% 58%;
+    --glow: 224 86% 54%;
+
+    /* 播放器深色岛（仅媒体区） */
     --player: 222 32% 8%;
     --player-foreground: 210 20% 96%;
   }
@@ -60,7 +57,7 @@
     --card: 222 24% 10%;
     --card-foreground: 210 20% 96%;
 
-    --primary: 217 91% 60%;
+    --primary: 224 86% 62%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 18% 14%;
@@ -69,24 +66,27 @@
     --muted: 220 16% 14%;
     --muted-foreground: 215 12% 62%;
 
-    --accent: 217 40% 16%;
+    --accent: 224 40% 16%;
     --accent-foreground: 214 100% 85%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 175 70% 40%;
+    --success: 172 60% 42%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 92% 50%;
-    --warning-foreground: 220 39% 11%;
+    --warning-foreground: 222 35% 12%;
 
     --border: 220 16% 18%;
     --input: 220 16% 18%;
-    --ring: 217 91% 60%;
+    --ring: 224 86% 62%;
 
     --popover: 222 24% 10%;
     --popover-foreground: 210 20% 96%;
+
+    --violet: 258 72% 68%;
+    --glow: 224 86% 62%;
 
     --player: 222 36% 5%;
     --player-foreground: 210 20% 96%;
@@ -101,77 +101,134 @@
     font-family:
       ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-feature-settings: "kern" 1, "liga" 1;
   }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+    color: hsl(var(--foreground));
+  }
+}
+
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.04); }
+}
+
+@keyframes fade-up {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 @layer utilities {
   .soft-tile {
-    @apply rounded-2xl border border-border/80 bg-card text-card-foreground shadow-soft transition-colors;
+    @apply rounded-2xl border border-border/70 bg-card text-card-foreground shadow-soft transition-all duration-200;
   }
 
   .soft-tile-hover {
-    @apply hover:border-primary/25 hover:bg-accent/50;
+    @apply hover:-translate-y-0.5 hover:border-primary/25 hover:bg-accent/40 hover:shadow-soft-md;
   }
 
-  /* 登录页氛围背景 */
+  /* 列表页轻氛围（不抢内容） */
+  .page-ambient {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 70% 45% at 0% -10%, hsl(var(--primary) / 0.07), transparent 55%),
+      radial-gradient(ellipse 50% 35% at 100% 0%, hsl(var(--violet) / 0.05), transparent 50%);
+  }
+
+  /* 登录页氛围：蓝 + 靛紫 + 青绿，柔和不刺眼 */
   .login-mesh {
     background-color: hsl(var(--background));
     background-image:
-      radial-gradient(ellipse 80% 60% at 10% 20%, hsl(217 91% 53% / 0.14), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 90% 10%, hsl(175 84% 32% / 0.12), transparent 50%),
-      radial-gradient(ellipse 60% 40% at 70% 85%, hsl(217 91% 53% / 0.08), transparent 55%);
+      radial-gradient(ellipse 90% 70% at 8% 15%, hsl(224 86% 54% / 0.16), transparent 58%),
+      radial-gradient(ellipse 70% 55% at 92% 8%, hsl(258 78% 58% / 0.12), transparent 52%),
+      radial-gradient(ellipse 55% 45% at 75% 90%, hsl(172 66% 34% / 0.09), transparent 55%),
+      radial-gradient(ellipse 40% 30% at 40% 60%, hsl(224 86% 54% / 0.04), transparent 60%);
   }
 
-  /* 立体书本舞台 */
-  .book-stage {
-    @apply flex flex-col gap-3;
+  .login-orb {
+    @apply pointer-events-none absolute rounded-full blur-3xl;
+    animation: soft-pulse 4.5s ease-in-out infinite;
   }
 
-  .book-3d {
-    @apply relative ml-0 w-full max-w-[11.5rem] origin-left transition-transform duration-300 ease-out;
-    perspective: 900px;
+  .glass-card {
+    @apply rounded-2xl border border-white/60 bg-card/90 shadow-soft-lg backdrop-blur-xl;
   }
 
-  .book-stage:hover .book-3d {
-    transform: translateY(-6px) rotateY(-4deg);
+  .page-hero {
+    @apply mb-7 flex flex-wrap items-end justify-between gap-3;
   }
 
+  .page-hero-title {
+    @apply text-2xl font-semibold tracking-tight text-foreground;
+  }
+
+  .page-hero-desc {
+    @apply mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground;
+  }
+
+  .filter-chip {
+    @apply rounded-full border border-border/70 bg-card px-3.5 py-1.5 text-sm font-medium text-muted-foreground shadow-soft transition-all duration-150 hover:border-primary/25 hover:text-foreground;
+  }
+
+  .filter-chip-active {
+    @apply border-primary/30 bg-primary text-primary-foreground shadow-glow;
+  }
+
+  .search-shell {
+    @apply flex items-center gap-2 rounded-2xl border border-border/70 bg-card/95 p-1.5 shadow-soft-md ring-1 ring-transparent transition focus-within:border-primary/35 focus-within:shadow-glow focus-within:ring-primary/10;
+  }
+
+  .empty-hero {
+    @apply soft-tile overflow-hidden px-6 py-14 text-center sm:px-10 sm:py-16;
+    background-image:
+      radial-gradient(ellipse 60% 50% at 50% 0%, hsl(var(--primary) / 0.08), transparent 70%);
+  }
+
+  .empty-hero-icon {
+    @apply mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-glow-soft;
+  }
+
+  .icon-cluster {
+    @apply mx-auto mb-6 flex max-w-md justify-center gap-2;
+  }
+
+  .icon-cluster > span {
+    @apply flex h-11 w-11 items-center justify-center rounded-2xl shadow-soft transition-transform duration-200;
+  }
+
+  /* 笔记本卡片：与集合同款 soft-tile 一体卡 */
+  .notebook-card {
+    @apply relative;
+  }
+
+  .notebook-cover {
+    @apply aspect-[4/5] bg-muted/30;
+  }
+
+  /* 新建/编辑弹窗封面预览（保留圆角书壳，不再依赖列表立体书） */
   .book-front {
-    @apply relative aspect-[5/7] w-full overflow-hidden rounded-[4px_10px_10px_4px] bg-slate-900 shadow-[0_18px_40px_-18px_rgba(15,23,42,0.55),0_2px_0_rgba(255,255,255,0.12)_inset];
-  }
-
-  .book-cover-link {
-    @apply absolute inset-0 block;
-  }
-
-  .book-spine-edge {
-    @apply pointer-events-none absolute inset-y-[2%] left-0 z-20 w-[7px] rounded-l-[3px];
-    background: linear-gradient(
-      90deg,
-      rgba(15, 23, 42, 0.55) 0%,
-      rgba(255, 255, 255, 0.18) 35%,
-      rgba(15, 23, 42, 0.25) 100%
-    );
-  }
-
-  .book-pages {
-    @apply pointer-events-none absolute -right-[5px] top-[3%] bottom-[3%] z-0 w-[5px] rounded-r-[2px];
-    background: repeating-linear-gradient(
-      to right,
-      #f8fafc 0px,
-      #e2e8f0 1px,
-      #f1f5f9 2px
-    );
-    box-shadow: 1px 0 4px rgba(15, 23, 42, 0.12);
+    @apply relative aspect-[5/7] overflow-hidden rounded-xl bg-muted/30 ring-1 ring-black/5;
   }
 
   .book-cover-overlay {
     @apply absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-10;
   }
 
+  /* 集合卡片：封面拼贴 */
+  .collection-card {
+    @apply relative;
+  }
+
+  .collection-cover {
+    @apply aspect-[4/3] bg-muted/30;
+  }
+
   /* 书架：左分类名 + 右可滑动书本 */
   .shelf-row {
-    @apply relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-soft transition-[box-shadow,border-color] duration-200 hover:border-primary/30 hover:shadow-md;
+    @apply relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-soft transition-[box-shadow,border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-soft-md;
   }
 
   .shelf-row-inner {
@@ -179,13 +236,13 @@
   }
 
   .shelf-plaque {
-    @apply relative flex w-[8rem] shrink-0 cursor-pointer flex-col justify-center border-r border-border/60 bg-[#E8EEF6] px-3.5 py-4 sm:w-44 sm:px-5;
+    @apply relative flex w-[8rem] shrink-0 cursor-pointer flex-col justify-center border-r border-border/60 bg-gradient-to-b from-[#EEF3FA] to-[#E4EBF5] px-3.5 py-4 sm:w-44 sm:px-5;
   }
 
   .shelf-board {
     @apply relative flex min-w-0 flex-1 items-end gap-2.5 overflow-x-auto overflow-y-hidden scroll-smooth px-3 pt-5 sm:gap-3 sm:px-5;
     padding-bottom: 1.2rem;
-    background: linear-gradient(180deg, #dbe4f0 0%, #c5d0e0 72%, #b0bccf 100%);
+    background: linear-gradient(180deg, #e2eaf5 0%, #c8d4e6 72%, #b3c0d4 100%);
     scrollbar-width: thin;
     -webkit-overflow-scrolling: touch;
   }
@@ -220,11 +277,24 @@
   }
 
   .panel-surface {
-    @apply rounded-2xl border border-border/80 bg-card shadow-soft;
+    @apply rounded-2xl border border-border/60 bg-card shadow-soft;
+  }
+
+  .panel-surface-center {
+    @apply bg-gradient-to-b from-card via-card to-[hsl(220_18%_98%)];
   }
 
   .source-selected {
-    @apply bg-accent;
+    @apply border-primary/20 bg-accent shadow-soft;
+  }
+
+  .source-card {
+    @apply relative flex items-start gap-2.5 rounded-xl border border-transparent px-3 py-2.5 transition-all duration-150 hover:border-border/70 hover:bg-accent/55;
+  }
+
+  .source-card.source-selected::before {
+    content: "";
+    @apply absolute inset-y-2.5 left-0 w-[3px] rounded-full bg-primary;
   }
 
   .status-busy {
@@ -237,5 +307,312 @@
 
   .status-warn {
     @apply text-[hsl(var(--warning))];
+  }
+
+  .status-chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium leading-none;
+  }
+
+  .status-chip-busy {
+    @apply bg-primary/10 text-primary;
+  }
+
+  .status-chip-ok {
+    @apply bg-[hsl(172_50%_94%)] text-[hsl(var(--success))];
+  }
+
+  .status-chip-fail {
+    @apply bg-amber-50 text-amber-800;
+  }
+
+  .status-chip-idle {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  .status-chip-done {
+    @apply bg-primary/10 text-primary;
+  }
+
+  .notebook-workbench {
+    transition: grid-template-columns 220ms ease;
+  }
+
+  .panel-rail {
+    @apply flex h-full w-full flex-col items-center gap-3 rounded-2xl bg-muted/30 px-1.5 py-3;
+  }
+
+  .panel-rail-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    @apply text-[11px] font-medium tracking-wide text-muted-foreground;
+  }
+
+  .panel-rail-icon {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-card text-foreground shadow-soft transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-primary/10 hover:text-primary hover:shadow-glow;
+  }
+
+  .panel-header {
+    @apply sticky top-0 z-10 flex shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-card/90 px-3.5 py-2.5 backdrop-blur-md;
+  }
+
+  .panel-count {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground;
+  }
+
+  .empty-panel {
+    @apply mx-3 my-2 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-muted/25 px-4 py-10 text-center;
+  }
+
+  .studio-tile {
+    @apply flex items-center gap-2.5 rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-accent/40 px-3 py-3 text-left shadow-soft transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-soft-md;
+  }
+
+  .task-card {
+    @apply mx-2 mb-1.5 flex items-start gap-2.5 rounded-xl border border-transparent px-3 py-2.5 transition-all duration-150 hover:border-border/60 hover:bg-accent/40;
+  }
+
+  .chat-bubble-user {
+    @apply rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-6 text-primary-foreground shadow-soft;
+  }
+
+  .chat-bubble-assistant {
+    @apply rounded-2xl rounded-bl-md border border-border/60 bg-card px-3.5 py-2.5 text-sm leading-6 text-foreground shadow-soft;
+  }
+
+  .chat-composer {
+    @apply flex items-center gap-3 rounded-full border border-border/70 bg-card px-4 py-1.5 shadow-soft ring-1 ring-transparent transition duration-200 focus-within:border-primary/35 focus-within:shadow-glow focus-within:ring-primary/15;
+  }
+
+  .player-island {
+    @apply shrink-0 overflow-hidden rounded-2xl border border-black/50 bg-player text-player-foreground shadow-[0_8px_24px_-12px_rgba(15,23,42,0.55),inset_0_1px_0_rgba(255,255,255,0.06)];
+  }
+
+  .app-header-shell {
+    @apply z-20 border-b border-border/40 bg-background/75 backdrop-blur-xl;
+  }
+
+  .nav-pill {
+    @apply flex items-center gap-0.5 rounded-full border border-border/60 bg-card/90 p-1 shadow-soft;
+  }
+
+  .nav-pill-item {
+    @apply rounded-full px-3.5 py-1.5 text-sm font-medium transition-all duration-150;
+  }
+
+  .nav-pill-item-active {
+    @apply bg-primary text-primary-foreground shadow-glow;
+  }
+
+  .nav-pill-item-idle {
+    @apply text-muted-foreground hover:bg-accent hover:text-foreground;
+  }
+
+  /* ── 后台管理 ── */
+  .admin-page-header {
+    @apply mb-1 flex flex-wrap items-end justify-between gap-3;
+  }
+
+  .admin-page-title {
+    @apply text-xl font-semibold tracking-tight text-foreground;
+  }
+
+  .admin-page-desc {
+    @apply mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground;
+  }
+
+  .admin-section-card {
+    @apply overflow-hidden border-border/70 shadow-soft;
+  }
+
+  .admin-section-header {
+    @apply space-y-0 p-5 pb-3 sm:p-6 sm:pb-3;
+  }
+
+  .admin-section-title {
+    @apply text-base font-semibold tracking-tight text-foreground;
+  }
+
+  .admin-section-desc {
+    @apply text-sm leading-relaxed text-muted-foreground;
+  }
+
+  .admin-tab-nav {
+    @apply flex flex-wrap gap-0.5 rounded-full border border-border/60 bg-card/90 p-1 shadow-soft;
+  }
+
+  .admin-tab-item {
+    @apply rounded-full px-3.5 py-1.5 text-sm font-medium transition-all duration-150;
+  }
+
+  .admin-tab-item-active {
+    @apply bg-primary text-primary-foreground shadow-glow;
+  }
+
+  .admin-tab-item-idle {
+    @apply text-muted-foreground hover:bg-accent hover:text-foreground;
+  }
+
+  .admin-table-shell {
+    @apply overflow-x-auto rounded-xl border border-border/60;
+  }
+
+  .admin-table {
+    @apply w-full min-w-[36rem] text-sm;
+  }
+
+  .admin-table thead tr {
+    @apply border-b border-border/60 bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground;
+  }
+
+  .admin-table th {
+    @apply px-3.5 py-2.5 font-medium normal-case tracking-normal;
+  }
+
+  .admin-table tbody tr {
+    @apply border-b border-border/40 transition-colors last:border-0 hover:bg-accent/40;
+  }
+
+  .admin-table td {
+    @apply px-3.5 py-3 align-middle;
+  }
+
+  .admin-badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-none;
+  }
+
+  .admin-badge-ok {
+    @apply bg-[hsl(172_50%_94%)] text-[hsl(var(--success))];
+  }
+
+  .admin-badge-warn {
+    @apply bg-amber-50 text-amber-800;
+  }
+
+  .admin-badge-idle {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  .admin-badge-info {
+    @apply bg-primary/10 text-primary;
+  }
+
+  .admin-badge-danger {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .admin-field-label {
+    @apply text-xs font-medium text-foreground;
+  }
+
+  .admin-empty {
+    @apply flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center;
+  }
+
+  .admin-inline-form {
+    @apply space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3.5;
+  }
+
+  .admin-tile {
+    @apply rounded-2xl border border-border/60 bg-card/95 p-4 shadow-soft transition-all duration-150 hover:border-primary/20 hover:shadow-soft-md;
+  }
+
+  .admin-select {
+    @apply h-10 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-soft transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .admin-textarea {
+    @apply flex min-h-[96px] w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-soft ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  /* ── 聚合搜索 ── */
+  .search-dock {
+    @apply border-b border-border/40 bg-background/80 backdrop-blur-xl;
+  }
+
+  .search-dock-inner {
+    @apply mx-auto w-full max-w-5xl px-6 py-5 lg:px-8;
+  }
+
+  .search-shell-lg {
+    @apply rounded-[1.35rem] p-2 shadow-soft-md;
+  }
+
+  .platform-filter {
+    @apply inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-all duration-150;
+  }
+
+  .platform-filter-idle {
+    @apply border-border/70 bg-card text-muted-foreground shadow-soft hover:border-primary/25 hover:text-foreground;
+  }
+
+  .platform-filter-active {
+    @apply border-primary/30 bg-primary text-primary-foreground shadow-glow;
+  }
+
+  .platform-filter-dot {
+    @apply h-2 w-2 shrink-0 rounded-full;
+  }
+
+  .platform-chip-all .platform-filter-dot {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--violet)));
+  }
+
+  .platform-chip-bili .platform-filter-dot {
+    @apply bg-[#FB7299];
+  }
+
+  .platform-chip-yt .platform-filter-dot {
+    @apply bg-red-600;
+  }
+
+  .platform-chip-dy .platform-filter-dot {
+    @apply bg-zinc-900;
+  }
+
+  .platform-filter-active.platform-chip-all .platform-filter-dot,
+  .platform-filter-active.platform-chip-bili .platform-filter-dot,
+  .platform-filter-active.platform-chip-yt .platform-filter-dot,
+  .platform-filter-active.platform-chip-dy .platform-filter-dot {
+    @apply bg-white/90;
+  }
+
+  .search-result-card {
+    @apply flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-card-foreground shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-soft-md;
+  }
+
+  .search-thumb {
+    @apply relative aspect-video w-full overflow-hidden bg-muted/40 text-left;
+  }
+
+  .search-thumb-play {
+    @apply pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition-all duration-200;
+  }
+
+  .group:hover .search-thumb-play {
+    @apply bg-black/35 opacity-100;
+  }
+
+  .search-thumb-play > svg {
+    @apply h-11 w-11 rounded-full bg-white/95 p-3 text-primary shadow-soft-lg;
+  }
+
+  .search-skel-card {
+    @apply overflow-hidden rounded-2xl border border-border/60 bg-card shadow-soft;
+  }
+
+  .search-skel {
+    @apply animate-pulse rounded-md bg-muted/70;
+  }
+
+  .search-alert {
+    @apply rounded-2xl border px-4 py-3 text-sm shadow-soft;
+  }
+
+  .search-alert-error {
+    @apply border-destructive/25 bg-destructive/5 text-destructive;
+  }
+
+  .search-preview-modal {
+    @apply rounded-2xl border border-border/60 bg-card shadow-soft-lg;
   }
 }

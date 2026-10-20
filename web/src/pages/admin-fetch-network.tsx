@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Globe, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AdminPageHeader,
+  AdminSectionCard,
+  AdminStatusBadge,
+} from "@/components/admin-shell";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -195,14 +200,16 @@ export function AdminFetchNetworkPage() {
   ) as Partial<Record<Platform, PlatformCookieRead>>;
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Cookie</h2>
-          <p className="text-sm text-muted-foreground">
-            按平台上传或粘贴 Netscape Cookie。启用后才会用于抓取与搜索。
-          </p>
-        </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="抓取与网络"
+        description="按平台配置 Cookie 与代理，用于字幕抓取与聚合搜索。"
+      />
+
+      <AdminSectionCard
+        title="平台 Cookie"
+        description="上传或粘贴 Netscape Cookie。启用后才会用于抓取与搜索。"
+      >
 
         {config.error instanceof ApiError && (
           <p className="text-sm text-destructive">{config.error.message}</p>
@@ -215,29 +222,23 @@ export function AdminFetchNetworkPage() {
             return (
               <div
                 key={platform}
-                className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-sm"
+                className="admin-tile"
               >
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-semibold">{PLATFORM_LABEL[platform]}</h3>
                   {meta?.cookie_set ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    <AdminStatusBadge tone="ok">
                       <Check className="h-3 w-3" />
                       已配置
-                    </span>
+                    </AdminStatusBadge>
                   ) : (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      未配置
-                    </span>
+                    <AdminStatusBadge tone="idle">未配置</AdminStatusBadge>
                   )}
                   {meta?.cookie_set ? (
                     meta.enabled ? (
-                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-700">
-                        已启用
-                      </span>
+                      <AdminStatusBadge tone="info">已启用</AdminStatusBadge>
                     ) : (
-                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-800">
-                        未启用
-                      </span>
+                      <AdminStatusBadge tone="warn">未启用</AdminStatusBadge>
                     )
                   ) : null}
                 </div>
@@ -357,20 +358,15 @@ export function AdminFetchNetworkPage() {
             );
           })}
         </div>
-      </section>
+      </AdminSectionCard>
 
-      <section className="space-y-4">
-        <div className="flex items-start gap-2">
-          <Globe className="mt-0.5 h-5 w-5 text-muted-foreground" />
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">代理设置</h2>
-            <p className="text-sm text-muted-foreground">
-              配置代理服务器，用于访问 YouTube 等境外平台。可按平台选择是否走代理。
-            </p>
-          </div>
-        </div>
+      <AdminSectionCard
+        title="代理设置"
+        description="用于访问 YouTube 等境外平台；可按平台选择是否走代理。"
+        action={<Globe className="h-5 w-5 text-muted-foreground" />}
+      >
 
-        <div className="space-y-3 rounded-2xl border border-border/60 bg-card/80 p-4">
+        <div className="space-y-3 rounded-xl border border-border/50 bg-muted/15 p-3.5">
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
@@ -387,7 +383,7 @@ export function AdminFetchNetworkPage() {
           </label>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-border/60 bg-card/80 p-4">
+        <div className="space-y-3 rounded-xl border border-border/50 bg-muted/15 p-3.5">
           <p className="text-sm font-medium">代理类型</p>
           <div className="flex flex-wrap gap-2">
             {SCHEMES.map((item) => (
@@ -395,11 +391,7 @@ export function AdminFetchNetworkPage() {
                 key={item}
                 type="button"
                 onClick={() => setScheme(item)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium uppercase transition ${
-                  scheme === item
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                }`}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium uppercase transition ${scheme === item ? "bg-primary text-primary-foreground shadow-glow" : "bg-muted text-muted-foreground hover:text-foreground"}`}
               >
                 {item}
               </button>
@@ -407,7 +399,7 @@ export function AdminFetchNetworkPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 rounded-2xl border border-border/60 bg-card/80 p-4 sm:grid-cols-2">
+        <div className="grid gap-3 rounded-xl border border-border/50 bg-muted/15 p-3.5 sm:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="proxy-host">
               代理地址
@@ -434,7 +426,7 @@ export function AdminFetchNetworkPage() {
           </div>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-border/60 bg-card/80 p-4">
+        <div className="space-y-3 rounded-xl border border-border/50 bg-muted/15 p-3.5">
           <p className="text-sm font-medium">应用到</p>
           <div className="flex flex-wrap gap-4 text-sm">
             {PLATFORMS.map((platform) => (
@@ -487,12 +479,12 @@ export function AdminFetchNetworkPage() {
           <p className="text-sm text-destructive">{saveProxy.error.message}</p>
         )}
         {testResult && (
-          <p className={`text-sm ${testResult.ok ? "text-emerald-700" : "text-destructive"}`}>
+          <p className={`text-sm ${testResult.ok ? "text-[hsl(var(--success))]" : "text-destructive"}`}>
             {testResult.message}
             {testResult.latency_ms != null ? `（${testResult.latency_ms} ms）` : ""}
           </p>
         )}
-      </section>
+      </AdminSectionCard>
     </div>
   );
 }
