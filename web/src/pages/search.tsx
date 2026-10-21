@@ -217,19 +217,6 @@ function SearchPageInner() {
 
       <div className="search-dock sticky top-16 z-10">
         <div className="search-dock-inner">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="page-hero-title">聚合搜索</h1>
-              <p className="page-hero-desc">跨平台找视频 · 预览后加入笔记本</p>
-            </div>
-            {result && !search.isPending && (
-              <p className="text-xs text-muted-foreground">
-                {searchedQuery ? `「${searchedQuery}」` : ""} · {items.length} 条
-                {activeChip && platform !== "all" ? ` · ${activeChip.label}` : ""}
-              </p>
-            )}
-          </div>
-
           <div className="search-shell search-shell-lg">
             <div className="relative min-w-0 flex-1">
               <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -283,6 +270,11 @@ function SearchPageInner() {
             <span className="ml-1 hidden text-xs text-muted-foreground sm:inline">
               仅视频结果
             </span>
+            {result && !search.isPending ? (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {searchedQuery ? `「${searchedQuery}」` : ""} · {items.length} 条
+              </span>
+            ) : null}
           </div>
         </div>
       </div>

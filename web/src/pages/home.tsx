@@ -480,13 +480,7 @@ function MyNotebooksSection({
 }) {
   return (
     <section>
-      <header className="page-hero">
-        <div>
-          <h1 className="page-hero-title">我的笔记本</h1>
-          <p className="page-hero-desc">
-            你的笔记本 · 点开一本即可提问与产出
-          </p>
-        </div>
+      <header className="mb-4 flex justify-end">
         <Button onClick={onCreate} className="rounded-full px-5">
           <Plus className="h-4 w-4" />
           <span className="ml-1">新建笔记本</span>
@@ -581,13 +575,7 @@ function CollectionsSection({
 }) {
   return (
     <section>
-      <header className="page-hero">
-        <div>
-          <h1 className="page-hero-title">我的集合</h1>
-          <p className="page-hero-desc">
-            大目录整理相关笔记本，图标按名称 AI 生成
-          </p>
-        </div>
+      <header className="mb-4 flex justify-end">
         <Button onClick={onCreate} className="rounded-full px-5">
           <Plus className="h-4 w-4" />
           <span className="ml-1">新建集合</span>
@@ -621,7 +609,7 @@ function CollectionsSection({
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
           {collections.map((c) => (
             <CollectionCard
               key={c.id}
@@ -691,19 +679,19 @@ function CollectionCard({
             className="collection-folder-icon"
           />
           {generatingCover ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-card/70 text-xs font-medium text-foreground backdrop-blur-[1px]">
+            <div className="absolute inset-0 flex items-center justify-center bg-card/70 text-[10px] font-medium text-foreground backdrop-blur-[1px]">
               生成图标中…
             </div>
           ) : null}
         </div>
 
-        <div className="flex items-start gap-2 px-4 pb-4 pt-1">
+        <div className="flex items-start gap-1.5 px-2.5 pb-2.5 pt-0.5">
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-base font-semibold tracking-tight text-foreground sm:text-[17px]">
+            <h3 className="truncate text-[12px] font-semibold leading-snug tracking-tight text-foreground sm:text-[13px]">
               {c.name}
             </h3>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">
+            <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
                 {countLabel}
               </span>
               {c.updated_at ? (
@@ -714,7 +702,7 @@ function CollectionCard({
         </div>
       </button>
 
-      <div className="absolute right-2.5 top-2.5 z-10 opacity-70 transition-opacity group-hover:opacity-100">
+      <div className="absolute right-1.5 top-1.5 z-10 opacity-70 transition-opacity group-hover:opacity-100">
         <CollectionCardMenu
           onEdit={onEdit}
           onDelete={onDelete}

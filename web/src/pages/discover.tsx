@@ -182,13 +182,6 @@ export default function DiscoverPage() {
 
       <div className="search-dock sticky top-16 z-10">
         <div className="search-dock-inner max-w-none">
-          <div className="mb-4">
-            <h1 className="page-hero-title">发现</h1>
-            <p className="page-hero-desc">
-              搜索自己的笔记本，或浏览他人公开分享的本
-            </p>
-          </div>
-
           <div className="search-shell search-shell-lg max-w-3xl">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

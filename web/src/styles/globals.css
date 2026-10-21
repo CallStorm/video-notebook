@@ -158,7 +158,7 @@
   }
 
   .page-hero {
-    @apply mb-7 flex flex-wrap items-end justify-between gap-3;
+    @apply mb-5 flex flex-wrap items-end justify-between gap-3;
   }
 
   .page-hero-title {
@@ -217,7 +217,7 @@
     @apply absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-10;
   }
 
-  /* 集合：大目录卡片 */
+  /* 集合：目录卡片（紧凑密度，与笔记本卡一致） */
   .collection-card {
     @apply relative;
   }
@@ -227,18 +227,18 @@
   }
 
   .collection-folder {
-    @apply relative flex aspect-[5/4] w-full items-center justify-center px-4 pt-5 pb-2;
+    @apply relative flex aspect-[5/4] w-full items-center justify-center px-2.5 pt-3 pb-1;
     background-image:
       radial-gradient(ellipse 70% 60% at 50% 35%, hsl(var(--primary) / 0.08), transparent 70%),
       radial-gradient(ellipse 50% 40% at 85% 10%, hsl(var(--violet) / 0.06), transparent 60%);
   }
 
   .collection-folder-icon {
-    @apply h-[78%] w-[88%] max-w-[14rem] drop-shadow-sm transition-transform duration-300;
+    @apply h-[68%] w-[76%] max-w-[7.5rem] drop-shadow-sm transition-transform duration-300;
   }
 
   .collection-dir-card:hover .collection-folder-icon {
-    transform: translateY(-2px) scale(1.02);
+    transform: translateY(-1px) scale(1.02);
   }
 
   /* legacy preview aspect kept for edit dialog if needed */
@@ -550,7 +550,7 @@
   }
 
   .search-dock-inner {
-    @apply mx-auto w-full max-w-5xl px-6 py-5 lg:px-8;
+    @apply mx-auto w-full max-w-5xl px-6 py-4 lg:px-8;
   }
 
   .search-shell-lg {

@@ -95,14 +95,6 @@ export default function AdminPage() {
     >
       <div className="mx-auto w-full max-w-6xl space-y-6">
         <div className="space-y-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-primary/80">管理后台</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">系统配置</h1>
-            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              统一管理模型、网络抓取、账号与 Studio 能力。当前：{active.label}
-              {active.hint ? ` · ${active.hint}` : ""}
-            </p>
-          </div>
           <nav className="admin-tab-nav w-fit" aria-label="后台分区">
             {TABS.map((item) => (
               <button
