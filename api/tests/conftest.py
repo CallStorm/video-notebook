@@ -53,6 +53,8 @@ from app.models.notebook import (  # noqa: E402,F401
 from app.models.fetch_network import FetchNetworkConfig  # noqa: E402,F401
 from app.models.fetch_settings import FetchSettingsConfig  # noqa: E402,F401
 from app.models.subtitle_slice_settings import SubtitleSliceSettingsConfig  # noqa: E402,F401
+from app.models.vector_settings import VectorSettingsConfig  # noqa: E402,F401
+from app.models.notebook_index import NotebookIndexState  # noqa: E402,F401
 from app.models.studio import (  # noqa: E402,F401
     Agent,
     ClaudeCodeConfig,
@@ -115,6 +117,8 @@ async def _clean_db():
             "studio_capabilities",
             "agents",
             "skills",
+            "notebook_index_states",
+            "vector_settings_config",
             "collection_notebooks",
             "collections",
             "notes",

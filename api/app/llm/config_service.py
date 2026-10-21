@@ -1,4 +1,4 @@
-"""ConfigService：根据 default_models 取当前 role → model → credential → 完整 LLM / ASR 配置。
+"""ConfigService：根据 default_models 取当前 role → model → credential → 完整 LLM / ASR / Embedding 配置。
 
 缓存：默认 30s 内存 TTL。admin 改完配置后调用 `invalidate(role)` 失效。
 """
@@ -38,6 +38,15 @@ class SttResolved:
     base_url: str | None = None
 
 
+@dataclass
+class EmbeddingResolved:
+    provider: str
+    base_url: str | None
+    api_key: str
+    model_name: str
+    params_json: dict | None
+
+
 class _TTLCache[K, V]:
     def __init__(self) -> None:
         self._store: dict[K, tuple[V, float]] = {}
@@ -62,6 +71,7 @@ class _TTLCache[K, V]:
 _llm_cache = _TTLCache[str, LlmResolved]()
 _stt_cache = _TTLCache[str, SttResolved]()
 _logo_cache = _TTLCache[str, LlmResolved]()
+_embedding_cache = _TTLCache[str, EmbeddingResolved]()
 
 
 async def _resolve_default(
@@ -136,6 +146,23 @@ async def get_active_stt(session: AsyncSession) -> SttResolved:
     return resolved
 
 
+async def get_active_embedding(session: AsyncSession) -> EmbeddingResolved:
+    cached = _embedding_cache.get("active")
+    if cached:
+        return cached
+    m, cred = await _resolve_default(session, "embedding")
+    spec = get_provider(m.provider)
+    resolved = EmbeddingResolved(
+        provider=m.provider,
+        base_url=cred.base_url or (spec.default_base_url if spec else None),
+        api_key=decrypt(cred.api_key_enc or ""),
+        model_name=m.name,
+        params_json=cred.config,
+    )
+    _embedding_cache.put("active", resolved)
+    return resolved
+
+
 def invalidate(role: str | None = None) -> None:
     """Admin 改了配置后调用。下次读会回 DB 拉。"""
     if role in (None, "chat", "logo", "all"):
@@ -143,7 +170,10 @@ def invalidate(role: str | None = None) -> None:
         _logo_cache.clear()
     if role in (None, "stt", "all"):
         _stt_cache.clear()
-    if role and role not in ("chat", "stt", "logo", "all"):
+    if role in (None, "embedding", "all"):
+        _embedding_cache.clear()
+    if role and role not in ("chat", "stt", "logo", "embedding", "all"):
         _llm_cache.clear()
         _logo_cache.clear()
         _stt_cache.clear()
+        _embedding_cache.clear()

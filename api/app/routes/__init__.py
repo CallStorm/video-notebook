@@ -15,6 +15,7 @@ from app.routes import (
     admin_fetch_network,
     admin_fetch_settings,
     admin_subtitle_slice_settings,
+    admin_vector_settings,
     admin_models,
     admin_skills,
     admin_studio,
@@ -47,6 +48,7 @@ api_router.include_router(admin_claude.router)
 api_router.include_router(admin_fetch_network.router)
 api_router.include_router(admin_fetch_settings.router)
 api_router.include_router(admin_subtitle_slice_settings.router)
+api_router.include_router(admin_vector_settings.router)
 api_router.include_router(admin_studio.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)

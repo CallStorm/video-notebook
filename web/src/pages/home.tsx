@@ -48,6 +48,9 @@ interface Notebook {
   share_all: boolean;
   source_count: number;
   note_count: number;
+  index_status?: string | null;
+  indexed_at?: string | null;
+  index_error?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -92,6 +95,10 @@ async function updateNotebook(
   },
 ): Promise<Notebook> {
   return api<Notebook>(`/notebooks/${id}`, { method: "PATCH", body, access });
+}
+
+async function reindexNotebook(access: string, id: number): Promise<void> {
+  await api(`/notebooks/${id}/reindex`, { method: "POST", access, body: {} });
 }
 
 type View = "grid" | "list";
@@ -235,6 +242,11 @@ export default function HomePage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notebooks"] }),
   });
 
+  const reindex = useMutation({
+    mutationFn: (id: number) => reindexNotebook(token, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notebooks"] }),
+  });
+
   const items = list.data?.items ?? [];
   const visible = useMemo(
     () =>
@@ -367,6 +379,9 @@ export default function HomePage() {
             onDelete={(id) => {
               if (confirm("删除这个笔记本？")) remove.mutate(id);
             }}
+            onReindex={(id) => {
+              if (confirm("重新索引这本笔记本？")) reindex.mutate(id);
+            }}
             onAddToCollection={setAddToCollectionId}
           />
         )}
@@ -445,6 +460,7 @@ function MyNotebooksSection({
   onTogglePin,
   onToggleShare,
   onDelete,
+  onReindex,
   onCreate,
   onSearch,
   onEdit,
@@ -456,6 +472,7 @@ function MyNotebooksSection({
   onTogglePin: (id: number, is_pinned: boolean) => void;
   onToggleShare: (id: number, share_all: boolean) => void;
   onDelete: (id: number) => void;
+  onReindex: (id: number) => void;
   onEdit: (id: number) => void;
   onCreate: () => void;
   onSearch: () => void;
@@ -521,6 +538,7 @@ function MyNotebooksSection({
               onUpdateTitle={onEdit}
               onTogglePin={() => onTogglePin(nb.id, !nb.is_pinned)}
               onToggleShare={() => onToggleShare(nb.id, nb.share_all)}
+              onReindex={() => onReindex(nb.id)}
               onDelete={() => onDelete(nb.id)}
               onAddToCollection={onAddToCollection}
             />

@@ -15,6 +15,8 @@ export interface NotebookBookCardData {
   source_count: number;
   note_count?: number;
   updated_at: string | null;
+  index_status?: string | null;
+  index_error?: string | null;
 }
 
 function formatSources(n: number): string {
@@ -26,6 +28,7 @@ export function NotebookBookCard({
   onUpdateTitle,
   onTogglePin,
   onToggleShare,
+  onReindex,
   onDelete,
   onAddToCollection,
 }: {
@@ -33,6 +36,7 @@ export function NotebookBookCard({
   onUpdateTitle: (id: number) => void;
   onTogglePin: (id: number) => void;
   onToggleShare?: (id: number) => void;
+  onReindex?: (id: number) => void;
   onDelete: (id: number) => void;
   onAddToCollection?: (id: number) => void;
 }) {
@@ -77,6 +81,22 @@ export function NotebookBookCard({
               公开
             </span>
           ) : null}
+          {nb.index_status === "failed" ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-destructive shadow-sm backdrop-blur-sm"
+              title={nb.index_error ?? "索引失败"}
+            >
+              索引失败
+            </span>
+          ) : nb.index_status === "ready" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-sky-700 shadow-sm backdrop-blur-sm">
+              已索引
+            </span>
+          ) : nb.index_status === "indexing" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm backdrop-blur-sm">
+              索引中
+            </span>
+          ) : null}
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
       </Link>
@@ -103,10 +123,12 @@ export function NotebookBookCard({
             notebookId={nb.id}
             isPinned={nb.is_pinned}
             shareAll={!!nb.share_all}
+            indexStatus={nb.index_status}
             onRequestEdit={onUpdateTitle}
             onAddToCollection={onAddToCollection}
             onTogglePin={onTogglePin}
             onToggleShare={onToggleShare}
+            onReindex={onReindex}
             onDelete={onDelete}
           />
         </div>

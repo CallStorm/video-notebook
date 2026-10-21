@@ -6,11 +6,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError
 from app.models.notebook import Note, Notebook, NotebookSource, Video
+from app.models.notebook_index import NotebookIndexState
 from app.models.user import User
 from app.schemas.notebook import SourceSummary
 
@@ -47,6 +48,10 @@ def _to_read_dict(
     *,
     owner_name: str | None = None,
     viewer_id: int | None = None,
+    match_hint: str | None = None,
+    index_status: str | None = None,
+    indexed_at: str | None = None,
+    index_error: str | None = None,
 ) -> dict:
     return {
         "id": nb.id,
@@ -61,6 +66,10 @@ def _to_read_dict(
         "is_owner": (viewer_id == nb.owner_id) if viewer_id is not None else None,
         "source_count": source_count,
         "note_count": note_count,
+        "match_hint": match_hint,
+        "index_status": index_status,
+        "indexed_at": indexed_at,
+        "index_error": index_error,
         "created_at": nb.created_at.isoformat() if nb.created_at else None,
         "updated_at": nb.updated_at.isoformat() if nb.updated_at else None,
     }
@@ -104,6 +113,35 @@ async def counts_for_notebooks(
     }
 
 
+
+async def index_states_for_notebooks(
+    session: AsyncSession, notebook_ids: list[int]
+) -> dict[int, NotebookIndexState]:
+    if not notebook_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(NotebookIndexState).where(
+                NotebookIndexState.notebook_id.in_(notebook_ids)
+            )
+        )
+    ).scalars().all()
+    return {int(r.notebook_id): r for r in rows}
+
+
+def _index_fields(
+    state: NotebookIndexState | None, *, is_owner: bool
+) -> dict[str, str | None]:
+    if not is_owner:
+        return {"index_status": None, "indexed_at": None, "index_error": None}
+    if state is None:
+        return {"index_status": "pending", "indexed_at": None, "index_error": None}
+    return {
+        "index_status": state.status,
+        "indexed_at": state.indexed_at.isoformat() if state.indexed_at else None,
+        "index_error": state.index_error,
+    }
+
 async def _owner_names(session: AsyncSession, owner_ids: list[int]) -> dict[int, str]:
     ids = sorted({int(i) for i in owner_ids if i is not None})
     if not ids:
@@ -127,12 +165,16 @@ async def to_read(
     if include_owner_name:
         names = await _owner_names(session, [nb.owner_id])
         owner_name = names.get(nb.owner_id)
+    states = await index_states_for_notebooks(session, [nb.id])
+    is_owner = viewer_id == nb.owner_id if viewer_id is not None else False
+    idx = _index_fields(states.get(nb.id), is_owner=is_owner)
     return _to_read_dict(
         nb,
         source_count=source_count,
         note_count=note_count,
         owner_name=owner_name,
         viewer_id=viewer_id,
+        **idx,
     )
 
 
@@ -147,9 +189,12 @@ async def to_read_many(
     names: dict[int, str] = {}
     if include_owner_name:
         names = await _owner_names(session, [nb.owner_id for nb in notebooks])
+    states = await index_states_for_notebooks(session, [nb.id for nb in notebooks])
     out: list[dict] = []
     for nb in notebooks:
         source_count, note_count = counts.get(nb.id, (0, 0))
+        is_owner = viewer_id == nb.owner_id if viewer_id is not None else False
+        idx = _index_fields(states.get(nb.id), is_owner=is_owner)
         out.append(
             _to_read_dict(
                 nb,
@@ -157,6 +202,7 @@ async def to_read_many(
                 note_count=note_count,
                 owner_name=names.get(nb.owner_id),
                 viewer_id=viewer_id,
+                **idx,
             )
         )
     return out
@@ -229,6 +275,287 @@ async def list_shared_notebooks(
     )
     items = (await session.execute(stmt)).scalars().all()
     return list(items), int(total)
+
+
+
+def _like_term(q: str) -> str:
+    """去掉通配符，避免用户输入 %/_ 扩大匹配面。"""
+    return q.strip().replace("%", "").replace("_", "")
+
+
+def _discover_scope_clause(viewer_id: int, scope: str):
+    base = Notebook.deleted_at.is_(None)
+    if scope == "mine":
+        return and_(base, Notebook.owner_id == viewer_id)
+    if scope == "shared":
+        return and_(
+            base,
+            Notebook.share_all.is_(True),
+            Notebook.owner_id != viewer_id,
+        )
+    # all：自己的全部 + 他人公开
+    return and_(
+        base,
+        or_(
+            Notebook.owner_id == viewer_id,
+            and_(Notebook.share_all.is_(True), Notebook.owner_id != viewer_id),
+        ),
+    )
+
+
+
+
+def _has_sources_clause():
+    """笔记本至少有 1 个来源。"""
+    return exists(
+        select(literal(1))
+        .select_from(NotebookSource)
+        .where(NotebookSource.notebook_id == Notebook.id)
+    )
+
+
+async def _discover_candidate_ids(
+    session: AsyncSession,
+    *,
+    viewer_id: int,
+    scope: str,
+    require_sources: bool = False,
+) -> list[int]:
+    clause = _discover_scope_clause(viewer_id, scope)
+    if require_sources:
+        clause = and_(clause, _has_sources_clause())
+    rows = (
+        await session.execute(select(Notebook.id).where(clause).order_by(Notebook.id.desc()))
+    ).scalars().all()
+    return [int(i) for i in rows]
+
+
+# Cosine 相似度默认阈值（用户可在发现页搜索条件里改；空壳标题噪声多在 0.4~0.55）
+SEMANTIC_MIN_SCORE_DEFAULT = 0.55
+SEMANTIC_MIN_SCORE = SEMANTIC_MIN_SCORE_DEFAULT  # compat alias
+SEMANTIC_MIN_SCORE_FLOOR = 0.0
+SEMANTIC_MIN_SCORE_CEIL = 1.0
+
+
+def clamp_semantic_min_score(value: float | None) -> float:
+    """Clamp user/query min similarity to [0, 1]; default when missing/invalid."""
+    if value is None:
+        return SEMANTIC_MIN_SCORE_DEFAULT
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return SEMANTIC_MIN_SCORE_DEFAULT
+    if score != score:  # NaN
+        return SEMANTIC_MIN_SCORE_DEFAULT
+    return max(SEMANTIC_MIN_SCORE_FLOOR, min(SEMANTIC_MIN_SCORE_CEIL, score))
+
+
+def _semantic_match_hint(score: float) -> str:
+    # Qdrant Cosine 返回的是相似度（约 0~1），不是距离；展示为百分比诚实映射
+    pct = max(0, min(100, int(round(float(score) * 100))))
+    if pct > 0:
+        return f"语义相近 · {pct}%"
+    return "语义相近"
+
+
+async def _discover_semantic(
+    session: AsyncSession,
+    *,
+    viewer_id: int,
+    q: str,
+    scope: str,
+    page: int,
+    size: int,
+    min_score: float | None = None,
+) -> tuple[list[tuple[Notebook, str | None]], int]:
+    """语义检索：先按 scope 拿候选 id → embedding → Qdrant → 回表加载。"""
+    threshold = clamp_semantic_min_score(min_score)
+    from app.core.errors import NotFoundError, ServiceUnavailableError
+    from app.llm.config_service import get_active_embedding
+    from app.services.vector_settings import get_vector_settings_row
+    from app.vector.embeddings import EmbeddingError, embed_query
+    from app.vector.store import VectorStoreError, make_vector_store
+
+    # 有查询时排除 0 来源空壳，避免标题噪声假阳性
+    candidate_ids = await _discover_candidate_ids(
+        session, viewer_id=viewer_id, scope=scope, require_sources=True
+    )
+    if not candidate_ids:
+        return [], 0
+
+    try:
+        resolved = await get_active_embedding(session)
+    except NotFoundError as exc:
+        raise ServiceUnavailableError(
+            "尚未配置向量模型。请到后台「默认模型」选择 Embedding，并确保凭证可用。"
+        ) from exc
+
+    try:
+        query_vec = await embed_query(resolved, q)
+    except EmbeddingError as exc:
+        raise ServiceUnavailableError(
+            f"向量化查询失败：{exc}。请检查向量模型与 API Key。"
+        ) from exc
+
+    settings = await get_vector_settings_row(session)
+    try:
+        store = make_vector_store(
+            backend=settings.vector_backend or "qdrant",
+            qdrant_url=settings.qdrant_url or "http://127.0.0.1:6333",
+            qdrant_collection=settings.qdrant_collection or "notebooks",
+            qdrant_api_key=settings.qdrant_api_key,
+        )
+        # 多取一些再本地按阈值过滤；上限保护大库
+        fetch_limit = min(len(candidate_ids), max(page * size * 3, size * 3, 50), 500)
+        hits = await store.search(
+            query_vec,
+            limit=fetch_limit,
+            notebook_ids=candidate_ids,
+            score_threshold=threshold,
+        )
+    except VectorStoreError as exc:
+        raise ServiceUnavailableError(
+            f"向量库不可用：{exc}。请确认 Qdrant 已启动，并在后台「向量配置」填写正确地址。"
+        ) from exc
+
+    # 只保留仍在候选集内、且达到最低相似度的命中
+    allowed = set(candidate_ids)
+    ordered: list[tuple[int, float]] = []
+    seen: set[int] = set()
+    for hit in hits:
+        score = float(hit.score)
+        if hit.notebook_id not in allowed or hit.notebook_id in seen:
+            continue
+        if score < threshold:
+            continue
+        seen.add(hit.notebook_id)
+        ordered.append((hit.notebook_id, score))
+
+    total = len(ordered)
+    start = (page - 1) * size
+    page_rows = ordered[start : start + size]
+    if not page_rows:
+        return [], total
+
+    page_ids = [nid for nid, _ in page_rows]
+    nb_rows = (
+        await session.execute(select(Notebook).where(Notebook.id.in_(page_ids)))
+    ).scalars().all()
+    by_id = {nb.id: nb for nb in nb_rows}
+    score_by_id = {nid: score for nid, score in page_rows}
+    pairs: list[tuple[Notebook, str | None]] = []
+    for nid in page_ids:
+        nb = by_id.get(nid)
+        if nb is None or nb.deleted_at is not None:
+            continue
+        # 再次校验 scope（防脏数据 / 索引滞后）
+        if scope == "mine" and nb.owner_id != viewer_id:
+            continue
+        if scope == "shared" and (
+            not nb.share_all or nb.owner_id == viewer_id
+        ):
+            continue
+        if scope == "all" and nb.owner_id != viewer_id and not nb.share_all:
+            continue
+        pairs.append((nb, _semantic_match_hint(score_by_id.get(nid, 0.0))))
+    return pairs, total
+
+async def discover_notebooks(
+    session: AsyncSession,
+    *,
+    viewer_id: int,
+    q: str | None,
+    scope: str,
+    page: int,
+    size: int,
+    mode: str = "keyword",
+    min_score: float | None = None,
+) -> tuple[list[tuple[Notebook, str | None]], int]:
+    """发现页浏览 / 关键词 / 语义搜索。
+
+    scope=mine|shared|all；mode=keyword|semantic。
+    空 q 按范围浏览（不走向量）；有 q 时 keyword 做 LIKE 加权，semantic 走 embedding+Qdrant。
+    min_score 仅语义模式生效（0~1，默认 0.55）。
+    绝不返回他人未公开的本。
+    """
+    if scope not in {"all", "mine", "shared"}:
+        scope = "all"
+    if mode not in {"keyword", "semantic"}:
+        mode = "keyword"
+    term = _like_term(q or "")
+    if mode == "semantic" and term:
+        return await _discover_semantic(
+            session,
+            viewer_id=viewer_id,
+            q=term,
+            scope=scope,
+            page=page,
+            size=size,
+            min_score=min_score,
+        )
+
+    clause = _discover_scope_clause(viewer_id, scope)
+    like = f"%{term}%" if term else None
+
+    if like:
+        # 有查询词时排除 0 来源空壳
+        clause = and_(clause, _has_sources_clause())
+        title_hit = Notebook.title.like(like)
+        desc_hit = and_(
+            Notebook.description.is_not(None),
+            Notebook.description.like(like),
+        )
+        overview_hit = exists(
+            select(literal(1))
+            .select_from(NotebookSource)
+            .join(Video, Video.id == NotebookSource.video_id)
+            .where(
+                NotebookSource.notebook_id == Notebook.id,
+                Video.owner_id == Notebook.owner_id,
+                Video.overview_text.is_not(None),
+                Video.overview_text.like(like),
+            )
+        )
+        score_expr = (
+            case((title_hit, 100), else_=0)
+            + case((desc_hit, 40), else_=0)
+            + case((overview_hit, 20), else_=0)
+        )
+        hint_expr = case(
+            (title_hit, literal("命中标题")),
+            (desc_hit, literal("命中描述")),
+            (overview_hit, literal("命中概览")),
+            else_=None,
+        )
+        filtered = select(Notebook.id).where(
+            clause,
+            or_(title_hit, desc_hit, overview_hit),
+        )
+        total = (
+            await session.scalar(select(func.count()).select_from(filtered.subquery()))
+        ) or 0
+        stmt = (
+            select(Notebook, hint_expr.label("match_hint"), score_expr.label("score"))
+            .where(clause, or_(title_hit, desc_hit, overview_hit))
+            .order_by(score_expr.desc(), Notebook.updated_at.desc(), Notebook.id.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        rows = (await session.execute(stmt)).all()
+        return [(row[0], row[1]) for row in rows], int(total)
+
+    # 空关键词：按范围浏览
+    stmt = select(Notebook).where(clause)
+    total = (
+        await session.scalar(select(func.count()).select_from(stmt.subquery()))
+    ) or 0
+    if scope == "mine":
+        stmt = stmt.order_by(Notebook.is_pinned.desc(), Notebook.id.desc())
+    else:
+        stmt = stmt.order_by(Notebook.updated_at.desc(), Notebook.id.desc())
+    stmt = stmt.offset((page - 1) * size).limit(size)
+    items = (await session.execute(stmt)).scalars().all()
+    return [(nb, None) for nb in items], int(total)
 
 
 async def create_notebook(

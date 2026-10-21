@@ -1,5 +1,5 @@
 # compose.middleware.yml
-# 开发期只起 MySQL + Redis。api / web 走本地进程（uvicorn / vite）。
+# 开发期起 MySQL + Redis + Qdrant。api / web 走本地进程（uvicorn / vite）。
 # 用法：
 #   docker compose -f compose.middleware.yml up -d
 #   docker compose -f compose.middleware.yml down -v    # 含数据卷
@@ -46,6 +46,22 @@ services:
       timeout: 3s
       retries: 10
 
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: vnb-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 volumes:
   mysql_data:
   redis_data:
+  qdrant_data:

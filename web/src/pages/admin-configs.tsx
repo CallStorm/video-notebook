@@ -50,7 +50,7 @@ interface ModelRow {
 }
 
 interface DefaultModelRow {
-  role: "chat" | "tts" | "stt" | "logo";
+  role: "chat" | "tts" | "stt" | "logo" | "embedding";
   model_id: number | null;
 }
 
@@ -154,11 +154,12 @@ function ModalityBadge({ type, active }: { type: string; active: boolean }) {
   );
 }
 
-const ROLE_MODEL_TYPE: Record<string, "language" | "text_to_speech" | "speech_to_text"> = {
+const ROLE_MODEL_TYPE: Record<string, "language" | "text_to_speech" | "speech_to_text" | "embedding"> = {
   chat: "language",
   tts: "text_to_speech",
   stt: "speech_to_text",
   logo: "language",
+  embedding: "embedding",
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -166,6 +167,7 @@ const ROLE_LABEL: Record<string, string> = {
   tts: "文字转语音",
   stt: "语音转文字",
   logo: "生成图标",
+  embedding: "向量模型",
 };
 
 // ─── page ─────────────────────────────────────────────────────────────
@@ -282,9 +284,9 @@ function DefaultModelSelectors({
   return (
     <AdminSectionCard
       title="默认模型"
-      description="按用途选用模型。对话必填；文字转语音 / 语音转文字可留空。"
+      description="按用途选用模型。对话与向量（语义检索）建议配置；文字转语音 / 语音转文字可留空。"
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {defaults.map((row) => {
             const modelType = ROLE_MODEL_TYPE[row.role];
             const available = models.filter((m) => m.type === modelType);

@@ -1,6 +1,6 @@
 """DefaultModels 服务：每个 role 选哪个 model_id。
 
-roles：chat / tts / stt / logo（logo 用于按名称生成 emoji 图标）。
+roles：chat / tts / stt / logo / embedding。
 """
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ def _to_dict(d: DefaultModel) -> dict:
 async def list_default_models(session: AsyncSession) -> list[dict]:
     items = (await session.execute(select(DefaultModel))).scalars().all()
     by_role = {d.role: d.model_id for d in items}
-    # 列出全部 4 个 role，缺则 None
     return [
         {
             "role": role,

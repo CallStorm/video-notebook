@@ -7,12 +7,12 @@ SHELL := /usr/bin/env bash
 
 help:
 	@echo "常用命令："
-	@echo "  make middleware       # 启动 mysql + redis 容器"
-	@echo "  make down             # 关掉容器（含数据卷慎用 v）"
+	@echo "  make middleware       # 启动 mysql + redis + qdrant 容器"
+	@echo "  make down             # 关掉容器（含数据卷慎用 -v）"
 	@echo "  make api              # 本地起 api (uvicorn --reload)"
 	@echo "  make web              # 本地起 web (vite dev)"
 	@echo "  make worker           # 本地起 studio celery worker"
-	@echo "  make media-worker     # 本地起 media celery worker（抓取+字幕）"
+	@echo "  make media-worker     # 本地起 media celery worker（抓取/字幕/向量索引）"
 	@echo "  make migrate          # alembic upgrade head"
 	@echo "  make migration m=...  # 生成 alembic revision"
 	@echo "  make test             # api pytest"

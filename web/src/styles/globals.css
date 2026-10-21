@@ -557,6 +557,15 @@
     @apply rounded-[1.35rem] p-2 shadow-soft-md;
   }
 
+  /* 发现页：搜索条件软面板 */
+  .discover-filter-panel {
+    @apply rounded-2xl border border-border/60 bg-card/80 px-3.5 py-3 shadow-soft backdrop-blur-sm;
+  }
+
+  .discover-filter-label {
+    @apply w-14 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground;
+  }
+
   .platform-filter {
     @apply inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-all duration-150;
   }
