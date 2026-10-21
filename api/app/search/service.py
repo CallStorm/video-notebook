@@ -66,9 +66,23 @@ def _bilibili(query: str, limit: int) -> list[SearchResultItem]:
         return search_bilibili(query, limit=limit)
     except Exception as api_exc:  # noqa: BLE001
         logger.info("bilibili API search failed, fallback yt-dlp: %s", api_exc)
-        return search_with_ytdlp(
-            f"bilisearch{limit}:{query}", platform="bilibili", limit=limit
-        )
+        try:
+            items = search_with_ytdlp(
+                f"bilisearch{limit}:{query}", platform="bilibili", limit=limit
+            )
+        except Exception as ytdlp_exc:  # noqa: BLE001
+            logger.info("bilibili yt-dlp fallback failed: %s", ytdlp_exc)
+            raise RuntimeError(
+                f"B站搜索暂时不可用（风控或网络）。请稍后重试；"
+                f"若经常失败，请到后台「抓取与网络」配置 B站 Cookie。详情：{api_exc}"
+            ) from api_exc
+        if items:
+            return items
+        # API 已失败且 yt-dlp 也空：不要静默返回 []，否则前端像「没搜到」
+        raise RuntimeError(
+            f"B站搜索暂时不可用（风控或网络）。请稍后重试；"
+            f"若经常失败，请到后台「抓取与网络」配置 B站 Cookie。详情：{api_exc}"
+        ) from api_exc
 
 
 def _douyin(query: str, limit: int) -> list[SearchResultItem]:
