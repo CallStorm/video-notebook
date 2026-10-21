@@ -247,39 +247,58 @@ function SearchPageInner() {
             </Button>
           </div>
 
-          <div className="mt-3.5 flex flex-wrap items-center gap-2">
-            {PLATFORM_CHIPS.map((chip) => {
-              const active = platform === chip.id;
-              return (
-                <button
-                  key={chip.id}
-                  type="button"
-                  title={chip.hint}
-                  onClick={() => setPlatform(chip.id)}
-                  className={cn(
-                    "platform-filter",
-                    chip.tone,
-                    active ? "platform-filter-active" : "platform-filter-idle",
-                  )}
-                >
-                  <span className="platform-filter-dot" aria-hidden />
-                  {chip.label}
-                </button>
-              );
-            })}
-            <span className="ml-1 hidden text-xs text-muted-foreground sm:inline">
-              仅视频结果
-            </span>
-            {result && !search.isPending ? (
-              <span className="ml-auto text-xs text-muted-foreground">
-                {searchedQuery ? `「${searchedQuery}」` : ""} · {items.length} 条
-              </span>
-            ) : null}
+          <div className="search-filter-panel mt-3.5">
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="search-filter-label">平台</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {PLATFORM_CHIPS.map((chip) => {
+                      const active = platform === chip.id;
+                      return (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          title={chip.hint}
+                          onClick={() => setPlatform(chip.id)}
+                          className={cn(
+                            "platform-filter",
+                            chip.tone,
+                            active
+                              ? "platform-filter-active"
+                              : "platform-filter-idle",
+                          )}
+                          aria-pressed={active}
+                        >
+                          <span className="platform-filter-dot" aria-hidden />
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="search-filter-label">类型</span>
+                  <span className="platform-filter platform-filter-idle pointer-events-none opacity-90">
+                    仅视频
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    暂不支持图文/合集
+                  </span>
+                </div>
+              </div>
+              {result && !search.isPending ? (
+                <p className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+                  {searchedQuery ? `「${searchedQuery}」· ` : ""}
+                  {items.length} 条
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
-      <main className="w-full px-6 pb-12 pt-6 lg:px-8">
+      <main className="w-full px-6 py-8 lg:px-8">
         {search.isError && (
           <div className="search-alert search-alert-error mb-6">
             {search.error instanceof ApiError
@@ -292,24 +311,17 @@ function SearchPageInner() {
 
         {!search.isPending && result && (
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">
-                {items.length > 0
-                  ? `找到 ${items.length} 个视频`
-                  : "没有匹配的视频"}
+            {errors.length > 0 ? (
+              <p className="max-w-3xl text-xs leading-relaxed text-amber-700">
+                部分平台未返回：
+                {errors
+                  .map(
+                    (e) =>
+                      `${PLATFORM_ERROR_LABEL[e.platform] || e.platform}（${e.message}）`,
+                  )
+                  .join(" · ")}
               </p>
-              {errors.length > 0 && (
-                <p className="max-w-xl text-xs leading-relaxed text-amber-700">
-                  部分平台未返回：
-                  {errors
-                    .map(
-                      (e) =>
-                        `${PLATFORM_ERROR_LABEL[e.platform] || e.platform}（${e.message}）`,
-                    )
-                    .join(" · ")}
-                </p>
-              )}
-            </div>
+            ) : null}
 
             {items.length === 0 ? (
               <div className="empty-hero py-14">
@@ -428,32 +440,18 @@ function SearchPageInner() {
         )}
 
         {!result && !search.isPending && !search.isError && (
-          <div className="empty-hero mx-auto mt-4 max-w-2xl">
-            <div className="empty-hero-icon">
-              <Clapperboard className="h-6 w-6" />
-            </div>
-            <p className="mb-1 text-base font-semibold tracking-tight">
+          <div className="relative mx-auto flex min-h-[18rem] max-w-lg flex-col items-center justify-center px-6 py-16 text-center">
+            <Clapperboard
+              className="pointer-events-none mb-5 h-16 w-16 text-muted-foreground/20"
+              strokeWidth={1.25}
+              aria-hidden
+            />
+            <p className="text-sm text-muted-foreground">
               输入关键词开始搜索
             </p>
-            <p className="mb-6 text-sm leading-relaxed text-muted-foreground">
-              支持 B站、YouTube、抖音。点封面可预览，再加入笔记本。
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground/80">
+              支持 B站 · YouTube · 抖音 · 点封面可预览
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {PLATFORM_CHIPS.filter((c) => c.id !== "all").map((chip) => (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => setPlatform(chip.id)}
-                  className={cn(
-                    "platform-filter platform-filter-idle",
-                    chip.tone,
-                  )}
-                >
-                  <span className="platform-filter-dot" aria-hidden />
-                  {chip.label}
-                </button>
-              ))}
-            </div>
           </div>
         )}
       </main>

@@ -181,8 +181,8 @@ export default function DiscoverPage() {
       />
 
       <div className="search-dock sticky top-16 z-10">
-        <div className="search-dock-inner max-w-none">
-          <div className="search-shell search-shell-lg max-w-3xl">
+        <div className="search-dock-inner">
+          <div className="search-shell search-shell-lg">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -205,11 +205,11 @@ export default function DiscoverPage() {
           </div>
 
           {/* 搜索条件：软面板分组 */}
-          <div className="discover-filter-panel mt-3.5 max-w-3xl">
+          <div className="search-filter-panel mt-3.5">
             <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
               <div className="flex min-w-0 flex-1 flex-col gap-2.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="discover-filter-label">方式</span>
+                  <span className="search-filter-label">方式</span>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {MODE_CHIPS.map((chip) => {
                       const active = mode === chip.id;
@@ -236,7 +236,7 @@ export default function DiscoverPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="discover-filter-label">范围</span>
+                  <span className="search-filter-label">范围</span>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {SCOPE_CHIPS.map((chip) => {
                       const active = scope === chip.id;
@@ -262,7 +262,7 @@ export default function DiscoverPage() {
 
                 {mode === "semantic" ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="discover-filter-label">最低相似度</span>
+                    <span className="search-filter-label">最低相似度</span>
                     <div
                       className="flex flex-wrap items-center gap-1.5"
                       role="group"
@@ -311,7 +311,7 @@ export default function DiscoverPage() {
 
       <div className="w-full px-6 py-8 lg:px-8">
         {errorMessage ? (
-          <div className="search-alert search-alert-error mb-6 max-w-3xl">
+          <div className="search-alert search-alert-error mb-6">
             {errorMessage}
           </div>
         ) : null}
