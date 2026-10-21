@@ -3,7 +3,8 @@ import { Pin } from "lucide-react";
 import { NotebookCardMenu } from "@/components/notebook-card-menu";
 import { GeneratedCover } from "@/components/generated-cover";
 import { isRemoteCover } from "@/lib/cover-gen";
-import { formatDateZh } from "@/lib/utils";
+import type { ReactNode } from "react";
+import { cn, formatDateZh } from "@/lib/utils";
 
 export interface NotebookBookCardData {
   id: number;
@@ -21,6 +22,27 @@ export interface NotebookBookCardData {
 
 function formatSources(n: number): string {
   return n === 1 ? "1 个来源" : `${n} 个来源`;
+}
+
+
+/** Cover overlay chips: frosted glass so they sit on any generated/remote cover. */
+const coverChip =
+  "inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/40 px-2 py-0.5 text-[10px] font-medium leading-none text-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.25)] backdrop-blur-md";
+
+function CoverChip({
+  className,
+  title,
+  children,
+}: {
+  className?: string;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className={cn(coverChip, className)} title={title}>
+      {children}
+    </span>
+  );
 }
 
 export function NotebookBookCard({
@@ -69,33 +91,49 @@ export function NotebookBookCard({
           aria-hidden
           className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-gradient-to-r from-black/25 via-white/20 to-transparent opacity-70"
         />
-        <div className="absolute left-2 top-2 z-[1] flex flex-col gap-1">
+        <div className="absolute left-2 top-2 z-[1] flex flex-wrap gap-1">
           {nb.is_pinned ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm backdrop-blur-sm">
-              <Pin className="h-3 w-3 fill-amber-500 text-amber-500" />
+            <CoverChip className="text-amber-100">
+              <Pin className="h-2.5 w-2.5 fill-amber-300 text-amber-300" />
               置顶
-            </span>
+            </CoverChip>
           ) : null}
           {nb.share_all ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-emerald-700 shadow-sm backdrop-blur-sm">
+            <CoverChip>
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300"
+              />
               公开
-            </span>
+            </CoverChip>
           ) : null}
           {nb.index_status === "failed" ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-destructive shadow-sm backdrop-blur-sm"
+            <CoverChip
+              className="border-rose-300/30 text-rose-100"
               title={nb.index_error ?? "索引失败"}
             >
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400"
+              />
               索引失败
-            </span>
+            </CoverChip>
           ) : nb.index_status === "ready" ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-sky-700 shadow-sm backdrop-blur-sm">
+            <CoverChip>
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-300"
+              />
               已索引
-            </span>
+            </CoverChip>
           ) : nb.index_status === "indexing" ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm backdrop-blur-sm">
+            <CoverChip className="text-amber-100">
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300"
+              />
               索引中
-            </span>
+            </CoverChip>
           ) : null}
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />

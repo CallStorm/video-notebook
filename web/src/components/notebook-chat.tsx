@@ -255,7 +255,7 @@ function MessageBubble({
             <MarkdownMessage text={message.content_text} citations={message.citations} onJump={onJump} />
           )}
           {message.truncated ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">字幕较长，这次只带上了前面一部分。</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">上下文较满，已自动丢掉更早的对话轮次；勾选字幕仍为全文。</p>
           ) : null}
           {message.error ? <p className="mt-1 text-[11px] text-destructive">{message.error}</p> : null}
           {!mine && sendingPlaceholder(message) ? (

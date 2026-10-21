@@ -125,6 +125,10 @@ class Settings(BaseSettings):
     # ─── LLM 调用护栏 ────────────────────────────────────────────────────
     max_context_tokens: int = 60000
 
+    # ─── 对话 ─────────────────────────────────────────────────────────────
+    # 最近 N 轮（用户+助手成对）。可被管理后台 chat_settings_config 覆盖。
+    chat_history_limit: int = 8
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

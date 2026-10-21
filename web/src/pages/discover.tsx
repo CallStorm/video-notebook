@@ -464,13 +464,15 @@ function DiscoverNotebookCard({ notebook: nb }: { notebook: DiscoverNotebook }) 
         />
         <span
           className={cn(
-            "absolute left-1.5 top-1.5 z-[1] inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium shadow-sm backdrop-blur-sm",
-            mine
-              ? "bg-white/90 text-violet-700"
-              : "bg-white/90 text-emerald-700",
+            "absolute left-1.5 top-1.5 z-[1] inline-flex items-center gap-0.5 rounded-full border border-white/20 bg-black/40 px-1.5 py-0.5 text-[9px] font-medium leading-none text-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.25)] backdrop-blur-md",
+            mine ? "text-violet-100" : "text-emerald-50",
           )}
         >
-          {mine ? <Library className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+          {mine ? (
+            <Library className="h-2.5 w-2.5 text-violet-200" />
+          ) : (
+            <Users className="h-2.5 w-2.5 text-emerald-200" />
+          )}
           {mine ? "我的" : "公开"}
         </span>
       </Link>

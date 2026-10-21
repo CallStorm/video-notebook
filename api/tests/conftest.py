@@ -54,6 +54,7 @@ from app.models.fetch_network import FetchNetworkConfig  # noqa: E402,F401
 from app.models.fetch_settings import FetchSettingsConfig  # noqa: E402,F401
 from app.models.subtitle_slice_settings import SubtitleSliceSettingsConfig  # noqa: E402,F401
 from app.models.overview_settings import OverviewSettingsConfig  # noqa: E402,F401
+from app.models.chat_settings import ChatSettingsConfig  # noqa: E402,F401
 from app.models.vector_settings import VectorSettingsConfig  # noqa: E402,F401
 from app.models.notebook_index import NotebookIndexState  # noqa: E402,F401
 from app.models.studio import (  # noqa: E402,F401
@@ -82,9 +83,9 @@ _test_sessionmaker = sessionmaker(
     bind=_test_engine, expire_on_commit=False, class_=AsyncSession
 )
 
-# Patch 模块级 session 工厂
-session_module._engine = _test_engine
-session_module._sessionmaker = _test_sessionmaker
+# Patch 线程本地 session 工厂（session.py 用 threading.local）
+session_module._local.engine = _test_engine
+session_module._local.sessionmaker = _test_sessionmaker
 
 
 async def _override_get_session() -> AsyncSession:  # type: ignore[override]
@@ -120,6 +121,7 @@ async def _clean_db():
             "skills",
             "notebook_index_states",
             "overview_settings_config",
+            "chat_settings_config",
             "subtitle_slice_settings_config",
             "vector_settings_config",
             "collection_notebooks",

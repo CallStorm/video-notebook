@@ -1,4 +1,4 @@
-"""笔记本对话：整段字幕进上下文，流式写回，并保存引用。"""
+"""笔记本对话：每轮全量勾选字幕 + 最近 N 轮历史，流式写回并保存引用。"""
 from __future__ import annotations
 
 import logging
@@ -9,12 +9,19 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.context import BuiltContext, build_context, parse_citations, strip_citations
+from app.chat.context import (
+    MAX_CONTEXT_CHARS,
+    BuiltContext,
+    build_context,
+    parse_citations,
+    strip_citations,
+)
 from app.core.errors import BadRequestError, NotFoundError
 from app.db.session import get_sessionmaker
 from app.llm.config_service import LlmResolved, get_active_llm
 from app.llm.providers import make_provider
 from app.models.notebook import ChatMessage, ChatThread, Note, NotebookSource
+from app.services.chat_settings import get_history_limit
 from app.services.notebooks import get_notebook, get_notebook_readable
 
 logger = logging.getLogger(__name__)
@@ -32,7 +39,11 @@ _SYSTEM_WITH_NOTES = (
     "笔记没有编号，不要给笔记编造 [n]。"
     "用中文回答。"
 )
-_HISTORY_LIMIT = 8
+
+_SOURCES_TOO_LARGE = (
+    "勾选来源的字幕全文已超过上下文上限（{chars}/{limit} 字符）。"
+    "请减少勾选的来源后再提问；当前策略不会截断勾选全文。"
+)
 
 
 @dataclass
@@ -43,6 +54,7 @@ class PreparedChat:
     context: BuiltContext
     llm: LlmResolved
     system: str = _SYSTEM
+    history_trimmed: bool = False
 
 
 def message_dict(message: ChatMessage, *, note_id: int | None = None) -> dict:
@@ -119,13 +131,33 @@ async def prepare_chat(
     context = await build_context(session, notebook_id=notebook_id, source_ids=ids)
     if not context.lines and not notes:
         raise BadRequestError("勾选的来源还没有可用字幕")
+
+    notes_block = _notes_block(notes)
+    question = message.strip()
+    # 固定开销：字幕全文 + 笔记 + 问题；超限则直接报错，绝不截断勾选全文。
+    body = f"字幕：\n{context.text}" if context.text else "字幕：（无）"
+    if notes_block:
+        body = f"{body}\n\n{notes_block}"
+    prompt_core = f"{body}\n\n问题：{question}"
+    system = _SYSTEM_WITH_NOTES if notes else _SYSTEM
+    fixed_chars = len(system) + len(prompt_core)
+    if context.chars > MAX_CONTEXT_CHARS or fixed_chars > MAX_CONTEXT_CHARS:
+        raise BadRequestError(
+            _SOURCES_TOO_LARGE.format(chars=max(context.chars, fixed_chars), limit=MAX_CONTEXT_CHARS)
+        )
+
     llm = await get_active_llm(session)
     thread = await _get_thread(session, notebook_id=notebook_id, owner_id=owner_id)
-    history = await _history(session, thread.id)
+    history_limit = await get_history_limit(session)
+    history = await _history(session, thread.id, turn_limit=history_limit)
+    history, history_trimmed = _trim_history_to_budget(
+        history, fixed_chars=fixed_chars, max_chars=MAX_CONTEXT_CHARS
+    )
+
     user = ChatMessage(
         thread_id=thread.id,
         role="user",
-        content_text=message.strip(),
+        content_text=question,
         citations_json=[],
         source_ids=context.source_ids,
     )
@@ -133,27 +165,23 @@ async def prepare_chat(
     thread.last_message_at = datetime.now(UTC).replace(tzinfo=None)
     session.add(thread)
     await session.commit()
-    prefix = "字幕较长，下面只包含前面一部分。\n\n" if context.truncated else ""
-    body = f"字幕：\n{context.text}"
-    notes_block = _notes_block(notes)
-    if notes_block:
-        body = f"{body}\n\n{notes_block}"
-    prompt = f"{prefix}{body}\n\n问题：{message.strip()}"
+
     return PreparedChat(
         thread_id=thread.id,
-        prompt=prompt,
+        prompt=prompt_core,
         history=history,
         context=context,
         llm=llm,
-        system=_SYSTEM_WITH_NOTES if notes else _SYSTEM,
+        system=system,
+        history_trimmed=history_trimmed,
     )
 
 
 async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
-    if prepared.context.truncated:
+    if prepared.history_trimmed:
         yield {
             "type": "warning",
-            "code": "context_too_large",
+            "code": "history_trimmed",
             "chars": prepared.context.chars,
         }
     provider = make_provider(
@@ -186,6 +214,30 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
 
 def _notes_block(notes: list[Note]) -> str:
     return "\n\n".join(f"笔记：{item.title}\n{item.content_text}" for item in notes)
+
+
+def _history_chars(history: list[dict[str, str]]) -> int:
+    return sum(len(item.get("content") or "") + 8 for item in history)
+
+
+def _trim_history_to_budget(
+    history: list[dict[str, str]],
+    *,
+    fixed_chars: int,
+    max_chars: int,
+) -> tuple[list[dict[str, str]], bool]:
+    """超预算时从最旧的一轮（user+assistant）开始丢，绝不碰固定开销（字幕/笔记/问题）。"""
+    if fixed_chars + _history_chars(history) <= max_chars:
+        return history, False
+    trimmed = False
+    out = list(history)
+    while out and fixed_chars + _history_chars(out) > max_chars:
+        # 丢掉最旧的一条；若下一条同属一轮助手/用户，也尽量成对丢掉
+        out.pop(0)
+        trimmed = True
+        if out and out[0]["role"] == "assistant":
+            out.pop(0)
+    return out, trimmed
 
 
 async def _notes(
@@ -243,13 +295,17 @@ async def _get_thread(
     return thread
 
 
-async def _history(session: AsyncSession, thread_id: int) -> list[dict[str, str]]:
+async def _history(
+    session: AsyncSession, thread_id: int, *, turn_limit: int
+) -> list[dict[str, str]]:
+    """取最近 turn_limit 轮（用户+助手成对）。多取一些消息再截成对。"""
+    message_cap = max(2, turn_limit * 2)
     rows = (
         await session.execute(
             select(ChatMessage)
             .where(ChatMessage.thread_id == thread_id)
             .order_by(ChatMessage.id.desc())
-            .limit(_HISTORY_LIMIT)
+            .limit(message_cap)
         )
     ).scalars().all()
     history: list[dict[str, str]] = []
@@ -259,7 +315,28 @@ async def _history(session: AsyncSession, thread_id: int) -> list[dict[str, str]
         content = strip_citations(row.content_text) if row.role == "assistant" else row.content_text
         if content:
             history.append({"role": row.role, "content": content})
-    return history
+    # 按轮截断：从末尾数 turn_limit 个 user 起手的片段
+    return _last_n_turns(history, turn_limit)
+
+
+def _last_n_turns(history: list[dict[str, str]], turn_limit: int) -> list[dict[str, str]]:
+    if turn_limit <= 0 or not history:
+        return []
+    turns: list[list[dict[str, str]]] = []
+    current: list[dict[str, str]] = []
+    for item in history:
+        if item["role"] == "user" and current and current[0]["role"] == "user":
+            turns.append(current)
+            current = [item]
+        else:
+            current.append(item)
+    if current:
+        turns.append(current)
+    kept = turns[-turn_limit:]
+    out: list[dict[str, str]] = []
+    for turn in kept:
+        out.extend(turn)
+    return out
 
 
 async def _save_assistant(
