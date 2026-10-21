@@ -36,8 +36,31 @@ async def list_notebooks(
         page=page,
         size=size,
     )
+    reads = await svc.to_read_many(session, items, viewer_id=user.id)
     return NotebookListResponse(
-        items=[NotebookRead(**svc._to_read_dict(nb)) for nb in items],
+        items=[NotebookRead(**item) for item in reads],
+        total=total,
+        page=page,
+        size=size,
+    )
+
+
+@router.get("/shared", response_model=NotebookListResponse)
+async def list_shared_notebooks(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """发现页：其他人开启「公开分享」的笔记本。不含自己的。"""
+    items, total = await svc.list_shared_notebooks(
+        session, viewer_id=user.id, page=page, size=size
+    )
+    reads = await svc.to_read_many(
+        session, items, viewer_id=user.id, include_owner_name=True
+    )
+    return NotebookListResponse(
+        items=[NotebookRead(**item) for item in reads],
         total=total,
         page=page,
         size=size,
@@ -66,18 +89,31 @@ async def get_notebook_detail(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    nb = await svc.get_notebook(session, owner_id=user.id, notebook_id=notebook_id)
-    sources = await svc.list_sources(session, owner_id=user.id, notebook_id=notebook_id)
-    from app.subtitles.pipeline import kick_subtitle_job
+    nb = await svc.get_notebook_readable(
+        session, viewer_id=user.id, notebook_id=notebook_id
+    )
+    sources = await svc.list_sources_for_notebook(session, notebook=nb)
+    is_owner = nb.owner_id == user.id
+    if is_owner:
+        from app.subtitles.pipeline import kick_subtitle_job
 
-    for source in sources:
-        video = source.video
-        if video.subtitle_status == "pending" and video.storage_key:
-            kick_subtitle_job(video.id)
-    from app.services.notes import list_notes
+        for source in sources:
+            video = source.video
+            if video.subtitle_status == "pending" and video.storage_key:
+                kick_subtitle_job(video.id)
+    from app.services.notes import list_notes_readable
 
-    notes = await list_notes(session, owner_id=user.id, notebook_id=notebook_id)
-    detail = svc._to_read_dict(nb, source_count=len(sources), note_count=len(notes))
+    notes = await list_notes_readable(
+        session, viewer_id=user.id, notebook_id=notebook_id
+    )
+    names = await svc._owner_names(session, [nb.owner_id])
+    detail = svc._to_read_dict(
+        nb,
+        source_count=len(sources),
+        note_count=len(notes),
+        owner_name=names.get(nb.owner_id),
+        viewer_id=user.id,
+    )
     detail["sources"] = sources
     detail["notes"] = notes
     return detail

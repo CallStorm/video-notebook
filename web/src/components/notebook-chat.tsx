@@ -48,12 +48,14 @@ export function NotebookChat({
   sources,
   onJump,
   relay,
+  readOnly = false,
 }: {
   access: string;
   notebookId: number;
   sources: ChatSource[];
   onJump: (videoId: number, lineNo: number) => void;
   relay?: ChatRelay | null;
+  readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const history = useQuery({
@@ -87,7 +89,7 @@ export function NotebookChat({
 
   async function send() {
     const message = draft.trim();
-    if (!message || sending || selectedIds.length === 0) return;
+    if (readOnly || !message || sending || selectedIds.length === 0) return;
     setDraft("");
     setFormError(null);
     setSending(true);
@@ -181,6 +183,11 @@ export function NotebookChat({
           </div>
         )}
       </div>
+      {readOnly ? (
+        <div className="border-t border-border/30 px-6 py-4 text-center text-xs text-muted-foreground">
+          公开分享为只读，暂不可在此对话。可浏览来源与字幕。
+        </div>
+      ) : (
       <form
         className="border-t border-border/30 bg-gradient-to-t from-card/80 to-transparent px-6 pb-5 pt-3"
         onSubmit={(event) => {
@@ -220,6 +227,7 @@ export function NotebookChat({
           </div>
         </div>
       </form>
+      )}
     </div>
   );
 }

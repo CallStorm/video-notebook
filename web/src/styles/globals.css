@@ -217,11 +217,31 @@
     @apply absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-10;
   }
 
-  /* 集合卡片：封面拼贴 */
+  /* 集合：大目录卡片 */
   .collection-card {
     @apply relative;
   }
 
+  .collection-dir-card {
+    @apply relative flex flex-col overflow-hidden;
+  }
+
+  .collection-folder {
+    @apply relative flex aspect-[5/4] w-full items-center justify-center px-4 pt-5 pb-2;
+    background-image:
+      radial-gradient(ellipse 70% 60% at 50% 35%, hsl(var(--primary) / 0.08), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 85% 10%, hsl(var(--violet) / 0.06), transparent 60%);
+  }
+
+  .collection-folder-icon {
+    @apply h-[78%] w-[88%] max-w-[14rem] drop-shadow-sm transition-transform duration-300;
+  }
+
+  .collection-dir-card:hover .collection-folder-icon {
+    transform: translateY(-2px) scale(1.02);
+  }
+
+  /* legacy preview aspect kept for edit dialog if needed */
   .collection-cover {
     @apply aspect-[4/3] bg-muted/30;
   }

@@ -30,6 +30,9 @@ class NotebookRead(BaseModel):
     cover_url: str | None = None
     is_pinned: bool
     share_all: bool
+    owner_id: int | None = None
+    owner_name: str | None = None
+    is_owner: bool | None = None
     source_count: int = 0
     note_count: int = 0
     created_at: str | None

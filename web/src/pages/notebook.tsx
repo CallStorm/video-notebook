@@ -79,6 +79,9 @@ interface NotebookDetail {
   icon: string | null;
   is_pinned: boolean;
   share_all: boolean;
+  owner_id?: number | null;
+  owner_name?: string | null;
+  is_owner?: boolean | null;
   source_count: number;
   note_count: number;
   sources: SourceSummary[];
@@ -413,6 +416,7 @@ export default function NotebookPage() {
   }
 
   const nb = detail.data;
+  const isOwner = nb.is_owner !== false; // 缺省按主人处理，兼容旧响应
   const notes = nb.notes ?? [];
   const selected = nb.sources.find((source) => source.video_id === selectedVideoId) ?? null;
   const openNote = notes.find((note) => note.id === openNoteId) ?? null;
@@ -521,6 +525,11 @@ export default function NotebookPage() {
           <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
             {nb.source_count} 个来源 · {nb.note_count} 条笔记
           </span>
+          {!isOwner ? (
+            <span className="hidden rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 sm:inline">
+              只读 · {nb.owner_name?.trim() || "他人"} 的公开分享
+            </span>
+          ) : null}
         </div>
         <UserMenu
           onLogout={() => {
@@ -586,7 +595,8 @@ export default function NotebookPage() {
             />
           ) : null}
 
-          {/* 两按钮：添加来源 / 新建笔记 */}
+          {/* 两按钮：添加来源 / 新建笔记（仅主人） */}
+          {isOwner ? (
           <div className={browsingList ? "flex gap-2 border-b border-border/40 px-3 py-3" : "hidden"}>
             <Button
               variant="outline"
@@ -608,16 +618,23 @@ export default function NotebookPage() {
               <Plus className="mr-1 h-3.5 w-3.5" /> 新建笔记
             </Button>
           </div>
+          ) : browsingList ? (
+            <div className="border-b border-border/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+              这是公开分享的笔记本，可浏览来源与字幕；添加与管理仅主人可用。
+            </div>
+          ) : null}
 
           {/* 工具栏：filter + select all */}
           <div className={browsingList ? "flex items-center justify-between border-b border-border/40 px-3.5 py-2 text-xs text-muted-foreground" : "hidden"}>
             <span className="text-[11px]">
               已选 {nb.sources.filter((s) => s.selected_for_chat).length}/{nb.sources.length}
             </span>
-            <SelectAll
-              sources={nb.sources}
-              onChange={(selected) => setSelection.mutate({ selected })}
-            />
+            {isOwner ? (
+              <SelectAll
+                sources={nb.sources}
+                onChange={(selected) => setSelection.mutate({ selected })}
+              />
+            ) : null}
           </div>
 
           {/* 上传 / URL 弹窗（AddSourceDialog 在 portal 里渲染） */}
@@ -659,6 +676,7 @@ export default function NotebookPage() {
                     key={`source-${row.source.video_id}`}
                     source={row.source}
                     active={selectedVideoId === row.source.video_id}
+                    manageable={isOwner}
                     onOpen={() => {
                       setLeftCollapsed(false);
                       setFocusCue(null);
@@ -738,6 +756,7 @@ export default function NotebookPage() {
           <NotebookChat
             access={token}
             notebookId={notebookId}
+            readOnly={!isOwner}
             sources={nb.sources.map((source) => ({
               videoId: source.video_id,
               title: source.video.title || source.video.source_url || `来源 ${source.video_id}`,
@@ -879,7 +898,14 @@ export default function NotebookPage() {
                     void discussMindMap(message);
                   }}
                 />
-              ) : (
+              ) : !isOwner ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+                    <p className="text-sm font-medium">Studio 仅主人可用</p>
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      公开分享模式下可查看来源与字幕，生成产出请使用自己的笔记本。
+                    </p>
+                  </div>
+                ) : (
                 <StudioHome
                   access={token}
                   notebookId={notebookId}
@@ -1197,6 +1223,7 @@ function SelectAll({
 function SimpleSourceRow({
   source,
   active = false,
+  manageable = true,
   onOpen,
   onRename,
   onRemove,
@@ -1207,6 +1234,7 @@ function SimpleSourceRow({
 }: {
   source: SourceSummary;
   active?: boolean;
+  manageable?: boolean;
   onOpen: () => void;
   onRename: () => void;
   onRemove: () => void;
@@ -1273,25 +1301,29 @@ function SimpleSourceRow({
           </div>
         ) : null}
       </button>
-      <SourceRowMenu
-        onRename={onRename}
-        onRemove={onRemove}
-        onRegenerate={onRegenerate}
-        onRetryFetch={onRetryFetch}
-        onCancelFetch={onCancelFetch}
-        alwaysVisible={busy || Boolean(onRetryFetch) || Boolean(onCancelFetch)}
-      />
-      {busy ? (
-        <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" />
-      ) : failed ? null : (
-        <input
-          type="checkbox"
-          className="mt-1.5 rounded"
-          checked={source.selected_for_chat}
-          onClick={(event) => event.stopPropagation()}
-          onChange={() => onToggleSelected(!source.selected_for_chat)}
-        />
-      )}
+      {manageable ? (
+        <>
+          <SourceRowMenu
+            onRename={onRename}
+            onRemove={onRemove}
+            onRegenerate={onRegenerate}
+            onRetryFetch={onRetryFetch}
+            onCancelFetch={onCancelFetch}
+            alwaysVisible={busy || Boolean(onRetryFetch) || Boolean(onCancelFetch)}
+          />
+          {busy ? (
+            <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" />
+          ) : failed ? null : (
+            <input
+              type="checkbox"
+              className="mt-1.5 rounded"
+              checked={source.selected_for_chat}
+              onClick={(event) => event.stopPropagation()}
+              onChange={() => onToggleSelected(!source.selected_for_chat)}
+            />
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

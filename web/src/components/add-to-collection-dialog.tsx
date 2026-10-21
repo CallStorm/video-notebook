@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Folder, X } from "lucide-react";
+import { X } from "lucide-react";
+import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,7 @@ interface Collection {
   id: number;
   name: string;
   icon: string | null;
+  cover_url?: string | null;
 }
 
 export function AddToCollectionDialog({
@@ -149,11 +151,14 @@ export function AddToCollectionDialog({
                     key={row.id}
                     className="flex cursor-pointer items-center gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/40"
                   >
-                    {row.icon ? (
-                      <span className="text-lg">{row.icon}</span>
-                    ) : (
-                      <Folder className="h-4 w-4 text-muted-foreground" />
-                    )}
+                    <span className="flex h-8 w-10 shrink-0 items-center justify-center">
+                      <GeneratedFolderIcon
+                        title={row.name}
+                        coverUrl={row.cover_url}
+                        variant={row.id}
+                        className="h-full w-full"
+                      />
+                    </span>
                     <span className="min-w-0 flex-1 truncate text-sm">{row.name}</span>
                     <input
                       type="checkbox"

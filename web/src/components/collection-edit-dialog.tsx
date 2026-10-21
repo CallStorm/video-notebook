@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Sparkles, X } from "lucide-react";
-import { GeneratedCover } from "@/components/generated-cover";
+import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
 import { generateCover } from "@/lib/generate-cover";
-import { isRemoteCover } from "@/lib/cover-gen";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,11 +89,23 @@ export function CollectionEditDialog({
       const trimmed = name.trim();
       if (!trimmed) throw new Error("名称不能为空");
       const notebook_ids = [...selected];
+      let iconToken = coverUrl;
+      // 新建且未点生成时，自动按名称生成目录图标
+      if (mode === "create" && !iconToken) {
+        try {
+          const result = await generateCover(access, trimmed);
+          iconToken = result.cover_url;
+          setCoverUrl(result.cover_url);
+        } catch {
+          // 无 AI 时仍可保存；前端会按名称派生目录图标
+          iconToken = null;
+        }
+      }
       if (mode === "create") {
         const created = await api<{ id: number }>("/collections", {
           method: "POST",
           access,
-          body: { name: trimmed, cover_url: coverUrl },
+          body: { name: trimmed, cover_url: iconToken },
         });
         await api(`/collections/${created.id}/notebooks`, {
           method: "PUT",
@@ -107,7 +118,7 @@ export function CollectionEditDialog({
       await api(`/collections/${collectionId}`, {
         method: "PATCH",
         access,
-        body: { name: trimmed, cover_url: coverUrl ?? "" },
+        body: { name: trimmed, cover_url: iconToken ?? "" },
       });
       await api(`/collections/${collectionId}/notebooks`, {
         method: "PUT",
@@ -134,7 +145,7 @@ export function CollectionEditDialog({
       const result = await generateCover(access, name.trim());
       setCoverUrl(result.cover_url);
     } catch (err) {
-      setCoverError(err instanceof ApiError ? err.message : "生成封面失败");
+      setCoverError(err instanceof ApiError ? err.message : "生成图标失败");
     } finally {
       setCoverPending(false);
     }
@@ -164,7 +175,7 @@ export function CollectionEditDialog({
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="名称会用于生成封面"
+              placeholder="名称会用于生成目录图标"
               autoFocus
             />
           </label>
@@ -172,8 +183,8 @@ export function CollectionEditDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <span className="text-sm font-medium">集合封面</span>
-                <p className="text-[11px] text-muted-foreground">按上方名称生成，不同名称配色与字标不同</p>
+                <span className="text-sm font-medium">目录图标</span>
+                <p className="text-[11px] text-muted-foreground">按上方名称 AI 生成，不同名称主题不同</p>
               </div>
               <div className="flex items-center gap-1.5">
                 {coverUrl ? (
@@ -184,7 +195,7 @@ export function CollectionEditDialog({
                     className="h-8 rounded-full text-xs"
                     onClick={() => setCoverUrl(null)}
                   >
-                    清除封面
+                    清除图标
                   </Button>
                 ) : null}
                 <Button
@@ -196,35 +207,20 @@ export function CollectionEditDialog({
                   onClick={() => void onGenerateCover()}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  {coverPending ? "生成中…" : "生成封面"}
+                  {coverPending ? "生成中…" : "生成图标"}
                 </Button>
               </div>
             </div>
-            <div className="overflow-hidden rounded-xl border border-border/70 bg-muted/30">
-              <div className="collection-cover relative w-full">
-                {coverUrl ? (
-                  isRemoteCover(coverUrl) ? (
-                    <img src={coverUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <GeneratedCover
-                      title={name.trim() || "集合"}
-                      coverUrl={coverUrl}
-                      variant={(collectionId ?? 0) % 12}
-                      className="h-full w-full"
-                    />
-                  )
-                ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br from-primary/5 via-card to-[hsl(258_78%_96%)] px-3 text-center">
-                    <span className="text-sm font-medium text-foreground/70">
-                      {name.trim() || "先填写名称"}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      未设置封面时显示笔记本拼贴
-                    </span>
-                  </div>
-                )}
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-muted/20">
+              <div className="collection-folder relative mx-auto w-full max-w-[16rem]">
+                <GeneratedFolderIcon
+                  title={name.trim() || "集合"}
+                  coverUrl={coverUrl}
+                  variant={(collectionId ?? 0) % 12}
+                  className="collection-folder-icon mx-auto"
+                />
                 {coverPending ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white backdrop-blur-[1px]">
+                  <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/35 text-xs text-white backdrop-blur-[1px]">
                     AI 生成中…
                   </div>
                 ) : null}

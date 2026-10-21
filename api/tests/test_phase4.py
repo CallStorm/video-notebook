@@ -158,6 +158,12 @@ async def test_upload_then_fetch_url_then_list_sources(client: AsyncClient, db_s
     assert detail["source_count"] == 2
     assert len(detail["sources"]) == 2
 
+    # 列表接口也应返回真实 source_count（不能默认 0）
+    r = await client.get("/api/notebooks", headers=h)
+    assert r.status_code == 200
+    listed = next(item for item in r.json()["items"] if item["id"] == nb_id)
+    assert listed["source_count"] == 2
+
     # get video
     r = await client.get(f"/api/sources/{v1['id']}", headers=h)
     assert r.status_code == 200

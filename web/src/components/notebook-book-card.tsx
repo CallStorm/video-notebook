@@ -11,6 +11,7 @@ export interface NotebookBookCardData {
   icon: string | null;
   cover_url?: string | null;
   is_pinned: boolean;
+  share_all?: boolean;
   source_count: number;
   note_count?: number;
   updated_at: string | null;
@@ -24,12 +25,14 @@ export function NotebookBookCard({
   notebook: nb,
   onUpdateTitle,
   onTogglePin,
+  onToggleShare,
   onDelete,
   onAddToCollection,
 }: {
   notebook: NotebookBookCardData;
   onUpdateTitle: (id: number) => void;
   onTogglePin: (id: number) => void;
+  onToggleShare?: (id: number) => void;
   onDelete: (id: number) => void;
   onAddToCollection?: (id: number) => void;
 }) {
@@ -62,12 +65,19 @@ export function NotebookBookCard({
           aria-hidden
           className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-gradient-to-r from-black/25 via-white/20 to-transparent opacity-70"
         />
-        {nb.is_pinned ? (
-          <span className="absolute left-2 top-2 z-[1] inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm backdrop-blur-sm">
-            <Pin className="h-3 w-3 fill-amber-500 text-amber-500" />
-            置顶
-          </span>
-        ) : null}
+        <div className="absolute left-2 top-2 z-[1] flex flex-col gap-1">
+          {nb.is_pinned ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm backdrop-blur-sm">
+              <Pin className="h-3 w-3 fill-amber-500 text-amber-500" />
+              置顶
+            </span>
+          ) : null}
+          {nb.share_all ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-emerald-700 shadow-sm backdrop-blur-sm">
+              公开
+            </span>
+          ) : null}
+        </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
       </Link>
 
@@ -92,9 +102,11 @@ export function NotebookBookCard({
           <NotebookCardMenu
             notebookId={nb.id}
             isPinned={nb.is_pinned}
+            shareAll={!!nb.share_all}
             onRequestEdit={onUpdateTitle}
             onAddToCollection={onAddToCollection}
             onTogglePin={onTogglePin}
+            onToggleShare={onToggleShare}
             onDelete={onDelete}
           />
         </div>

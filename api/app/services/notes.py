@@ -29,6 +29,19 @@ async def list_notes(session: AsyncSession, *, owner_id: int, notebook_id: int) 
     notebook = await session.get(Notebook, notebook_id)
     if notebook is None or notebook.owner_id != owner_id or notebook.deleted_at is not None:
         raise NotFoundError(f"notebook {notebook_id} 不存在")
+    return await _list_notes_rows(session, notebook_id)
+
+
+async def list_notes_readable(
+    session: AsyncSession, *, viewer_id: int, notebook_id: int
+) -> list[dict]:
+    from app.services.notebooks import get_notebook_readable
+
+    await get_notebook_readable(session, viewer_id=viewer_id, notebook_id=notebook_id)
+    return await _list_notes_rows(session, notebook_id)
+
+
+async def _list_notes_rows(session: AsyncSession, notebook_id: int) -> list[dict]:
     rows = (
         await session.execute(
             select(Note)

@@ -15,7 +15,7 @@ from app.db.session import get_sessionmaker
 from app.llm.config_service import LlmResolved, get_active_llm
 from app.llm.providers import make_provider
 from app.models.notebook import ChatMessage, ChatThread, Note, NotebookSource
-from app.services.notebooks import get_notebook
+from app.services.notebooks import get_notebook, get_notebook_readable
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,8 @@ def message_dict(message: ChatMessage, *, note_id: int | None = None) -> dict:
 async def list_messages(
     session: AsyncSession, *, owner_id: int, notebook_id: int
 ) -> list[dict]:
-    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    # 分享访客可读对话历史；发消息仍走 prepare_chat 的主人校验
+    await get_notebook_readable(session, viewer_id=owner_id, notebook_id=notebook_id)
     thread = await _find_thread(session, notebook_id)
     if thread is None:
         return []

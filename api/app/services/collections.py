@@ -128,7 +128,7 @@ async def _list_member_notebooks(session: AsyncSession, collection_id: int) -> l
             .order_by(Notebook.is_pinned.desc(), Notebook.id.desc())
         )
     ).scalars().all()
-    return [notebook_svc._to_read_dict(nb) for nb in rows]
+    return await notebook_svc.to_read_many(session, list(rows))
 
 
 async def update_collection(

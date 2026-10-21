@@ -12,6 +12,7 @@ import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { Button } from "@/components/ui/button";
 import { formatDateZh } from "@/lib/utils";
+import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
 
 interface Notebook {
   id: number;
@@ -31,6 +32,7 @@ interface CollectionDetail {
   id: number;
   name: string;
   icon: string | null;
+  cover_url?: string | null;
   notebook_count: number;
   notebooks: Notebook[];
   created_at: string | null;
@@ -168,9 +170,14 @@ export default function CollectionPage() {
                   <ArrowLeft className="h-4 w-4" />
                   返回我的集合
                 </button>
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-glow-soft ring-1 ring-primary/10">
-                    <FolderKanban className="h-5 w-5" />
+                <div className="flex items-center gap-3">
+                  <span className="flex h-16 w-[4.75rem] shrink-0 items-center justify-center sm:h-[4.5rem] sm:w-[5.5rem]">
+                    <GeneratedFolderIcon
+                      title={data.name}
+                      coverUrl={data.cover_url}
+                      variant={data.id}
+                      className="h-full w-full"
+                    />
                   </span>
                   <div className="min-w-0">
                     <h1 className="page-hero-title truncate">{data.name}</h1>

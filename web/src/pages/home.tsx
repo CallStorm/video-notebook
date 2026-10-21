@@ -14,6 +14,7 @@ import { UserMenu } from "@/components/user-menu";
 import { formatDateZh } from "@/lib/utils";
 import { NotebookBookCard } from "@/components/notebook-book-card";
 import { GeneratedCover } from "@/components/generated-cover";
+import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
 import { CollectionCardMenu } from "@/components/collection-card-menu";
 import { CollectionEditDialog } from "@/components/collection-edit-dialog";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
@@ -167,7 +168,7 @@ export default function HomePage() {
       await qc.invalidateQueries({ queryKey: ["collections"] });
     } catch (err) {
       const msg =
-        err instanceof ApiError ? err.message : "生成封面失败，请重试";
+        err instanceof ApiError ? err.message : "生成图标失败，请重试";
       window.alert(msg);
     } finally {
       setGeneratingCoverId(null);
@@ -208,6 +209,25 @@ export default function HomePage() {
     mutationFn: ({ id, is_pinned }: { id: number; is_pinned: boolean }) =>
       updateNotebook(token, id, { is_pinned }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notebooks"] }),
+  });
+
+  const toggleShare = useMutation({
+    mutationFn: async ({ id, share_all }: { id: number; share_all: boolean }) => {
+      if (share_all) {
+        return api<Notebook>(`/notebooks/${id}/share_all`, {
+          method: "POST",
+          access: token,
+        });
+      }
+      return api<Notebook>(`/notebooks/${id}/share_all`, {
+        method: "DELETE",
+        access: token,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notebooks"] });
+      qc.invalidateQueries({ queryKey: ["notebooks-shared"] });
+    },
   });
 
   const remove = useMutation({
@@ -335,6 +355,15 @@ export default function HomePage() {
               if (nb) setEditing(nb);
             }}
             onTogglePin={(id, is_pinned) => togglePin.mutate({ id, is_pinned })}
+            onToggleShare={(id, share_all) => {
+              const next = !share_all;
+              const ok = confirm(
+                next
+                  ? "公开后，其他登录用户可在「发现」里看到并打开这本笔记本。确定公开？"
+                  : "取消公开后，其他人将无法再从「发现」打开。确定取消？",
+              );
+              if (ok) toggleShare.mutate({ id, share_all: next });
+            }}
             onDelete={(id) => {
               if (confirm("删除这个笔记本？")) remove.mutate(id);
             }}
@@ -414,6 +443,7 @@ function MyNotebooksSection({
   isLoading,
   view,
   onTogglePin,
+  onToggleShare,
   onDelete,
   onCreate,
   onSearch,
@@ -424,6 +454,7 @@ function MyNotebooksSection({
   isLoading: boolean;
   view: View;
   onTogglePin: (id: number, is_pinned: boolean) => void;
+  onToggleShare: (id: number, share_all: boolean) => void;
   onDelete: (id: number) => void;
   onEdit: (id: number) => void;
   onCreate: () => void;
@@ -489,6 +520,7 @@ function MyNotebooksSection({
               notebook={nb}
               onUpdateTitle={onEdit}
               onTogglePin={() => onTogglePin(nb.id, !nb.is_pinned)}
+              onToggleShare={() => onToggleShare(nb.id, nb.share_all)}
               onDelete={() => onDelete(nb.id)}
               onAddToCollection={onAddToCollection}
             />
@@ -535,7 +567,7 @@ function CollectionsSection({
         <div>
           <h1 className="page-hero-title">我的集合</h1>
           <p className="page-hero-desc">
-            用集合整理相关笔记本
+            大目录整理相关笔记本，图标按名称 AI 生成
           </p>
         </div>
         <Button onClick={onCreate} className="rounded-full px-5">
@@ -571,7 +603,7 @@ function CollectionsSection({
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {collections.map((c) => (
             <CollectionCard
               key={c.id}
@@ -601,7 +633,7 @@ function DiscoverRedirect() {
   );
 }
 
-/** 集合卡片：自有封面或笔记本拼贴 */
+/** 集合卡片：大目录样式 + AI 目录图标 */
 function CollectionCard({
   collection: c,
   onOpen,
@@ -617,119 +649,60 @@ function CollectionCard({
   onGenerateCover: () => void;
   generatingCover?: boolean;
 }) {
-  const previews = c.preview_notebooks ?? [];
-  const covers = previews.slice(0, 4);
-  const ownCover = (c.cover_url ?? "").trim();
-  const hasOwnCover = Boolean(ownCover);
+  const iconToken = (c.cover_url ?? "").trim() || null;
   const countLabel =
     c.notebook_count === 0
-      ? "空集合"
+      ? "空目录"
       : c.notebook_count === 1
-        ? "1 本"
-        : `${c.notebook_count} 本`;
+        ? "1 本笔记本"
+        : `${c.notebook_count} 本笔记本`;
 
   return (
-    <article className="collection-card group soft-tile soft-tile-hover flex flex-col overflow-hidden">
+    <article className="collection-card collection-dir-card group soft-tile soft-tile-hover">
       <button
         type="button"
-        className="collection-cover relative block w-full overflow-hidden text-left"
+        className="flex w-full flex-col text-left"
         onClick={onOpen}
         aria-label={`打开集合 ${c.name}`}
       >
-        {hasOwnCover ? (
-          isRemoteCover(ownCover) ? (
-            <img
-              src={ownCover}
-              alt=""
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-            />
-          ) : (
-            <GeneratedCover
-              title={c.name}
-              coverUrl={ownCover}
-              variant={c.id}
-              className="h-full w-full"
-            />
-          )
-        ) : covers.length === 0 ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-gradient-to-br from-primary/5 via-card to-[hsl(258_78%_96%)] px-3">
-            <span className="text-[11px] font-medium text-foreground/70">{c.name}</span>
-            <span className="text-[10px] text-muted-foreground">添加笔记本</span>
-          </div>
-        ) : (
-          <div
-            className={`grid h-full w-full gap-0.5 bg-muted/40 p-0.5 ${
-              covers.length === 1
-                ? "grid-cols-1"
-                : covers.length === 2
-                  ? "grid-cols-2"
-                  : "grid-cols-2 grid-rows-2"
-            }`}
-          >
-            {covers.map((nb, i) => (
-              <div
-                key={nb.id}
-                className={`relative overflow-hidden rounded-md bg-muted ${
-                  covers.length === 3 && i === 0 ? "row-span-2" : ""
-                }`}
-              >
-                {isRemoteCover(nb.cover_url) ? (
-                  <img
-                    src={nb.cover_url!}
-                    alt=""
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                  />
-                ) : (
-                  <GeneratedCover
-                    title={nb.title}
-                    coverUrl={nb.cover_url}
-                    variant={nb.id}
-                    className="h-full w-full"
-                  />
-                )}
-              </div>
-            ))}
-            {covers.length === 3 ? (
-              <div className="rounded-md bg-gradient-to-br from-primary/10 to-[hsl(258_78%_94%)]" />
-            ) : null}
-          </div>
-        )}
-        {generatingCover ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-[11px] text-white backdrop-blur-[1px]">
-            生成封面中…
-          </div>
-        ) : null}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
-      </button>
+        <div className="collection-folder">
+          <GeneratedFolderIcon
+            title={c.name}
+            coverUrl={iconToken}
+            variant={c.id}
+            className="collection-folder-icon"
+          />
+          {generatingCover ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-card/70 text-xs font-medium text-foreground backdrop-blur-[1px]">
+              生成图标中…
+            </div>
+          ) : null}
+        </div>
 
-      <div className="flex items-start gap-1.5 px-2.5 pb-2.5 pt-2">
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left"
-          onClick={onOpen}
-        >
-          <div className="flex items-center gap-1">
-            <h3 className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+        <div className="flex items-start gap-2 px-4 pb-4 pt-1">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-base font-semibold tracking-tight text-foreground sm:text-[17px]">
               {c.name}
             </h3>
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">
+                {countLabel}
+              </span>
+              {c.updated_at ? (
+                <span className="truncate">更新于 {formatDate(c.updated_at)}</span>
+              ) : null}
+            </p>
           </div>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
-            <span className="inline-flex items-center rounded-full bg-muted/80 px-1.5 py-0.5 font-medium text-foreground/80">
-              {countLabel}
-            </span>
-            {c.updated_at ? (
-              <span className="truncate">{formatDate(c.updated_at)}</span>
-            ) : null}
-          </p>
-        </button>
-        <div className="shrink-0 pt-0.5 opacity-70 transition-opacity group-hover:opacity-100">
-          <CollectionCardMenu
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onGenerateCover={onGenerateCover}
-            generatingCover={generatingCover}
-          />
         </div>
+      </button>
+
+      <div className="absolute right-2.5 top-2.5 z-10 opacity-70 transition-opacity group-hover:opacity-100">
+        <CollectionCardMenu
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onGenerateCover={onGenerateCover}
+          generatingCover={generatingCover}
+        />
       </div>
     </article>
   );

@@ -97,7 +97,7 @@ export function CollectionCardMenu({
                       onGenerateCover();
                     }}
                   >
-                    {generatingCover ? "生成封面中…" : "生成封面"}
+                    {generatingCover ? "生成图标中…" : "生成封面"}
                   </MenuItem>
                 ) : null}
                 <MenuItem

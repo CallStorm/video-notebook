@@ -8,16 +8,20 @@ import {
   Trash2,
   MoreVertical,
   Bell,
+  Globe,
+  GlobeLock,
 } from "lucide-react";
 
 interface NotebookCardMenuProps {
   notebookId: number;
   isPinned: boolean;
+  shareAll?: boolean;
   hasNotification?: boolean;
   /** 触发「Edit Notebook」全屏弹窗。父级在收到回调时打开 dialog。 */
   onRequestEdit: (id: number) => void;
   onAddToCollection?: (id: number) => void;
   onTogglePin: (id: number) => void;
+  onToggleShare?: (id: number) => void;
   onDelete: (id: number) => void;
 }
 
@@ -29,16 +33,18 @@ interface Anchor {
 }
 
 const MENU_W = 192; // w-48
-const MENU_H = 220; // 大致高度，留缓冲
+const MENU_H = 260; // 大致高度，留缓冲
 const GAP = 6; // 按钮与菜单间距
 
 export function NotebookCardMenu({
   notebookId,
   isPinned,
+  shareAll = false,
   hasNotification,
   onRequestEdit,
   onAddToCollection,
   onTogglePin,
+  onToggleShare,
   onDelete,
 }: NotebookCardMenuProps) {
   const [open, setOpen] = useState(false);
@@ -168,7 +174,23 @@ export function NotebookCardMenu({
                         setOpen(false);
                       }}
                     >
-                      {isPinned ? "Unpin" : "Pin"}
+                      {isPinned ? "取消置顶" : "置顶"}
+                    </Item>
+                    <Item
+                      icon={
+                        shareAll ? (
+                          <GlobeLock className="h-3.5 w-3.5" />
+                        ) : (
+                          <Globe className="h-3.5 w-3.5" />
+                        )
+                      }
+                      disabled={!onToggleShare}
+                      onClick={() => {
+                        onToggleShare?.(notebookId);
+                        setOpen(false);
+                      }}
+                    >
+                      {shareAll ? "取消公开分享" : "公开分享"}
                     </Item>
                     <div className="my-1 h-px bg-border" />
                     <Item

@@ -48,6 +48,16 @@ async def read_subtitle_for_owner(
     return subtitle_view(video, subtitle, lines)
 
 
+async def read_subtitle_for_viewer(
+    session: AsyncSession, *, viewer_id: int, video_id: int
+) -> dict:
+    from app.services.sources import get_video_readable
+
+    video = await get_video_readable(session, viewer_id=viewer_id, video_id=video_id)
+    subtitle, lines = await load_subtitle(session, video)
+    return subtitle_view(video, subtitle, lines)
+
+
 async def request_regenerate(
     session: AsyncSession, *, owner_id: int, video_id: int
 ) -> dict:
@@ -144,6 +154,12 @@ async def run_subtitle_pipeline(
         await _use(_save)
         await _use(_write_overview_if_requested)
     except Exception as exc:  # noqa: BLE001 — 失败要写回状态，不能把任务吞掉后一直停在 processing
+        try:
+            from celery.exceptions import SoftTimeLimitExceeded as _SoftLimit
+        except Exception:  # pragma: no cover
+            _SoftLimit = ()  # type: ignore[assignment,misc]
+        if _SoftLimit and isinstance(exc, _SoftLimit):
+            raise
         message = _error_message(exc)
         logger.warning("subtitle pipeline failed video_id=%s: %s", video_id, message)
 
