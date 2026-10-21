@@ -154,7 +154,7 @@ export function SourceTranscript({
                 <p className="mt-0.5 opacity-90">{overviewError || "可在来源菜单里点「重新生成」再试。"}</p>
               </div>
             ) : (
-              <p>还没有概览。在来源列表里点「重新生成」，会同时重做字幕和这段概览。</p>
+              <p>还没有概览。字幕完成后通常会自动生成；也可在来源列表点「重新生成」重做字幕与概览。</p>
             )}
           </div>
         ) : null}
