@@ -11,7 +11,7 @@ from app.core.deps import require_admin
 from app.core.errors import BadRequestError
 from app.db.session import get_session
 from app.models.user import User
-from app.schemas.studio import SkillRead, SkillUpdate
+from app.schemas.studio import SkillRead, SkillUpdate, SystemPromptDraft
 from app.services import skills as svc
 
 router = APIRouter(prefix="/admin/skills", tags=["admin-skills"])
@@ -60,6 +60,18 @@ async def update_skill(
         description=body.description,
         version=body.version,
     )
+
+
+@router.get("/{skill_id}/system-prompt-draft", response_model=SystemPromptDraft)
+async def system_prompt_draft(
+    skill_id: int,
+    agent_name: str | None = None,
+    session: AsyncSession = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """根据技能元数据生成互补的智能体系统提示草稿（不粘贴整份 SKILL.md）。"""
+    data = await svc.draft_system_prompt(session, skill_id, agent_name=agent_name)
+    return SystemPromptDraft(**data)
 
 
 @router.get("/{skill_id}/download")

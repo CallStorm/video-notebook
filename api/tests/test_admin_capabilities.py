@@ -39,8 +39,17 @@ async def test_seed_is_idempotent_and_enable_requires_agent(client, admin_header
     await seed_builtin_capabilities(db_session)
     await db_session.refresh(mind)
     assert mind.name == "改过的名字"
-    assert [field["type"] for field in mind.form_json] == ["language", "sources", "text"]
+    assert [field["type"] for field in mind.form_json] == [
+        "language",
+        "sources",
+        "text",
+        "select",
+        "text",
+    ]
     assert mind.form_json[2]["key"] == "topic"
+    assert mind.form_json[3]["key"] == "focus_mode"
+    assert mind.form_json[3]["default"] == "action"
+    assert mind.form_json[4]["key"] == "extra_constraints"
     denied = await client.post(
         f"/api/admin/studio/capabilities/{mind.id}/enable",
         headers=admin_headers,

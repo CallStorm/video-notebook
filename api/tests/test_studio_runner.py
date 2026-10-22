@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from sqlalchemy import select
@@ -235,6 +236,8 @@ async def test_fake_claude_stores_markdown(db_session, tmp_path):
     assert "inputs.json" in stdin
     assert _FIXED in stdin
     assert "写出导图" in stdin
+    assert "本次主题硬约束" in stdin
+    assert "根节点必须是：灭佛" in stdin
     cwd = Path((capture / "cwd.txt").read_text(encoding="utf-8").strip())
     assert cwd.name.startswith(f"studio_{task.id}_")
     assert not cwd.exists()
@@ -261,6 +264,30 @@ async def test_fake_claude_stores_markdown(db_session, tmp_path):
     assert by_kind["note"]["text"] == "笔记全文" + _LONG
 
 
+
+def test_resolve_claude_bin_prefers_existing_file(tmp_path, monkeypatch):
+    from app.studio import runner as runner_mod
+
+    fake = tmp_path / ("claude.exe" if os.name == "nt" else "claude")
+    fake.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(runner_mod, "resolve_claude_bin", runner_mod.resolve_claude_bin)
+    assert runner_mod.resolve_claude_bin(str(fake)) == str(fake.resolve())
+
+
+def test_resolve_claude_bin_uses_which(monkeypatch, tmp_path):
+    from app.studio import runner as runner_mod
+
+    fake = tmp_path / "claude.cmd"
+    fake.write_text("@echo off\n", encoding="utf-8")
+    exe = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "bin"
+    exe.mkdir(parents=True)
+    target = exe / "claude.exe"
+    target.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(runner_mod.shutil, "which", lambda name: str(fake) if name == "claude" else None)
+    monkeypatch.setattr("app.core.config.get_settings", lambda: type("S", (), {"claude_cli_path": "claude"})())
+    assert runner_mod.resolve_claude_bin(None) == str(target)
+
+
 async def test_exit_code_is_process_failed(db_session, tmp_path):
     script = tmp_path / "claude"
     _script(script, "#!/bin/sh\necho boom >&2\nexit 1\n")
@@ -274,15 +301,63 @@ async def test_exit_code_is_process_failed(db_session, tmp_path):
     assert (work / "stderr.log").read_text(encoding="utf-8").strip() == "boom"
 
 
+def _windows_safe_claude(path: Path, py_body: str) -> Path:
+    """Write a Python fake Claude; on Windows return a .cmd launcher."""
+    py_path = path.with_suffix(".py") if path.suffix else Path(str(path) + ".py")
+    py_path.write_text(py_body, encoding="utf-8")
+    if os.name != "nt":
+        path.write_text(
+            "#!/bin/sh\n"
+            f'exec "{sys.executable}" "{py_path.as_posix()}" "$@"\n',
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+        return path
+    cmd = path.with_suffix(".cmd")
+    cmd.write_text(
+        "@echo off\r\n"
+        f'"{sys.executable}" "{py_path}" %*\r\n',
+        encoding="utf-8",
+        newline="\r\n",
+    )
+    return cmd
+
+
 async def test_timeout(db_session, tmp_path):
-    script = tmp_path / "claude"
-    _script(script, "#!/bin/sh\nsleep 30\n")
+    script = _windows_safe_claude(
+        tmp_path / "claude",
+        "import sys, time\n"
+        "sys.stdin.read()\n"
+        "time.sleep(30)\n",
+    )
     task, _, _ = await _seed(db_session, with_sources=False)
     await execute_studio_task(task.id, claude_bin=str(script), timeout_seconds=1)
     await db_session.refresh(task)
     assert task.status == "failed"
     assert task.error_code == "timeout"
+    assert "超时上限 1 秒" in (task.error_message or "")
     assert Path(task.result_json["work_dir"]).is_dir()
+
+
+async def test_timeout_salvages_existing_output(db_session, tmp_path):
+    """If main artifact exists when the wall clock hits, accept it instead of failing."""
+    script = _windows_safe_claude(
+        tmp_path / "claude",
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        "sys.stdin.read()\n"
+        "out = Path('outputs')\n"
+        "out.mkdir(exist_ok=True)\n"
+        "(out / 'deck.pptx').write_bytes(b'pptx-bytes')\n"
+        "time.sleep(30)\n",
+    )
+    task, _, _ = await _seed(db_session, format_key="slides", with_sources=False)
+    await execute_studio_task(
+        task.id, claude_bin=str(script), timeout_seconds=1, pdf_convert=lambda *_: None
+    )
+    await db_session.refresh(task)
+    assert task.status == "succeeded"
+    assert task.error_code is None
 
 
 async def test_wrong_file_is_format_mismatch(db_session, tmp_path):
@@ -551,3 +626,43 @@ async def test_claude_env_comes_from_config_not_shell(db_session, tmp_path, monk
         "sk-from-config",
         "https://config.example",
     ]
+
+def test_prompt_injects_topic_hard_constraints_for_action_mode():
+    from app.studio.runner import _prompt, _topic_hard_constraints
+
+    fields = [
+        {"key": "topic", "label": "主题", "value": "年轻人如何应对"},
+        {"key": "focus_mode", "label": "导图模式", "value": "action"},
+        {"key": "extra_constraints", "label": "额外约束", "value": "一级仅行动建议"},
+    ]
+    hard = _topic_hard_constraints("mind_map", fields)
+    assert hard is not None
+    assert "年轻人如何应对" in hard
+    assert "聚焦应对/行动" in hard
+    assert "用户额外约束：一级仅行动建议" in hard
+    assert "优先于技能里的全书大纲流程" in hard
+
+    prompt = _prompt("mind_map", "系统提示", fields)
+    assert hard in prompt
+    assert prompt.index(hard) < prompt.index("系统提示")
+    assert "阅读 inputs.json" in prompt
+
+
+def test_prompt_outline_mode_allows_full_structure():
+    from app.studio.runner import _topic_hard_constraints
+
+    fields = [
+        {"key": "topic", "label": "主题", "value": "年轻人如何应对"},
+        {"key": "focus_mode", "label": "导图模式", "value": "outline"},
+    ]
+    hard = _topic_hard_constraints("mind_map", fields)
+    assert hard is not None
+    assert "完整大纲" in hard
+    assert "根节点必须是" not in hard
+
+
+def test_prompt_skips_hard_block_without_topic():
+    from app.studio.runner import _topic_hard_constraints
+
+    assert _topic_hard_constraints("mind_map", [{"key": "topic", "value": "  "}]) is None
+    assert _topic_hard_constraints("slides", [{"key": "topic", "value": "x"}]) is None

@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Pencil, FolderKanban } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
-import { Brand } from "@/components/brand";
+import { AppHeader } from "@/components/app-header";
 import { UserMenu } from "@/components/user-menu";
 import { NotebookBookCard } from "@/components/notebook-book-card";
 import { CollectionEditDialog } from "@/components/collection-edit-dialog";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { Button } from "@/components/ui/button";
+import { formatDateZh } from "@/lib/utils";
+import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
 
 interface Notebook {
   id: number;
@@ -30,6 +32,7 @@ interface CollectionDetail {
   id: number;
   name: string;
   icon: string | null;
+  cover_url?: string | null;
   notebook_count: number;
   notebooks: Notebook[];
   created_at: string | null;
@@ -127,65 +130,97 @@ export default function CollectionPage() {
       : null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b bg-background">
-        <div className="flex h-16 w-full items-center gap-4 px-6 lg:px-8">
-          <Link to="/" className="shrink-0">
-            <Brand />
-          </Link>
-          <div className="ml-auto">
-            <UserMenu
-              onLogout={() => {
-                logout();
-                navigate("/login", { replace: true });
-              }}
-            />
-          </div>
-        </div>
-      </header>
+    <div className="page-ambient min-h-screen">
+      <AppHeader
+        active="collections"
+        rightSlot={
+          <UserMenu
+            onLogout={() => {
+              logout();
+              navigate("/login", { replace: true });
+            }}
+          />
+        }
+      />
 
-      <div className="w-full p-6 lg:px-8">
-        <button
-          type="button"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/?tab=collections")}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          My collections
-        </button>
-
+      <div className="w-full px-6 py-8 lg:px-8">
         {detail.isLoading ? (
           <p className="text-sm text-muted-foreground">加载中…</p>
         ) : detail.isError ? (
-          <div className="rounded-lg border border-dashed bg-muted/20 p-16 text-center text-sm text-muted-foreground">
-            {detail.error instanceof ApiError ? detail.error.message : "加载失败"}
+          <div className="empty-hero text-sm text-muted-foreground">
+            <p className="mb-3 font-medium text-foreground">加载失败</p>
+            <p>{detail.error instanceof ApiError ? detail.error.message : "请稍后重试"}</p>
+            <Button
+              variant="outline"
+              className="mt-5 rounded-full"
+              onClick={() => navigate("/?tab=collections")}
+            >
+              返回我的集合
+            </Button>
           </div>
         ) : data ? (
           <>
-            <header className="mb-6 flex items-start justify-between gap-4">
+            <header className="page-hero">
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold">{data.name}</h1>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {data.notebook_count === 1
-                    ? "1 本笔记本"
-                    : `${data.notebook_count} 本笔记本`}
-                </p>
+                <button
+                  type="button"
+                  className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => navigate("/?tab=collections")}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  返回我的集合
+                </button>
+                <div className="flex items-center gap-3">
+                  <span className="flex h-16 w-[4.75rem] shrink-0 items-center justify-center sm:h-[4.5rem] sm:w-[5.5rem]">
+                    <GeneratedFolderIcon
+                      title={data.name}
+                      coverUrl={data.cover_url}
+                      variant={data.id}
+                      className="h-full w-full"
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    <h1 className="page-hero-title truncate">{data.name}</h1>
+                    <p className="page-hero-desc !mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="inline-flex items-center rounded-full bg-muted/80 px-2.5 py-0.5 text-xs font-medium text-foreground/80">
+                        {data.notebook_count === 1
+                          ? "1 本笔记本"
+                          : `${data.notebook_count} 本笔记本`}
+                      </span>
+                      {data.updated_at ? (
+                        <span className="text-xs">更新于 {formatDateZh(data.updated_at)}</span>
+                      ) : null}
+                    </p>
+                  </div>
+                </div>
               </div>
               <Button
-                className="rounded-full shadow-none"
+                className="rounded-full px-5"
                 onClick={() => setShowEdit(true)}
               >
                 <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                Edit
+                编辑集合
               </Button>
             </header>
 
             {notebooks.length === 0 ? (
-              <div className="soft-tile px-8 py-20 text-center text-sm text-muted-foreground">
-                这个集合还没有笔记本。点「Edit」添加。
+              <div className="empty-hero">
+                <div className="empty-hero-icon">
+                  <FolderKanban className="h-6 w-6" />
+                </div>
+                <p className="mb-1 text-lg font-semibold tracking-tight text-foreground">
+                  集合还是空的
+                </p>
+                <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
+                  把相关笔记本加进来即可。
+                </p>
+                <Button className="rounded-full px-5" onClick={() => setShowEdit(true)}>
+                  <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                  编辑并添加笔记本
+                </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
                 {notebooks.map((nb) => (
                   <NotebookBookCard
                     key={nb.id}

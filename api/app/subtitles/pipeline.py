@@ -48,6 +48,16 @@ async def read_subtitle_for_owner(
     return subtitle_view(video, subtitle, lines)
 
 
+async def read_subtitle_for_viewer(
+    session: AsyncSession, *, viewer_id: int, video_id: int
+) -> dict:
+    from app.services.sources import get_video_readable
+
+    video = await get_video_readable(session, viewer_id=viewer_id, video_id=video_id)
+    subtitle, lines = await load_subtitle(session, video)
+    return subtitle_view(video, subtitle, lines)
+
+
 async def request_regenerate(
     session: AsyncSession, *, owner_id: int, video_id: int
 ) -> dict:
@@ -105,14 +115,33 @@ async def run_subtitle_pipeline(
     if path is None:
         return
 
-    async def _write_overview_if_requested(db: AsyncSession) -> None:
-        """只有「重新生成」会把 overview_status 设成 processing。普通上传不写概览。"""
+    async def _arm_and_write_overview(db: AsyncSession) -> None:
+        """字幕成功后：重新生成已是 processing；或设置开启自动且仍 pending/空时再生成。"""
+        from app.services.overview_settings import get_overview_settings_row
+
         video = await db.get(Video, video_id)
-        if video is None or video.overview_status != "processing":
+        if video is None:
             return
+
+        if video.overview_status != "processing":
+            settings = await get_overview_settings_row(db)
+            auto = bool(settings.auto_generate_after_subtitle)
+            empty_text = not (video.overview_text or "").strip()
+            should_auto = auto and (
+                video.overview_status == "pending"
+                or (empty_text and video.overview_status != "ready")
+            )
+            if not should_auto:
+                return
+            video.overview_status = "processing"
+            video.overview_error = None
+            db.add(video)
+            await db.commit()
+            await db.refresh(video)
+
         try:
             _subtitle, lines = await load_subtitle(db, video)
-            video.overview_text = await write_overview(db, lines)
+            video.overview_text = await write_overview(db, lines, video=video)
             video.overview_status = "ready"
             video.overview_error = None
         except Exception as exc:  # noqa: BLE001 — 概览失败不能把已经写好的字幕打回失败
@@ -142,8 +171,14 @@ async def run_subtitle_pipeline(
             )
 
         await _use(_save)
-        await _use(_write_overview_if_requested)
+        await _use(_arm_and_write_overview)
     except Exception as exc:  # noqa: BLE001 — 失败要写回状态，不能把任务吞掉后一直停在 processing
+        try:
+            from celery.exceptions import SoftTimeLimitExceeded as _SoftLimit
+        except Exception:  # pragma: no cover
+            _SoftLimit = ()  # type: ignore[assignment,misc]
+        if _SoftLimit and isinstance(exc, _SoftLimit):
+            raise
         message = _error_message(exc)
         logger.warning("subtitle pipeline failed video_id=%s: %s", video_id, message)
 

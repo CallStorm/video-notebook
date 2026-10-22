@@ -27,6 +27,12 @@ class SkillUpdate(BaseModel):
     version: str | None = Field(default=None, max_length=64)
 
 
+class SystemPromptDraft(BaseModel):
+    skill_name: str
+    skill_description: str | None = None
+    system_prompt: str
+
+
 class AgentWrite(BaseModel):
     name: str
     skill_id: int | None

@@ -56,12 +56,11 @@ def _run_isolated(coro: Coroutine[Any, Any, None]) -> None:
     """Run coroutine in a fresh event loop; drop any prior AsyncEngine first.
 
     Celery's thread pool reuses threads. A previous asyncio.run (e.g. settings
-    reload) may leave a global engine bound to a dead loop.
+    reload) may leave an engine bound to a dead loop. Engine is thread-local.
     """
-    import app.db.session as session_mod
+    from app.db.session import clear_engine_sync
 
-    session_mod._engine = None
-    session_mod._sessionmaker = None
+    clear_engine_sync()
 
     async def _inner() -> None:
         try:
@@ -222,3 +221,17 @@ def _on_worker_ready(**_kwargs) -> None:
         logger.exception("initial media sweep failed")
     thread = threading.Thread(target=_sweep_loop, name="media-sweep", daemon=True)
     thread.start()
+
+
+@celery_app.task(name="vector.index_notebook")
+def vector_index_notebook(notebook_id: int, force: bool = False) -> None:
+    """Embed notebook document and upsert into Qdrant."""
+
+    async def _run() -> None:
+        from app.vector.indexer import index_notebook
+
+        factory = get_sessionmaker()
+        async with factory() as session:
+            await index_notebook(session, int(notebook_id), force=bool(force))
+
+    _run_isolated(_run())

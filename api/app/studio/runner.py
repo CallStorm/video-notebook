@@ -79,8 +79,61 @@ def _choose_title(manifest_title: str | None, fields: list, capability_name: str
     return (capability_name or "studio")[:255]
 
 
-def _prompt(format_key: str, system_prompt: str) -> str:
-    return "\n\n".join([get_format(format_key).instructions, system_prompt, _FIXED_PROMPT])
+def _field_map(fields: list) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in fields:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        value = item.get("value")
+        if isinstance(key, str) and key and isinstance(value, str):
+            out[key] = value
+    return out
+
+
+def _topic_hard_constraints(format_key: str, fields: list) -> str | None:
+    """Inject a prominent prompt body block so topic beats skill「全书大纲」 flow."""
+    if format_key != "mind_map":
+        return None
+    fmap = _field_map(fields)
+    topic = (fmap.get("topic") or "").strip()
+    if not topic:
+        return None
+    focus_mode = (fmap.get("focus_mode") or "action").strip() or "action"
+    extra = (fmap.get("extra_constraints") or "").strip()
+    lines: list[str]
+    if focus_mode == "outline":
+        lines = [
+            "## 本次主题硬约束（优先于技能里的全书大纲流程）",
+            "- 模式：完整大纲（outline）",
+            f"- 用户主题参考：{topic}（可用作根节点或副标题；允许按来源全文做结构导图）",
+            "- Studio 只交 outputs/mindmap.md 与约定 MANIFEST；不要按技能去走 HTML/全书目录交付",
+        ]
+    else:
+        lines = [
+            "## 本次主题硬约束（优先于技能里的全书大纲流程）",
+            f"- 根节点必须是：{topic}",
+            "- 模式：聚焦应对/行动（action）",
+            "- 禁止把根标题扩写成视频全标题或章节总名；仅允许轻微润色措辞",
+            "- 一级分支只保留直接回答该主题的行动/原则/步骤/注意点",
+            "- 不要用来源的完整大纲（背景、征兆、机制等）作为并列一级大章，除非与应对直接相关",
+            "- 若缺一点背景就无法理解主题，最多一个短「必要前提」节点",
+            "- Studio 只交 outputs/mindmap.md 与约定 MANIFEST；不要按技能去走 HTML/全书目录交付",
+        ]
+    if extra:
+        lines.append(f"- 用户额外约束：{extra}")
+    return "\n".join(lines)
+
+
+def _prompt(format_key: str, system_prompt: str, fields: list | None = None) -> str:
+    parts = [get_format(format_key).instructions]
+    hard = _topic_hard_constraints(format_key, fields or [])
+    if hard:
+        parts.append(hard)
+    if isinstance(system_prompt, str) and system_prompt.strip():
+        parts.append(system_prompt)
+    parts.append(_FIXED_PROMPT)
+    return "\n\n".join(parts)
 
 
 def _pdf_convert_timeout() -> float:
@@ -91,11 +144,31 @@ def _pdf_convert_timeout() -> float:
 
 
 def _kill_popen_group(proc: subprocess.Popen[bytes]) -> None:
+    """Kill Claude and any child builders (Windows needs /T tree kill)."""
     if proc.poll() is None and proc.pid is not None:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=15,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+        elif hasattr(os, "killpg"):
+            try:
+                os.killpg(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+            except (ProcessLookupError, OSError):
+                pass
+        else:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
     try:
         proc.communicate(timeout=5)
     except subprocess.TimeoutExpired:
@@ -138,9 +211,32 @@ def _soffice_convert(
 def _kill_group(proc: asyncio.subprocess.Process, sig: int) -> None:
     if proc.pid is None or proc.returncode is not None:
         return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired, ProcessLookupError):
+            try:
+                proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
+        return
+    if hasattr(os, "killpg"):
+        try:
+            os.killpg(proc.pid, sig)
+            return
+        except (ProcessLookupError, OSError):
+            return
     try:
-        os.killpg(proc.pid, sig)
-    except ProcessLookupError:
+        if sig == getattr(signal, "SIGKILL", object()):
+            proc.kill()
+        else:
+            proc.terminate()
+    except (ProcessLookupError, OSError):
         return
 
 
@@ -151,7 +247,7 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
     try:
         await asyncio.wait_for(proc.wait(), _KILL_GRACE_SECONDS)
     except TimeoutError:
-        _kill_group(proc, signal.SIGKILL)
+        _kill_group(proc, getattr(signal, 'SIGKILL', signal.SIGTERM))
         await proc.wait()
 
 
@@ -235,7 +331,7 @@ def _write_workspace(work: Path, prepared: _Prepared) -> str:
         ),
         encoding="utf-8",
     )
-    prompt = _prompt(prepared.format_key, prepared.system_prompt)
+    prompt = _prompt(prepared.format_key, prepared.system_prompt, prepared.fields)
     (work / "prompt.txt").write_text(prompt, encoding="utf-8")
     if prepared.skill_src is not None and prepared.skill_dirname is not None:
         dest = work / ".claude" / "skills" / prepared.skill_dirname
@@ -267,7 +363,7 @@ async def _fail_if_queued(session, task_id: int, message: str) -> None:
         .values(
             status="failed",
             error_code="process_failed",
-            error_message=(message or "")[-_STDERR_TAIL:],
+            error_message=(message or "process failed")[-_STDERR_TAIL:],
             finished_at=_now(),
         )
     )
@@ -295,11 +391,67 @@ async def _mark_failed(factory, task_id: int, code: str, message: str, work: Pat
             return
         task.status = "failed"
         task.error_code = code
-        task.error_message = (message or "")[-_STDERR_TAIL:]
+        task.error_message = (message or "process failed")[-_STDERR_TAIL:]
         task.finished_at = _now()
         if work is not None:
             task.result_json = {"work_dir": str(work)}
         await session.commit()
+
+
+
+def _prefer_claude_exe(found: str) -> str:
+    """Prefer the real Windows binary over npm's .cmd shim when present."""
+    path = Path(found)
+    if path.suffix.lower() not in {".cmd", ".bat", ".ps1"}:
+        return found
+    exe = path.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    if exe.is_file():
+        return str(exe)
+    return found
+
+
+
+def _claude_fail_detail(claude_bin: str, code: int, stderr: str) -> str:
+    """Build a non-empty process_failed message that includes exit code and bin."""
+    tail = (stderr or "").strip()
+    if not tail:
+        tail = "process failed (no stderr)"
+    return f"claude exit {code}; bin={claude_bin}; {tail}"[-_STDERR_TAIL:]
+
+def resolve_claude_bin(claude_bin: str | None = None) -> str:
+    """Resolve Claude Code CLI to a path create_subprocess_exec can launch.
+
+    Bare name "claude" fails on Windows asyncio (no PATHEXT search). Prefer an
+    absolute path from settings, PATH, or the npm-installed claude.exe.
+    """
+    candidates: list[str] = []
+    if claude_bin and claude_bin.strip():
+        candidates.append(claude_bin.strip())
+    try:
+        from app.core.config import get_settings
+
+        configured = (get_settings().claude_cli_path or "").strip()
+        if configured:
+            candidates.append(configured)
+    except Exception:  # noqa: BLE001 — settings optional at import time in tests
+        pass
+    candidates.append("claude")
+
+    seen: set[str] = set()
+    for raw in candidates:
+        if raw in seen:
+            continue
+        seen.add(raw)
+        path = Path(raw)
+        if path.is_file():
+            return str(path.resolve())
+        found = shutil.which(raw)
+        if found:
+            return _prefer_claude_exe(found)
+    raise FileNotFoundError(
+        "找不到 Claude Code 命令行。请安装 @anthropic-ai/claude-code，"
+        "或设置环境变量 CLAUDE_CLI_PATH 为 claude 可执行文件路径。"
+    )
 
 
 def _claude_env(api_key: str, base_url: str | None) -> dict[str, str]:
@@ -310,6 +462,149 @@ def _claude_env(api_key: str, base_url: str | None) -> dict[str, str]:
     else:
         env.pop("ANTHROPIC_BASE_URL", None)
     return env
+
+
+
+
+_sync_engine = None
+
+
+def _get_sync_engine():
+    """Lazy sync engine for cancel checks from Windows worker threads."""
+    global _sync_engine
+    if _sync_engine is None:
+        from sqlalchemy import create_engine
+
+        from app.core.config import get_settings
+
+        url = get_settings().database_url
+        for async_driver, sync_driver in (
+            ("mysql+aiomysql", "mysql+pymysql"),
+            ("mysql+asyncmy", "mysql+pymysql"),
+            ("postgresql+asyncpg", "postgresql+psycopg"),
+            ("sqlite+aiosqlite", "sqlite"),
+        ):
+            if url.startswith(async_driver):
+                url = sync_driver + url[len(async_driver) :]
+                break
+        _sync_engine = create_engine(url, pool_pre_ping=True)
+    return _sync_engine
+
+
+def _stopped_sync(task_id: int) -> bool:
+    """Best-effort cancel check from a worker thread.
+
+    On failure (e.g. tests using SQLite while sync engine points at MySQL),
+    return False so the run continues until the wall-clock timeout.
+    """
+    from sqlalchemy import text
+
+    try:
+        engine = _get_sync_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT status, deleted_at FROM studio_tasks WHERE id = :id"),
+                {"id": task_id},
+            ).first()
+    except Exception:  # noqa: BLE001 — cancel check must not abort the run
+        return False
+    if row is None:
+        return True
+    status, deleted_at = row[0], row[1]
+    return status == "canceled" or deleted_at is not None
+
+
+def _run_claude_sync(
+    *,
+    claude_bin: str,
+    model_name: str,
+    api_key: str,
+    base_url: str | None,
+    work: Path,
+    prompt: str,
+    task_id: int,
+    timeout_seconds: int,
+    factory,
+) -> tuple[str, int, str]:
+    """Windows-safe Claude launch.
+
+    Celery uses a threads pool; asyncio.create_subprocess_exec raises a bare
+    NotImplementedError on Windows outside the main thread. Use sync Popen and
+    poll for timeout/cancel instead.
+    """
+    stdout_path = work / "stdout.log"
+    stderr_path = work / "stderr.log"
+    outcome = "ok"
+    code = 1
+    with stdout_path.open("wb") as stdout_f, stderr_path.open("wb") as stderr_f:
+        try:
+            proc = subprocess.Popen(
+                [
+                    claude_bin,
+                    "-p",
+                    "--permission-mode",
+                    "bypassPermissions",
+                    "--model",
+                    model_name,
+                    "--add-dir",
+                    str(work),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=stdout_f,
+                stderr=stderr_f,
+                cwd=work,
+                env=_claude_env(api_key, base_url),
+            )
+        except OSError as exc:
+            msg = str(exc).strip() or f"{exc.__class__.__name__}: failed to start Claude Code"
+            stderr_f.write(msg.encode("utf-8"))
+            stderr_f.flush()
+            return "ok", 1, msg
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(prompt.encode("utf-8"))
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        try:
+            (work / "runner_launched.txt").write_text(
+                f"pid={proc.pid} bin={claude_bin} mode=sync", encoding="utf-8"
+            )
+        except OSError:
+            pass
+        deadline = time.monotonic() + timeout_seconds
+        while proc.poll() is None:
+            if time.monotonic() >= deadline:
+                _kill_popen_group(proc)
+                outcome = "timeout"
+                break
+            if _stopped_sync(task_id):
+                _kill_popen_group(proc)
+                outcome = "canceled"
+                break
+            time.sleep(min(_POLL_SECONDS, max(0.1, deadline - time.monotonic())))
+        code = proc.returncode if proc.returncode is not None else 1
+    stderr_text = ""
+    if stderr_path.is_file():
+        stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        (work / "runner_meta.json").write_text(
+            json.dumps(
+                {
+                    "claude_bin": claude_bin,
+                    "outcome": outcome,
+                    "exit_code": code,
+                    "stderr_len": len(stderr_text),
+                    "stdout_len": stdout_path.stat().st_size if stdout_path.is_file() else 0,
+                    "mode": "sync",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return outcome, code, stderr_text
 
 
 async def _run_claude(
@@ -324,6 +619,19 @@ async def _run_claude(
     timeout_seconds: int,
     factory,
 ) -> tuple[str, int, str]:
+    if os.name == "nt":
+        return await asyncio.to_thread(
+            _run_claude_sync,
+            claude_bin=claude_bin,
+            model_name=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            work=work,
+            prompt=prompt,
+            task_id=task_id,
+            timeout_seconds=timeout_seconds,
+            factory=factory,
+        )
     stdout_path = work / "stdout.log"
     stderr_path = work / "stderr.log"
     stdout_f = stdout_path.open("wb")
@@ -332,6 +640,11 @@ async def _run_claude(
     code = 1
     try:
         try:
+            # Windows Celery threads: start_new_session (CREATE_NEW_PROCESS_GROUP)
+            # has been observed to let claude.exe exit in <100ms with empty stdio.
+            popen_kwargs: dict = {}
+            if os.name != "nt":
+                popen_kwargs["start_new_session"] = True
             proc = await asyncio.create_subprocess_exec(
                 claude_bin,
                 "-p",
@@ -346,11 +659,19 @@ async def _run_claude(
                 stderr=stderr_f,
                 cwd=work,
                 env=_claude_env(api_key, base_url),
-                start_new_session=True,
+                **popen_kwargs,
             )
+            try:
+                (work / "runner_launched.txt").write_text(
+                    f"pid={proc.pid} bin={claude_bin}", encoding="utf-8"
+                )
+            except OSError:
+                pass
         except OSError as exc:
-            stderr_f.write(str(exc).encode("utf-8"))
-            return "ok", 1, str(exc)
+            msg = str(exc).strip() or f"{exc.__class__.__name__}: failed to start Claude Code"
+            stderr_f.write(msg.encode("utf-8"))
+            stderr_f.flush()
+            return "ok", 1, msg
         assert proc.stdin is not None
         proc.stdin.write(prompt.encode("utf-8"))
         try:
@@ -383,6 +704,22 @@ async def _run_claude(
     stderr_text = ""
     if stderr_path.is_file():
         stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        (work / "runner_meta.json").write_text(
+            json.dumps(
+                {
+                    "claude_bin": claude_bin,
+                    "outcome": outcome,
+                    "exit_code": code,
+                    "stderr_len": len(stderr_text),
+                    "stdout_len": stdout_path.stat().st_size if stdout_path.is_file() else 0,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
     return outcome, code, stderr_text
 
 
@@ -557,7 +894,7 @@ async def _abandon_attempt(
 async def execute_studio_task(
     task_id: int,
     *,
-    claude_bin: str = "claude",
+    claude_bin: str | None = None,
     pdf_convert: Callable[[Path, Path], None] | None = None,
     timeout_seconds: int | None = None,
     pdf_timeout_seconds: float | None = None,
@@ -588,8 +925,14 @@ async def execute_studio_task(
             await _mark_failed(factory, task_id, "process_failed", "还没有配置 Claude Code", work)
             return
 
+        try:
+            resolved_bin = resolve_claude_bin(claude_bin)
+        except FileNotFoundError as exc:
+            await _mark_failed(factory, task_id, "process_failed", str(exc), work)
+            return
+
         outcome, code, stderr = await _run_claude(
-            claude_bin=claude_bin,
+            claude_bin=resolved_bin,
             model_name=prepared.model_name,
             api_key=prepared.api_key,
             base_url=prepared.base_url,
@@ -602,23 +945,45 @@ async def execute_studio_task(
         if outcome == "canceled" or await _stopped(factory, task_id):
             shutil.rmtree(work, ignore_errors=True)
             return
+        outputs = work / "outputs"
         if outcome == "timeout":
-            await _mark_failed(factory, task_id, "timeout", stderr or "timeout", work)
-            return
-        if code != 0:
-            await _mark_failed(
-                factory, task_id, "process_failed", stderr or "process failed", work
+            # Claude may have finished the main artifact but hung on cleanup/MANIFEST.
+            try:
+                accepted = accept_outputs(get_format(prepared.format_key), outputs)
+            except (FormatMismatch, NoOutput):
+                tail = (stderr or "").strip()
+                msg = f"已超过智能体超时上限 {limit} 秒仍未完成。"
+                if tail:
+                    msg = f"{msg}\n{tail}"
+                await _mark_failed(factory, task_id, "timeout", msg, work)
+                return
+            await _store_success(
+                factory,
+                task_id,
+                prepared=prepared,
+                accepted_path=accepted.path,
+                accepted_mime=accepted.mime,
+                accepted_title=accepted.title,
+                pdf_convert=pdf_convert,
+                pdf_timeout_seconds=pdf_timeout_seconds,
+                work=work,
+                stored_keys=stored_keys,
             )
             return
-
-        outputs = work / "outputs"
+        fail_detail = _claude_fail_detail(resolved_bin, code, stderr)
         try:
             accepted = accept_outputs(get_format(prepared.format_key), outputs)
         except FormatMismatch:
-            await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
+            if code != 0:
+                await _mark_failed(factory, task_id, "process_failed", fail_detail, work)
+            else:
+                await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
             return
         except NoOutput:
-            await _mark_failed(factory, task_id, "no_output", "no output", work)
+            if code != 0:
+                await _mark_failed(factory, task_id, "process_failed", fail_detail, work)
+            else:
+                await _mark_failed(factory, task_id, "no_output", "no output", work)
             return
 
         await _store_success(
@@ -634,4 +999,12 @@ async def execute_studio_task(
             stored_keys=stored_keys,
         )
     except Exception as exc:  # noqa: BLE001
-        await _abandon_attempt(factory, task_id, str(exc), work, stored_keys)
+        detail = str(exc).strip() or f"{exc.__class__.__name__}: studio runner crashed"
+        if work is not None:
+            try:
+                (work / "runner_exception.txt").write_text(
+                    f"{exc.__class__.__name__}: {exc!r}", encoding="utf-8"
+                )
+            except OSError:
+                pass
+        await _abandon_attempt(factory, task_id, detail, work, stored_keys)

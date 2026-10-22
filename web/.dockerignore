@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+*.md
+.env
+.env.*
+!.env.example
+_shots*
+_ui_snip*

@@ -3,22 +3,30 @@
 # 装载 .env（如有）；uvicorn / vite 等会自动读。
 SHELL := /usr/bin/env bash
 
-.PHONY: help middleware up down api web worker media-worker migrate typecheck test build clean
+.PHONY: help middleware up down down-all api web worker media-worker migrate typecheck test build clean
 
 help:
 	@echo "常用命令："
-	@echo "  make middleware       # 启动 mysql + redis 容器"
-	@echo "  make down             # 关掉容器（含数据卷慎用 v）"
+	@echo "  make up               # Docker 一键全栈（build + up -d）"
+	@echo "  make down-all         # 关掉全栈 compose（保留数据卷）"
+	@echo "  make middleware       # 仅 mysql + redis + qdrant（本地开发）"
+	@echo "  make down             # 关掉中间件容器"
 	@echo "  make api              # 本地起 api (uvicorn --reload)"
 	@echo "  make web              # 本地起 web (vite dev)"
 	@echo "  make worker           # 本地起 studio celery worker"
-	@echo "  make media-worker     # 本地起 media celery worker（抓取+字幕）"
+	@echo "  make media-worker     # 本地起 media celery worker（抓取/字幕/向量索引）"
 	@echo "  make migrate          # alembic upgrade head"
 	@echo "  make migration m=...  # 生成 alembic revision"
 	@echo "  make test             # api pytest"
 	@echo "  make typecheck        # api typecheck + web typecheck"
 	@echo "  make build            # web 生产构建"
 	@echo "  make clean            # 清理 build / cache（不动数据卷）"
+
+up:
+	docker compose up -d --build
+
+down-all:
+	docker compose down
 
 middleware:
 	docker compose -f compose.middleware.yml up -d

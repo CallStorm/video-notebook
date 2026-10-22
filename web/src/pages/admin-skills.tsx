@@ -1,9 +1,16 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  AdminEmptyState,
+  AdminFieldLabel,
+  AdminLoading,
+  AdminPageHeader,
+  AdminSectionCard,
+  AdminTableShell,
+} from "@/components/admin-shell";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -115,164 +122,170 @@ export function AdminSkillsPanel() {
   });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">技能</h2>
-        <p className="text-sm text-muted-foreground">上传 zip，改元数据，下载或删除。</p>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="技能包"
+        description="上传含 SKILL.md 的 zip，供智能体绑定。单包上限 32MB。"
+      />
 
-      <Card>
-          <CardHeader>
-            <CardTitle>上传技能</CardTitle>
-            <CardDescription>根目录或单层文件夹内需包含 SKILL.md，上限 32MB。</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="flex flex-wrap items-center gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const file = fileRef.current?.files?.[0];
-                if (file) upload.mutate(file);
-              }}
-            >
-              <Input ref={fileRef} type="file" accept=".zip" required />
-              <Button type="submit" disabled={upload.isPending}>
-                {upload.isPending ? "上传中…" : "上传"}
-              </Button>
-            </form>
-            {upload.error instanceof ApiError && (
-              <p className="mt-2 text-sm text-destructive">{upload.error.message}</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {editing && (
-          <Card>
-            <CardHeader>
-              <CardTitle>编辑元数据</CardTitle>
-              <CardDescription>技能 #{editing.id}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                className="grid grid-cols-1 gap-3 md:grid-cols-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  saveMeta.mutate();
-                }}
-              >
-                <Input
-                  placeholder="名称"
-                  value={meta.name}
-                  onChange={(e) => setMeta((m) => ({ ...m, name: e.target.value }))}
-                  required
-                />
-                <Input
-                  placeholder="版本"
-                  value={meta.version}
-                  onChange={(e) => setMeta((m) => ({ ...m, version: e.target.value }))}
-                />
-                <Input
-                  placeholder="说明"
-                  value={meta.description}
-                  onChange={(e) => setMeta((m) => ({ ...m, description: e.target.value }))}
-                />
-                <div className="flex gap-2 md:col-span-3">
-                  <Button type="submit" disabled={saveMeta.isPending}>
-                    {saveMeta.isPending ? "保存中…" : "保存"}
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={() => setEditing(null)}>
-                    取消
-                  </Button>
-                </div>
-              </form>
-              {saveMeta.error instanceof ApiError && (
-                <p className="mt-2 text-sm text-destructive">{saveMeta.error.message}</p>
-              )}
-            </CardContent>
-          </Card>
+      <AdminSectionCard
+        title="上传技能"
+        description="根目录或单层文件夹内需包含 SKILL.md。"
+      >
+        <form
+          className="flex flex-wrap items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const file = fileRef.current?.files?.[0];
+            if (file) upload.mutate(file);
+          }}
+        >
+          <div className="min-w-[16rem] flex-1 space-y-1.5">
+            <AdminFieldLabel>选择 zip 文件</AdminFieldLabel>
+            <Input ref={fileRef} type="file" accept=".zip" required />
+          </div>
+          <Button type="submit" className="rounded-full" disabled={upload.isPending}>
+            {upload.isPending ? "上传中…" : "上传"}
+          </Button>
+        </form>
+        {upload.error instanceof ApiError && (
+          <p className="mt-2 text-sm text-destructive">{upload.error.message}</p>
         )}
+      </AdminSectionCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>技能列表</CardTitle>
-            <CardDescription>共 {list.data?.length ?? "—"} 条。</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {list.isLoading && <p className="text-sm text-muted-foreground">加载中…</p>}
-            {list.error instanceof ApiError && (
-              <p className="text-sm text-destructive">{list.error.message}</p>
-            )}
-            {remove.error instanceof ApiError && (
-              <p className="mb-3 text-sm text-destructive">{remove.error.message}</p>
-            )}
-            {download.error instanceof ApiError && (
-              <p className="mb-3 text-sm text-destructive">{download.error.message}</p>
-            )}
-            {list.data && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-2 pr-4">名称</th>
-                      <th className="py-2 pr-4">版本</th>
-                      <th className="py-2 pr-4">大小</th>
-                      <th className="py-2 pr-4">上传时间</th>
-                      <th className="py-2 pr-4">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.data.map((skill) => (
-                      <tr key={skill.id} className="border-b">
-                        <td className="py-2 pr-4">{skill.name}</td>
-                        <td className="py-2 pr-4">{skill.version ?? "—"}</td>
-                        <td className="py-2 pr-4">{formatBytes(skill.size_bytes)}</td>
-                        <td className="py-2 pr-4 text-muted-foreground">
-                          {formatDateTime(skill.created_at)}
-                        </td>
-                        <td className="py-2 pr-4">
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setEditing(skill);
-                                setMeta({
-                                  name: skill.name,
-                                  description: skill.description ?? "",
-                                  version: skill.version ?? "",
-                                });
-                              }}
-                            >
-                              编辑
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => download.mutate(skill)}
-                              disabled={download.isPending}
-                            >
-                              下载
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                if (confirm(`删除技能「${skill.name}」？`)) remove.mutate(skill.id);
-                              }}
-                              disabled={remove.isPending}
-                            >
-                              删除
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {editing && (
+        <AdminSectionCard title="编辑元数据" description={`技能 #${editing.id}`}>
+          <form
+            className="grid grid-cols-1 gap-3 md:grid-cols-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveMeta.mutate();
+            }}
+          >
+            <div className="space-y-1.5">
+              <AdminFieldLabel>名称</AdminFieldLabel>
+              <Input
+                placeholder="名称"
+                value={meta.name}
+                onChange={(e) => setMeta((m) => ({ ...m, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <AdminFieldLabel>版本</AdminFieldLabel>
+              <Input
+                placeholder="版本"
+                value={meta.version}
+                onChange={(e) => setMeta((m) => ({ ...m, version: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <AdminFieldLabel>说明</AdminFieldLabel>
+              <Input
+                placeholder="说明"
+                value={meta.description}
+                onChange={(e) => setMeta((m) => ({ ...m, description: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-2 md:col-span-3">
+              <Button type="submit" className="rounded-full" disabled={saveMeta.isPending}>
+                {saveMeta.isPending ? "保存中…" : "保存"}
+              </Button>
+              <Button type="button" variant="ghost" className="rounded-full" onClick={() => setEditing(null)}>
+                取消
+              </Button>
+            </div>
+          </form>
+          {saveMeta.error instanceof ApiError && (
+            <p className="mt-2 text-sm text-destructive">{saveMeta.error.message}</p>
+          )}
+        </AdminSectionCard>
+      )}
+
+      <AdminSectionCard title="技能列表" description={`共 ${list.data?.length ?? "—"} 条`}>
+        {list.isLoading && <AdminLoading />}
+        {list.error instanceof ApiError && (
+          <p className="text-sm text-destructive">{list.error.message}</p>
+        )}
+        {remove.error instanceof ApiError && (
+          <p className="mb-3 text-sm text-destructive">{remove.error.message}</p>
+        )}
+        {download.error instanceof ApiError && (
+          <p className="mb-3 text-sm text-destructive">{download.error.message}</p>
+        )}
+        {list.data && list.data.length === 0 ? (
+          <AdminEmptyState title="还没有技能" description="上传第一个 zip 技能包即可绑定到智能体。" />
+        ) : null}
+        {list.data && list.data.length > 0 ? (
+          <AdminTableShell>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>版本</th>
+                <th>大小</th>
+                <th>上传时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.data.map((skill) => (
+                <tr key={skill.id}>
+                  <td>
+                    <div className="font-medium">{skill.name}</div>
+                    {skill.description ? (
+                      <div className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">
+                        {skill.description}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="text-muted-foreground">{skill.version ?? "—"}</td>
+                  <td className="tabular-nums text-muted-foreground">{formatBytes(skill.size_bytes)}</td>
+                  <td className="text-xs text-muted-foreground">{formatDateTime(skill.created_at)}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => {
+                          setEditing(skill);
+                          setMeta({
+                            name: skill.name,
+                            description: skill.description ?? "",
+                            version: skill.version ?? "",
+                          });
+                        }}
+                      >
+                        编辑
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => download.mutate(skill)}
+                        disabled={download.isPending}
+                      >
+                        下载
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full text-destructive hover:text-destructive"
+                        onClick={() => {
+                          if (confirm(`删除技能「${skill.name}」？`)) remove.mutate(skill.id);
+                        }}
+                        disabled={remove.isPending}
+                      >
+                        删除
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </AdminTableShell>
+        ) : null}
+      </AdminSectionCard>
     </div>
   );
 }

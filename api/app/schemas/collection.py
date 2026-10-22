@@ -9,11 +9,13 @@ from app.schemas.notebook import NotebookRead
 class CollectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     icon: str | None = Field(default=None, max_length=16)
+    cover_url: str | None = Field(default=None, max_length=512)
 
 
 class CollectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     icon: str | None = Field(default=None, max_length=16)
+    cover_url: str | None = Field(default=None, max_length=512)
 
 
 class CollectionNotebookPreview(BaseModel):
@@ -26,6 +28,7 @@ class CollectionRead(BaseModel):
     id: int
     name: str
     icon: str | None
+    cover_url: str | None = None
     notebook_count: int
     preview_notebooks: list[CollectionNotebookPreview] = []
     created_at: str | None

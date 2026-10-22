@@ -265,3 +265,63 @@ async def test_subtitle_endpoint_after_upload(client: AsyncClient, db_session):
         f"/api/sources/{url_id}/subtitle/regenerate", headers=headers
     )
     assert denied.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_empty_stt_slice_skips_blank_response(monkeypatch, tmp_path):
+    """SenseVoice 对静音片回 text=""：切片跳过，不能拖垮整集。"""
+    import httpx
+    from app.llm.config_service import SttResolved
+    from app.subtitles import transcribe as tr
+    from app.subtitles.srt import Cue
+
+    stt = SttResolved(
+        provider="openai",
+        api_key="sk-test",
+        model_name="FunAudioLLM/SenseVoiceSmall",
+        config=None,
+        base_url="https://example.com/v1",
+    )
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"fake")
+
+    class FakeResp:
+        status_code = 200
+        content = b'{"text":"","language":null}'
+        text = '{"text":"","language":null}'
+
+    async def fake_post(client, stt_arg, payload, filename, fields):
+        return FakeResp()
+
+    def fake_cut(src, start_ms, end_ms):
+        out = tmp_path / f"{start_ms}-{end_ms}.mp3"
+        out.write_bytes(b"x")
+        return out
+
+    monkeypatch.setattr(tr, "_post_audio", fake_post)
+    monkeypatch.setattr(tr, "cut_slice", fake_cut)
+
+    async with httpx.AsyncClient() as client:
+        parsed = await tr._request_transcript(
+            client, stt, audio, want_timestamps=False
+        )
+        assert parsed.text == ""
+        assert parsed.cues == []
+
+        # one empty + one with text via side effect on ranges
+        calls = {"n": 0}
+
+        async def fake_request(client, stt_arg, audio_path, *, want_timestamps):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return tr.ParsedTranscript(cues=[], language=None, timestamped=False, text="")
+            return tr.ParsedTranscript(
+                cues=[], language="English", timestamped=False, text="Hello world."
+            )
+
+        monkeypatch.setattr(tr, "_request_transcript", fake_request)
+        cues, lang = await tr._transcribe_ranges(
+            client, stt, audio, [(0, 1000), (1000, 2000)], fallback_language=None
+        )
+        assert lang == "English"
+        assert any("Hello" in c.text for c in cues)

@@ -65,6 +65,24 @@ export default {
       },
       boxShadow: {
         soft: "0 1px 2px rgba(17, 24, 39, 0.04), 0 1px 3px rgba(17, 24, 39, 0.06)",
+        "soft-md": "0 4px 16px -4px rgba(17, 24, 39, 0.08), 0 2px 6px -2px rgba(17, 24, 39, 0.04)",
+        "soft-lg": "0 12px 40px -12px rgba(17, 24, 39, 0.14), 0 4px 12px -4px rgba(17, 24, 39, 0.06)",
+        glow: "0 0 0 1px rgba(37, 99, 235, 0.12), 0 8px 28px -8px rgba(37, 99, 235, 0.35)",
+        "glow-soft": "0 0 40px -8px rgba(99, 102, 241, 0.28), 0 0 24px -10px rgba(37, 99, 235, 0.22)",
+      },
+      keyframes: {
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(6px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "soft-pulse": {
+          "0%, 100%": { opacity: "0.55" },
+          "50%": { opacity: "0.9" },
+        },
+      },
+      animation: {
+        "fade-up": "fade-up 0.45s ease-out",
+        "soft-pulse": "soft-pulse 4.5s ease-in-out infinite",
       },
     },
   },

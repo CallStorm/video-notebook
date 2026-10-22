@@ -18,8 +18,12 @@ logger = logging.getLogger(__name__)
 # OpenAI 语音转写接口的单文件上限。
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
 # 没有停顿时，硬切的最长一段。再长，句子时间就会漂。
-MAX_SLICE_MS = 18_000
+# 默认与后台「语音切片」一致；运行时以 runtime 快照为准。
+MAX_SLICE_MS = 30_000
 MIN_SLICE_MS = 600
+DEFAULT_SILENCE_NOISE_DB = -32.0
+DEFAULT_SILENCE_MIN_DURATION_S = 0.3
+DEFAULT_MIN_SILENCE_FOR_CUT_MS = 200
 
 _SILENCE_START = re.compile(r"silence_start: (\d+(?:\.\d+)?)")
 _SILENCE_END = re.compile(r"silence_end: (\d+(?:\.\d+)?)")
@@ -108,6 +112,12 @@ def prepare_audio(path: Path) -> Path:
 
     返回的路径如果是临时文件，调用方负责删除。原文件直接可用时返回原路径。
     """
+    try:
+        from app.media.ffmpeg_path import ensure_ffmpeg_on_path
+
+        ensure_ffmpeg_on_path()
+    except Exception:
+        pass
     if not path.is_file():
         raise MediaError("视频文件不在本地存储中")
     ffmpeg = shutil.which("ffmpeg")
@@ -181,10 +191,16 @@ def probe_duration_ms(path: Path) -> int:
         return 0
 
 
-def detect_silences(path: Path) -> list[tuple[int, int]]:
+def detect_silences(
+    path: Path,
+    *,
+    noise_db: float = DEFAULT_SILENCE_NOISE_DB,
+    min_duration_s: float = DEFAULT_SILENCE_MIN_DURATION_S,
+) -> list[tuple[int, int]]:
     """找出静音区间（毫秒）。失败时当没有停顿，后面会按固定长度切开。"""
     if shutil.which("ffmpeg") is None:
         return []
+    af = f"silencedetect=noise={float(noise_db):g}dB:d={float(min_duration_s):g}"
     try:
         proc = subprocess.run(
             [
@@ -192,7 +208,7 @@ def detect_silences(path: Path) -> list[tuple[int, int]]:
                 "-i",
                 str(path),
                 "-af",
-                "silencedetect=noise=-32dB:d=0.3",
+                af,
                 "-f",
                 "null",
                 "-",
@@ -221,13 +237,14 @@ def speech_ranges(
     *,
     max_ms: int = MAX_SLICE_MS,
     min_ms: int = MIN_SLICE_MS,
+    min_silence_for_cut_ms: int = DEFAULT_MIN_SILENCE_FOR_CUT_MS,
 ) -> list[tuple[int, int]]:
     """尽量在静音处切开，但每一段不超过 max_ms，避免请求次数爆炸。"""
     if duration_ms <= 0:
         return []
     cuts = [0, duration_ms]
     for start, end in silences:
-        if end - start < 200:
+        if end - start < min_silence_for_cut_ms:
             continue
         middle = (start + end) // 2
         if 0 < middle < duration_ms:
@@ -259,8 +276,27 @@ def speech_ranges(
     return ranges
 
 
-def build_speech_ranges(path: Path, duration_ms: int) -> list[tuple[int, int]]:
-    return speech_ranges(duration_ms, detect_silences(path))
+def build_speech_ranges(
+    path: Path,
+    duration_ms: int,
+    *,
+    max_ms: int = MAX_SLICE_MS,
+    min_ms: int = MIN_SLICE_MS,
+    silence_noise_db: float = DEFAULT_SILENCE_NOISE_DB,
+    silence_min_duration_s: float = DEFAULT_SILENCE_MIN_DURATION_S,
+    min_silence_for_cut_ms: int = DEFAULT_MIN_SILENCE_FOR_CUT_MS,
+) -> list[tuple[int, int]]:
+    return speech_ranges(
+        duration_ms,
+        detect_silences(
+            path,
+            noise_db=silence_noise_db,
+            min_duration_s=silence_min_duration_s,
+        ),
+        max_ms=max_ms,
+        min_ms=min_ms,
+        min_silence_for_cut_ms=min_silence_for_cut_ms,
+    )
 
 
 def cut_slice(src: Path, start_ms: int, end_ms: int) -> Path:

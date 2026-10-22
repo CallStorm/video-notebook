@@ -131,7 +131,7 @@ export function SourceTranscript({
       </div>
 
       <section
-        className={`rounded-2xl border border-border/80 bg-card ${guideOpen ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "shrink-0"}`}
+        className={`rounded-2xl border border-border/60 bg-gradient-to-br from-card to-accent/30 shadow-soft ${guideOpen ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "shrink-0"}`}
       >
         <button
           type="button"
@@ -149,15 +149,18 @@ export function SourceTranscript({
             ) : overviewStatus === "ready" && overviewText ? (
               <p className="whitespace-pre-wrap text-foreground">{overviewText}</p>
             ) : overviewStatus === "failed" ? (
-              <p className="text-destructive">{overviewError || "概览生成失败"}</p>
+              <div className="rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2 text-amber-900">
+                <p className="font-medium">概览生成失败</p>
+                <p className="mt-0.5 opacity-90">{overviewError || "可在来源菜单里点「重新生成」再试。"}</p>
+              </div>
             ) : (
-              <p>还没有概览。在来源列表里点「重新生成」，会同时重做字幕和这段概览。</p>
+              <p>还没有概览。字幕完成后通常会自动生成；也可在来源列表点「重新生成」重做字幕与概览。</p>
             )}
           </div>
         ) : null}
       </section>
 
-      <section className="shrink-0 overflow-hidden rounded-2xl border border-border/60 bg-player text-player-foreground">
+      <section className="player-island">
         {hasFile && play.data?.url ? (
           <video
             key={play.data.url}
@@ -180,7 +183,7 @@ export function SourceTranscript({
 
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-          <h4 className="text-sm font-medium">字幕</h4>
+          <h4 className="text-sm font-semibold tracking-tight">字幕</h4>
           <div className="flex gap-1">
             <Button
               size="sm"
@@ -219,8 +222,8 @@ export function SourceTranscript({
                 <p
                   id={`cue-${line.line_no}`}
                   key={line.line_no}
-                  className={`rounded-md px-1.5 text-[13px] leading-6 ${
-                    focusLineNo === line.line_no ? "bg-accent text-foreground ring-1 ring-primary/20" : ""
+                  className={`rounded-lg px-2 py-1 text-[13px] leading-6 transition-colors hover:bg-accent/40 ${
+                    focusLineNo === line.line_no ? "bg-accent text-foreground ring-1 ring-primary/25" : ""
                   }`}
                 >
                   <span

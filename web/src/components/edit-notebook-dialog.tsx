@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles, X } from "lucide-react";
+import { formatDateZh } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { GeneratedCover } from "@/components/generated-cover";
@@ -72,13 +73,7 @@ export function EditNotebookDialog({
   if (!open || !notebook) return null;
 
   const previewMeta = [
-    notebook.updated_at
-      ? new Date(notebook.updated_at).toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        })
-      : "—",
+    formatDateZh(notebook.updated_at),
     (notebook.source_count ?? 0) === 1
       ? "1 个来源"
       : `${notebook.source_count ?? 0} 个来源`,

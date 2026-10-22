@@ -138,7 +138,7 @@ async def get_play_url(
     user: User = Depends(get_current_active_user),
 ):
     """v1 签发内部代理 URL（前端 /api/storage/{key}?token=...）。"""
-    v = await svc.get_video(session, owner_id=user.id, video_id=video_id)
+    v = await svc.get_video_readable(session, viewer_id=user.id, video_id=video_id)
     if not v.storage_key:
         from app.core.errors import NotFoundError
 
@@ -154,10 +154,10 @@ async def get_subtitle(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    from app.subtitles.pipeline import read_subtitle_for_owner
+    from app.subtitles.pipeline import read_subtitle_for_viewer
 
-    return await read_subtitle_for_owner(
-        session, owner_id=user.id, video_id=video_id
+    return await read_subtitle_for_viewer(
+        session, viewer_id=user.id, video_id=video_id
     )
 
 

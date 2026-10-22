@@ -30,8 +30,16 @@ class NotebookRead(BaseModel):
     cover_url: str | None = None
     is_pinned: bool
     share_all: bool
+    owner_id: int | None = None
+    owner_name: str | None = None
+    is_owner: bool | None = None
     source_count: int = 0
     note_count: int = 0
+    match_hint: str | None = None
+    # 向量索引状态（主人可见；列表/详情一并返回）
+    index_status: str | None = None
+    indexed_at: str | None = None
+    index_error: str | None = None
     created_at: str | None
     updated_at: str | None
 

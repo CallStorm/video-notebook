@@ -129,7 +129,7 @@ async def create_task(
     form = cap.form_json or []
     has_sources = any(field.get("type") == "sources" for field in form)
     has_language = any(field.get("type") == "language" for field in form)
-    text_fields = [field for field in form if field.get("type") == "text"]
+    value_fields = [field for field in form if field.get("type") in {"text", "select"}]
 
     if has_language:
         if body.language not in _ALLOWED_LANGUAGES:
@@ -145,15 +145,28 @@ async def create_task(
     elif body.video_ids or body.note_ids:
         raise BadRequestError("表单没有来源字段")
 
-    allowed_keys = {field["key"] for field in text_fields if "key" in field}
+    allowed_keys = {field["key"] for field in value_fields if "key" in field}
     extra = set(body.fields) - allowed_keys
     if extra:
         raise BadRequestError("未知字段")
     snapshot_fields: list[dict] = []
-    for field in text_fields:
+    for field in value_fields:
         key = field["key"]
         value = body.fields.get(key, "")
-        if field.get("required") and not str(value).strip():
+        if field.get("type") == "select":
+            options = {
+                opt.get("value")
+                for opt in (field.get("options") or [])
+                if isinstance(opt, dict)
+            }
+            if not str(value).strip():
+                default = field.get("default")
+                value = default if isinstance(default, str) else ""
+            if field.get("required") and not str(value).strip():
+                raise BadRequestError("必填选项不能为空")
+            if str(value).strip() and value not in options:
+                raise BadRequestError("选项无效")
+        elif field.get("required") and not str(value).strip():
             raise BadRequestError("必填文本不能为空")
         snapshot_fields.append(
             {"key": key, "label": field.get("label") or "", "value": value}
@@ -179,9 +192,13 @@ async def create_task(
     await session.refresh(task)
     try:
         enqueue_studio_task(task.id)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — surface broker/worker wiring failures
         task.status = "failed"
         task.error_code = "process_failed"
+        task.error_message = (
+            f"任务入队失败：{exc}" if str(exc).strip() else "任务入队失败，请检查 Celery studio worker"
+        )[-2000:]
+        task.finished_at = datetime.now(UTC).replace(tzinfo=None)
         session.add(task)
         await session.commit()
         await session.refresh(task)

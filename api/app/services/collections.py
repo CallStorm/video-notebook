@@ -60,6 +60,7 @@ async def _to_read(session: AsyncSession, collection: Collection) -> dict:
         "id": collection.id,
         "name": collection.name,
         "icon": collection.icon,
+        "cover_url": collection.cover_url,
         "notebook_count": await _notebook_count(session, collection.id),
         "preview_notebooks": await _preview_notebooks(session, collection.id),
         "created_at": _dt(collection.created_at),
@@ -93,11 +94,13 @@ async def create_collection(
     *,
     name: str,
     icon: str | None = None,
+    cover_url: str | None = None,
 ) -> dict:
     collection = Collection(
         owner_id=user_id,
         name=_normalize_name(name),
         icon=(icon.strip() if isinstance(icon, str) and icon.strip() else None),
+        cover_url=(cover_url.strip() if isinstance(cover_url, str) and cover_url.strip() else None),
     )
     session.add(collection)
     await session.commit()
@@ -125,7 +128,7 @@ async def _list_member_notebooks(session: AsyncSession, collection_id: int) -> l
             .order_by(Notebook.is_pinned.desc(), Notebook.id.desc())
         )
     ).scalars().all()
-    return [notebook_svc._to_read_dict(nb) for nb in rows]
+    return await notebook_svc.to_read_many(session, list(rows))
 
 
 async def update_collection(
@@ -136,12 +139,18 @@ async def update_collection(
     name: str | None = None,
     icon_provided: bool = False,
     icon: str | None = None,
+    cover_url_provided: bool = False,
+    cover_url: str | None = None,
 ) -> dict:
     collection = await get_owned_collection(session, user_id, collection_id)
     if name is not None:
         collection.name = _normalize_name(name)
     if icon_provided:
         collection.icon = icon.strip() if isinstance(icon, str) and icon.strip() else None
+    if cover_url_provided:
+        collection.cover_url = (
+            cover_url.strip() if isinstance(cover_url, str) and cover_url.strip() else None
+        )
     session.add(collection)
     await session.commit()
     await session.refresh(collection)

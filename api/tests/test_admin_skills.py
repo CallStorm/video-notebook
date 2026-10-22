@@ -142,3 +142,80 @@ async def test_list_skills_requires_admin(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 403
+
+
+
+def test_build_system_prompt_draft_is_complementary():
+    from app.services.skills import build_system_prompt_draft
+
+    prompt = build_system_prompt_draft(
+        skill_name="officecli-pptx",
+        skill_description="Use this skill any time a .pptx file is involved.",
+        agent_name="ppt专家",
+    )
+    assert "ppt专家" in prompt
+    assert "officecli-pptx" in prompt
+    assert ".claude/skills/officecli-pptx/" in prompt
+    assert "inputs.json" in prompt
+    assert "MANIFEST" in prompt
+    assert "不要把技能全文" in prompt
+    # must not dump the whole skill body
+    assert "Help-First Rule" not in prompt
+    assert "officecli help pptx" not in prompt
+
+
+async def test_system_prompt_draft_from_skill_md(client, admin_headers):
+    body = (
+        "---\n"
+        "name: officecli-pptx\n"
+        'description: "Use this skill any time a .pptx file is involved."\n'
+        "---\n\n"
+        "# OfficeCLI PPTX Skill\n"
+    )
+    created = await client.post(
+        "/api/admin/skills",
+        headers=admin_headers,
+        files={"file": ("skill.zip", _zip({"SKILL.md": body}), "application/zip")},
+    )
+    assert created.status_code == 201
+    skill_id = created.json()["id"]
+    assert created.json()["description"]
+    draft = await client.get(
+        f"/api/admin/skills/{skill_id}/system-prompt-draft",
+        headers=admin_headers,
+        params={"agent_name": "ppt专家"},
+    )
+    assert draft.status_code == 200
+    data = draft.json()
+    assert data["skill_name"] == "officecli-pptx"
+    assert "pptx" in (data["skill_description"] or "").lower()
+    assert "ppt专家" in data["system_prompt"]
+    assert ".claude/skills/officecli-pptx/" in data["system_prompt"]
+
+
+def test_build_system_prompt_draft_mindmap_adds_topic_rules():
+    from app.services.skills import build_system_prompt_draft
+
+    prompt = build_system_prompt_draft(
+        skill_name="mindmap-generator",
+        skill_description="Generate mind maps from documents.",
+        agent_name="思维导图专家",
+    )
+    assert "思维导图主题" in prompt
+    assert "key=topic" in prompt
+    assert "必要前提" in prompt
+    assert "完整大纲" in prompt
+    # still complementary — no skill body dump
+    assert "工作流程" not in prompt
+
+
+def test_build_system_prompt_draft_non_mindmap_skips_topic_section():
+    from app.services.skills import build_system_prompt_draft
+
+    prompt = build_system_prompt_draft(
+        skill_name="officecli-pptx",
+        skill_description="pptx",
+        agent_name="ppt专家",
+    )
+    assert "思维导图主题" not in prompt
+

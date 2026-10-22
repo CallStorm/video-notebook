@@ -1,10 +1,18 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AdminEmptyState,
+  AdminFieldLabel,
+  AdminLoading,
+  AdminPageHeader,
+  AdminSectionCard,
+  AdminStatusBadge,
+  AdminTableShell,
+} from "@/components/admin-shell";
 
 interface UserRow {
   id: number;
@@ -46,6 +54,11 @@ async function setDisabled(access: string, id: number, status: "active" | "disab
   });
 }
 
+const ROLE_LABEL: Record<string, string> = {
+  user: "普通用户",
+  admin: "管理员",
+};
+
 export function AdminUsersPage() {
   const { access } = useAuth();
   const qc = useQueryClient();
@@ -78,133 +91,155 @@ export function AdminUsersPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>新建账号</CardTitle>
-          <CardDescription>仅管理员可创建账号。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              create.mutate(form);
-            }}
-          >
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="账号管理"
+        description="创建账号、搜索与启用/禁用。仅管理员可操作。"
+      />
+
+      <AdminSectionCard title="新建账号" description="手机号作为登录名，初始密码至少 8 位。">
+        <form
+          className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate(form);
+          }}
+        >
+          <div className="space-y-1.5">
+            <AdminFieldLabel>手机号</AdminFieldLabel>
             <Input
-              placeholder="手机号"
+              placeholder="11 位手机号"
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               required
             />
+          </div>
+          <div className="space-y-1.5">
+            <AdminFieldLabel>姓名</AdminFieldLabel>
             <Input
-              placeholder="姓名"
+              placeholder="显示名称"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               required
             />
+          </div>
+          <div className="space-y-1.5">
+            <AdminFieldLabel>初始密码</AdminFieldLabel>
             <Input
-              placeholder="初始密码（≥8 位）"
+              placeholder="不少于 8 位"
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
               required
               minLength={8}
             />
+          </div>
+          <div className="space-y-1.5">
+            <AdminFieldLabel>角色</AdminFieldLabel>
             <select
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="admin-select"
               value={form.role}
               onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as "user" | "admin" }))}
             >
               <option value="user">普通用户</option>
               <option value="admin">管理员</option>
             </select>
-            <div className="md:col-span-2 lg:col-span-4">
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? "创建中…" : "创建"}
-              </Button>
-              {create.error instanceof ApiError && (
-                <p className="mt-2 text-sm text-destructive">
-                  {create.error.code}: {create.error.message}
-                </p>
-              )}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>账号列表</CardTitle>
-          <CardDescription>共 {list.data?.total ?? "—"} 条。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4">
-            <Input
-              placeholder="按手机号 / 姓名搜索"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
           </div>
-          {list.isLoading && <p className="text-sm text-muted-foreground">加载中…</p>}
-          {list.error instanceof ApiError && (
-            <p className="text-sm text-destructive">
-              {list.error.code}: {list.error.message}
-            </p>
-          )}
-          {list.data && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 pr-4">手机号</th>
-                    <th className="py-2 pr-4">姓名</th>
-                    <th className="py-2 pr-4">角色</th>
-                    <th className="py-2 pr-4">状态</th>
-                    <th className="py-2 pr-4">最近登录</th>
-                    <th className="py-2 pr-4">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.data.items.map((u) => (
-                    <tr key={u.id} className="border-b">
-                      <td className="py-2 pr-4 font-mono">{u.phone}</td>
-                      <td className="py-2 pr-4">{u.name}</td>
-                      <td className="py-2 pr-4">{u.role}</td>
-                      <td className="py-2 pr-4">{u.status}</td>
-                      <td className="py-2 pr-4 text-muted-foreground">
-                        {u.last_login_at ?? "—"}
-                      </td>
-                      <td className="py-2 pr-4">
-                        {u.status === "active" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => flip.mutate({ id: u.id, status: "disabled" })}
-                            disabled={flip.isPending}
-                          >
-                            禁用
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => flip.mutate({ id: u.id, status: "active" })}
-                            disabled={flip.isPending}
-                          >
-                            启用
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          <div className="md:col-span-2 lg:col-span-4">
+            <Button type="submit" className="rounded-full" disabled={create.isPending}>
+              {create.isPending ? "创建中…" : "创建账号"}
+            </Button>
+            {create.error instanceof ApiError && (
+              <p className="mt-2 text-sm text-destructive">
+                {create.error.code}: {create.error.message}
+              </p>
+            )}
+          </div>
+        </form>
+      </AdminSectionCard>
+
+      <AdminSectionCard
+        title="账号列表"
+        description={`共 ${list.data?.total ?? "—"} 条`}
+        action={
+          <Input
+            className="w-44 sm:w-56"
+            placeholder="搜索手机号 / 姓名"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        }
+      >
+        {list.isLoading && <AdminLoading />}
+        {list.error instanceof ApiError && (
+          <p className="text-sm text-destructive">
+            {list.error.code}: {list.error.message}
+          </p>
+        )}
+        {list.data && list.data.items.length === 0 ? (
+          <AdminEmptyState title="暂无账号" description="可用上方表单创建第一个账号。" />
+        ) : null}
+        {list.data && list.data.items.length > 0 ? (
+          <AdminTableShell>
+            <thead>
+              <tr>
+                <th>手机号</th>
+                <th>姓名</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>最近登录</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.data.items.map((u) => (
+                <tr key={u.id}>
+                  <td className="font-mono text-xs">{u.phone}</td>
+                  <td className="font-medium">{u.name}</td>
+                  <td>
+                    <AdminStatusBadge tone={u.role === "admin" ? "info" : "idle"}>
+                      {ROLE_LABEL[u.role] ?? u.role}
+                    </AdminStatusBadge>
+                  </td>
+                  <td>
+                    <AdminStatusBadge tone={u.status === "active" ? "ok" : "warn"}>
+                      {u.status === "active" ? "启用" : "已禁用"}
+                    </AdminStatusBadge>
+                  </td>
+                  <td className="text-muted-foreground text-xs">
+                    {u.last_login_at
+                      ? new Date(u.last_login_at).toLocaleString("zh-CN")
+                      : "—"}
+                  </td>
+                  <td>
+                    {u.status === "active" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => flip.mutate({ id: u.id, status: "disabled" })}
+                        disabled={flip.isPending}
+                      >
+                        禁用
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => flip.mutate({ id: u.id, status: "active" })}
+                        disabled={flip.isPending}
+                      >
+                        启用
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </AdminTableShell>
+        ) : null}
+      </AdminSectionCard>
     </div>
   );
 }

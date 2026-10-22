@@ -17,11 +17,10 @@ import httpx
 
 from app.llm.config_service import SttResolved
 from app.subtitles.cues import distribute, expand_cues, split_subtitle_lines
+from app.subtitle_slice_settings.runtime import get_settings_fresh
 from app.subtitles.media import (
-    AudioSlice,
     build_speech_ranges,
     cut_slice,
-    materialize_slices,
     probe_duration_ms,
 )
 from app.subtitles.srt import Cue, parse_srt
@@ -94,21 +93,29 @@ async def transcribe_file(stt: SttResolved, audio_path: str) -> tuple[list[Cue],
         if duration_ms <= probe_ms + 3_000 and probed.text:
             return distribute(split_subtitle_lines(probed.text), 0, duration_ms), probed.language
 
-        ranges = await asyncio.to_thread(build_speech_ranges, path, duration_ms)
+        slice_cfg = get_settings_fresh()
+        ranges = await asyncio.to_thread(
+            build_speech_ranges,
+            path,
+            duration_ms,
+            max_ms=slice_cfg.max_slice_ms,
+            min_ms=slice_cfg.min_slice_ms,
+            silence_noise_db=slice_cfg.silence_noise_db,
+            silence_min_duration_s=slice_cfg.silence_min_duration_s,
+            min_silence_for_cut_ms=slice_cfg.min_silence_for_cut_ms,
+        )
         if not ranges:
             ranges = [(0, duration_ms)]
         logger.info(
-            "chunked transcription model=%s slices=%s duration_ms=%s",
+            "chunked transcription model=%s slices=%s duration_ms=%s max_slice_ms=%s",
             stt.model_name,
             len(ranges),
             duration_ms,
+            slice_cfg.max_slice_ms,
         )
-        slices = await asyncio.to_thread(materialize_slices, path, ranges)
-        try:
-            return await _transcribe_slices(client, stt, slices, fallback_language=probed.language)
-        finally:
-            for item in slices:
-                item.path.unlink(missing_ok=True)
+        return await _transcribe_ranges(
+            client, stt, path, ranges, fallback_language=probed.language
+        )
 
 
 async def _request_transcript(
@@ -129,6 +136,7 @@ async def _request_transcript(
     payload = audio_path.read_bytes()
     filename = audio_path.name
     last_error = "语音转写失败"
+    empty_ok: ParsedTranscript | None = None
     for fields in formats:
         response = await _post_audio(client, stt, payload, filename, fields)
         if response.status_code in (401, 403):
@@ -145,42 +153,52 @@ async def _request_transcript(
         if parsed.timestamped or parsed.text:
             # verbose_json 若只回了 text，说明对方忽略了时间轴，不必再把同一段传一次。
             return parsed
+        # SenseVoice 等对静音/噪声片会回 HTTP 200 + text=""。切片场景应跳过，不能整集失败。
+        empty_ok = parsed
+    if empty_ok is not None:
+        return empty_ok
     raise TranscribeError(last_error)
 
 
-async def _transcribe_slices(
+async def _transcribe_ranges(
     client: httpx.AsyncClient,
     stt: SttResolved,
-    slices: list[AudioSlice],
+    src: Path,
+    ranges: list[tuple[int, int]],
     *,
     fallback_language: str | None,
 ) -> tuple[list[Cue], str | None]:
+    """按时间范围边切边转，避免一次物化上百个临时文件。"""
     semaphore = asyncio.Semaphore(3)
     language = fallback_language
 
-    async def one(item: AudioSlice) -> tuple[list[Cue], str | None]:
+    async def one(start_ms: int, end_ms: int) -> tuple[list[Cue], str | None]:
         async with semaphore:
-            if item.path.stat().st_size == 0:
-                return [], None
-            parsed = await _request_transcript(
-                client, stt, item.path, want_timestamps=False
-            )
-            if not parsed.text and not parsed.cues:
-                return [], parsed.language
-            if parsed.timestamped:
-                shifted = [
-                    Cue(
-                        start_ms=cue.start_ms + item.start_ms,
-                        end_ms=cue.end_ms + item.start_ms,
-                        text=cue.text,
-                    )
-                    for cue in parsed.cues
-                ]
-                return expand_cues(shifted), parsed.language
-            lines = split_subtitle_lines(parsed.text)
-            return distribute(lines, item.start_ms, item.end_ms), parsed.language
+            slice_path = await asyncio.to_thread(cut_slice, src, start_ms, end_ms)
+            try:
+                if slice_path.stat().st_size == 0:
+                    return [], None
+                parsed = await _request_transcript(
+                    client, stt, slice_path, want_timestamps=False
+                )
+                if not parsed.text and not parsed.cues:
+                    return [], parsed.language
+                if parsed.timestamped:
+                    shifted = [
+                        Cue(
+                            start_ms=cue.start_ms + start_ms,
+                            end_ms=cue.end_ms + start_ms,
+                            text=cue.text,
+                        )
+                        for cue in parsed.cues
+                    ]
+                    return expand_cues(shifted), parsed.language
+                lines = split_subtitle_lines(parsed.text)
+                return distribute(lines, start_ms, end_ms), parsed.language
+            finally:
+                slice_path.unlink(missing_ok=True)
 
-    parts = await asyncio.gather(*(one(item) for item in slices))
+    parts = await asyncio.gather(*(one(start, end) for start, end in ranges))
     cues: list[Cue] = []
     for part_cues, part_language in parts:
         cues.extend(part_cues)

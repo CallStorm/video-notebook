@@ -3,7 +3,6 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
 import { useAuth, type AuthUser } from "@/lib/auth";
 
@@ -46,54 +45,52 @@ export function LoginForm() {
   };
 
   return (
-    <Card className="w-full max-w-sm rounded-2xl border-border/80 shadow-soft">
-      <CardContent className="pt-6">
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="phone" className="text-sm font-medium">
-              手机号
-            </label>
-            <Input
-              id="phone"
-              name="phone"
-              type="tel"
-              autoComplete="username"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="13800000000"
-              className="rounded-xl"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium">
-              密码
-            </label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded-xl"
-              required
-            />
-          </div>
-          {mutation.error instanceof ApiError && (
-            <p className="text-sm text-destructive">
-              {mutation.error.code}: {mutation.error.message}
-            </p>
-          )}
-          <Button
-            type="submit"
-            disabled={mutation.isPending}
-            className="w-full rounded-full"
-          >
-            {mutation.isPending ? "登录中…" : "登录"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <div className="glass-card w-full max-w-sm p-6">
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <label htmlFor="phone" className="text-sm font-medium">
+            手机号
+          </label>
+          <Input
+            id="phone"
+            name="phone"
+            type="tel"
+            autoComplete="username"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="13800000000"
+            className="h-11 rounded-xl bg-background/80"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="password" className="text-sm font-medium">
+            密码
+          </label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="h-11 rounded-xl bg-background/80"
+            required
+          />
+        </div>
+        {mutation.error instanceof ApiError && (
+          <p className="rounded-xl bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {mutation.error.message}
+          </p>
+        )}
+        <Button
+          type="submit"
+          disabled={mutation.isPending}
+          className="h-11 w-full rounded-full text-sm font-semibold"
+        >
+          {mutation.isPending ? "登录中…" : "登录"}
+        </Button>
+      </form>
+    </div>
   );
 }

@@ -2,8 +2,15 @@ import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  AdminEmptyState,
+  AdminLoading,
+  AdminPageHeader,
+  AdminSectionCard,
+  AdminStatusBadge,
+  AdminTableShell,
+} from "@/components/admin-shell";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -41,7 +48,16 @@ type TextField = {
   required: boolean;
   multiline: boolean;
 };
-type FormField = SourcesField | LanguageField | TextField;
+type SelectOption = { value: string; label: string };
+type SelectField = {
+  type: "select";
+  key: string;
+  label: string;
+  required: boolean;
+  default?: string;
+  options: SelectOption[];
+};
+type FormField = SourcesField | LanguageField | TextField | SelectField;
 
 interface CapabilityFormState {
   name: string;
@@ -59,7 +75,7 @@ const EMPTY_FORM: CapabilityFormState = {
   form: [],
 };
 
-const SELECT_CLASS = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
+const SELECT_CLASS = "admin-select";
 
 function parseForm(raw: unknown): FormField[] {
   if (!Array.isArray(raw)) return [];
@@ -78,6 +94,27 @@ function parseForm(raw: unknown): FormField[] {
         required: Boolean(rec.required),
         multiline: Boolean(rec.multiline),
       });
+    } else if (rec.type === "select") {
+      const optionsRaw = Array.isArray(rec.options) ? rec.options : [];
+      const options: SelectOption[] = [];
+      for (const opt of optionsRaw) {
+        if (!opt || typeof opt !== "object") continue;
+        const o = opt as Record<string, unknown>;
+        if (typeof o.value !== "string" || !o.value) continue;
+        options.push({
+          value: o.value,
+          label: typeof o.label === "string" && o.label ? o.label : o.value,
+        });
+      }
+      const item: SelectField = {
+        type: "select",
+        key: typeof rec.key === "string" ? rec.key : "",
+        label: typeof rec.label === "string" ? rec.label : "",
+        required: Boolean(rec.required),
+        options,
+      };
+      if (typeof rec.default === "string" && rec.default) item.default = rec.default;
+      out.push(item);
     }
   }
   return out;
@@ -85,7 +122,18 @@ function parseForm(raw: unknown): FormField[] {
 
 function toApiForm(fields: FormField[]): Record<string, unknown>[] {
   return fields.map((field) => {
-    if (field.type !== "text") return { type: field.type };
+    if (field.type === "sources" || field.type === "language") return { type: field.type };
+    if (field.type === "select") {
+      const item: Record<string, unknown> = {
+        type: "select",
+        key: field.key,
+        label: field.label,
+        required: field.required,
+        options: field.options,
+      };
+      if (field.default) item.default = field.default;
+      return item;
+    }
     const item: Record<string, unknown> = {
       type: "text",
       key: field.key,
@@ -214,10 +262,10 @@ function FormFieldEditor({
         </Button>
       </div>
       {fields.map((field, index) => (
-        <div key={`${field.type}-${index}`} className="space-y-2 rounded-md border p-3">
+        <div key={`${field.type}-${index}`} className="admin-inline-form">
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-medium">
-              {field.type === "sources" ? "来源" : field.type === "language" ? "语言" : "文本"}
+              {field.type === "sources" ? "来源" : field.type === "language" ? "语言" : field.type === "select" ? "下拉" : "文本"}
             </span>
             <Button
               type="button"
@@ -265,6 +313,22 @@ function FormFieldEditor({
                 <option value="single">单行</option>
                 <option value="multiline">多行</option>
               </select>
+            </div>
+          )}
+          {field.type === "select" && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                key=<span className="font-mono">{field.key || "—"}</span>
+                {field.default ? ` · 默认 ${field.default}` : ""}
+              </p>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {field.options.map((opt) => (
+                  <li key={opt.value}>
+                    {opt.label} <span className="font-mono text-[10px]">({opt.value})</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-muted-foreground">预置下拉由代码维护；保存时会原样回写。</p>
             </div>
           )}
         </div>
@@ -330,20 +394,16 @@ export function AdminStudioPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Studio 能力</h2>
-        <p className="text-sm text-muted-foreground">
-          配置产物格式、智能体和用户表单。创建后格式不可改。
-        </p>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="Studio 能力"
+        description="配置产物格式、绑定智能体与用户表单。创建后产物格式不可再改。"
+      />
 
-      <Card>
-          <CardHeader>
-            <CardTitle>{editingId === null ? "新建能力" : `编辑能力 #${editingId}`}</CardTitle>
-            <CardDescription>表单字段只有来源、语言和文本三种。</CardDescription>
-          </CardHeader>
-          <CardContent>
+      <AdminSectionCard
+        title={editingId === null ? "新建能力" : `编辑能力 #${editingId}`}
+        description="表单字段支持来源、语言、文本；预置下拉由代码维护。"
+      >
             <form
               className="space-y-3"
               onSubmit={(e) => {
@@ -423,16 +483,10 @@ export function AdminStudioPanel() {
             {save.error instanceof ApiError && (
               <p className="mt-2 text-sm text-destructive">{save.error.message}</p>
             )}
-          </CardContent>
-        </Card>
+      </AdminSectionCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>能力列表</CardTitle>
-            <CardDescription>共 {list.data?.length ?? "—"} 条。</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {list.isLoading && <p className="text-sm text-muted-foreground">加载中…</p>}
+        <AdminSectionCard title="能力列表" description={`共 ${list.data?.length ?? "—"} 条`}>
+            {list.isLoading && <AdminLoading />}
             {list.error instanceof ApiError && (
               <p className="text-sm text-destructive">{list.error.message}</p>
             )}
@@ -442,28 +496,34 @@ export function AdminStudioPanel() {
             {remove.error instanceof ApiError && (
               <p className="mb-3 text-sm text-destructive">{remove.error.message}</p>
             )}
-            {list.data && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-2 pr-4">图标</th>
-                      <th className="py-2 pr-4">名称</th>
-                      <th className="py-2 pr-4">产物格式</th>
-                      <th className="py-2 pr-4">智能体</th>
-                      <th className="py-2 pr-4">启用</th>
-                      <th className="py-2 pr-4">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+            {list.data && list.data.length === 0 ? (
+              <AdminEmptyState title="暂无能力" description="创建能力后会出现在笔记本右侧 Studio。" />
+            ) : null}
+            {list.data && list.data.length > 0 ? (
+              <AdminTableShell>
+                <thead>
+                  <tr>
+                    <th>图标</th>
+                    <th>名称</th>
+                    <th>产物格式</th>
+                    <th>智能体</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
                     {list.data.map((cap) => (
-                      <tr key={cap.id} className="border-b">
-                        <td className="py-2 pr-4">{cap.icon ?? "—"}</td>
-                        <td className="py-2 pr-4">{cap.name}</td>
-                        <td className="py-2 pr-4">{formatLabel(cap.format_key)}</td>
-                        <td className="py-2 pr-4">{agentName(cap.agent_id)}</td>
-                        <td className="py-2 pr-4">{cap.enabled ? "启用" : "停用"}</td>
-                        <td className="py-2 pr-4">
+                      <tr key={cap.id}>
+                        <td className="text-lg leading-none">{cap.icon ?? "—"}</td>
+                        <td className="font-medium">{cap.name}</td>
+                        <td className="text-muted-foreground">{formatLabel(cap.format_key)}</td>
+                        <td className="text-muted-foreground">{agentName(cap.agent_id)}</td>
+                        <td>
+                          <AdminStatusBadge tone={cap.enabled ? "ok" : "idle"}>
+                            {cap.enabled ? "启用" : "停用"}
+                          </AdminStatusBadge>
+                        </td>
+                        <td>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               size="sm"
@@ -515,11 +575,9 @@ export function AdminStudioPanel() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              </AdminTableShell>
+            ) : null}
+      </AdminSectionCard>
     </div>
   );
 }

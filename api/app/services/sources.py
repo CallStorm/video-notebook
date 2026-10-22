@@ -266,6 +266,33 @@ async def get_video(
     return v
 
 
+async def get_video_readable(
+    session: AsyncSession, *, viewer_id: int, video_id: int
+) -> Video:
+    """主人可读；或视频挂在任意 share_all 笔记本上时，登录用户可读。"""
+    from app.models.notebook import Notebook, NotebookSource
+
+    v = await session.get(Video, video_id)
+    if v is None:
+        raise NotFoundError(f"video {video_id} 不存在")
+    if v.owner_id == viewer_id:
+        return v
+    shared = await session.scalar(
+        select(Notebook.id)
+        .join(NotebookSource, NotebookSource.notebook_id == Notebook.id)
+        .where(
+            NotebookSource.video_id == video_id,
+            Notebook.share_all.is_(True),
+            Notebook.deleted_at.is_(None),
+            Notebook.owner_id == v.owner_id,
+        )
+        .limit(1)
+    )
+    if shared is None:
+        raise NotFoundError(f"video {video_id} 不存在")
+    return v
+
+
 async def get_subtitle_lines(
     session: AsyncSession, *, owner_id: int, video_id: int
 ) -> list[SubtitleLine] | None:

@@ -6,10 +6,15 @@ import { api, ApiError } from "@/lib/api";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  AdminLoading,
+  AdminPageHeader,
+  AdminSectionCard,
+  AdminStatusBadge,
+} from "@/components/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DiscoverModelsDialog } from "@/components/discover-models-dialog";
@@ -45,7 +50,7 @@ interface ModelRow {
 }
 
 interface DefaultModelRow {
-  role: "chat" | "tts" | "stt" | "logo";
+  role: "chat" | "tts" | "stt" | "logo" | "embedding";
   model_id: number | null;
 }
 
@@ -128,13 +133,13 @@ async function testModelRequest(
 
 // ─── helpers ────────────────────────────────────────────────────────────
 const MODALITY_LABEL: Record<string, string> = {
-  language: "Chat",
-  embedding: "Embed",
-  speech_to_text: "STT",
-  text_to_speech: "TTS",
+  language: "对话",
+  embedding: "向量",
+  speech_to_text: "语音转文字",
+  text_to_speech: "文字转语音",
 };
 
-const MODALITY_COLOR_ACTIVE = "bg-blue-100 text-blue-700 border-blue-200";
+const MODALITY_COLOR_ACTIVE = "bg-primary/10 text-primary border-primary/20";
 const MODALITY_COLOR_INACTIVE = "bg-muted text-muted-foreground border-muted";
 
 function ModalityBadge({ type, active }: { type: string; active: boolean }) {
@@ -149,11 +154,12 @@ function ModalityBadge({ type, active }: { type: string; active: boolean }) {
   );
 }
 
-const ROLE_MODEL_TYPE: Record<string, "language" | "text_to_speech" | "speech_to_text"> = {
+const ROLE_MODEL_TYPE: Record<string, "language" | "text_to_speech" | "speech_to_text" | "embedding"> = {
   chat: "language",
   tts: "text_to_speech",
   stt: "speech_to_text",
   logo: "language",
+  embedding: "embedding",
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -161,6 +167,7 @@ const ROLE_LABEL: Record<string, string> = {
   tts: "文字转语音",
   stt: "语音转文字",
   logo: "生成图标",
+  embedding: "向量模型",
 };
 
 // ─── page ─────────────────────────────────────────────────────────────
@@ -194,7 +201,7 @@ export function AdminConfigsPage() {
     models.isLoading ||
     defaults.isLoading
   ) {
-    return <p className="text-sm text-muted-foreground">加载中…</p>;
+    return <AdminLoading label="正在加载模型配置…" />;
   }
 
   const sortedProviders = (providers.data ?? []).slice().sort((a, b) => {
@@ -204,14 +211,12 @@ export function AdminConfigsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-        <Key className="h-5 w-5 text-muted-foreground" />
-        模型配置
-      </h1>
-      <p className="text-sm text-muted-foreground">
-        按 open-notebook 风格组织：顶部选默认模型，下方按 Provider 卡片管理凭证与命名模型。
-      </p>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="模型配置"
+        description="先选默认模型，再按服务商管理凭证与命名模型。"
+        action={<Key className="h-5 w-5 text-muted-foreground" />}
+      />
 
       {models.data && defaults.data && (
         <DefaultModelSelectors
@@ -244,20 +249,14 @@ export function AdminConfigsPage() {
 
 function NoAccessCard() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>登录态丢失</CardTitle>
-        <CardDescription>请重新登录后再访问本页。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <a
-          href="/login"
-          className="inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          跳到登录页
-        </a>
-      </CardContent>
-    </Card>
+    <AdminSectionCard title="登录态丢失" description="请重新登录后再访问本页。">
+      <a
+        href="/login"
+        className="inline-flex rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-glow"
+      >
+        跳到登录页
+      </a>
+    </AdminSectionCard>
   );
 }
 
@@ -283,15 +282,11 @@ function DefaultModelSelectors({
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>默认模型</CardTitle>
-        <CardDescription>
-          系统会按 role 取这里选定的模型。Chat 是必填，TTS / STT 可留空。
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <AdminSectionCard
+      title="默认模型"
+      description="按用途选用模型。对话与向量（语义检索）建议配置；文字转语音 / 语音转文字可留空。"
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {defaults.map((row) => {
             const modelType = ROLE_MODEL_TYPE[row.role];
             const available = models.filter((m) => m.type === modelType);
@@ -303,7 +298,7 @@ function DefaultModelSelectors({
                 </label>
                 <div className="flex gap-1">
                   <select
-                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    className="admin-select h-9"
                     value={row.model_id ?? ""}
                     onChange={(e) =>
                       set.mutate({ role: row.role, model_id: Number(e.target.value) })
@@ -341,8 +336,7 @@ function DefaultModelSelectors({
             );
           })}
         </div>
-      </CardContent>
-    </Card>
+    </AdminSectionCard>
   );
 }
 
@@ -362,11 +356,11 @@ function ProviderSection({
 }) {
   const hasCreds = credentials.length > 0;
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="admin-section-card">
+      <CardHeader className="admin-section-header pb-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <CardTitle className="text-lg capitalize">
+            <CardTitle className="admin-section-title capitalize">
               {provider.display_name}
             </CardTitle>
             <div className="flex flex-wrap gap-1">
@@ -376,13 +370,11 @@ function ProviderSection({
             </div>
           </div>
           {hasCreds ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+            <AdminStatusBadge tone="ok">
               <Check className="h-3 w-3" /> 已配置
-            </span>
+            </AdminStatusBadge>
           ) : (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
-              未配置
-            </span>
+            <AdminStatusBadge tone="idle">未配置</AdminStatusBadge>
           )}
         </div>
       </CardHeader>
@@ -446,7 +438,7 @@ function CredentialItem({
   });
 
   return (
-    <div className="space-y-2 rounded-md border p-3">
+    <div className="admin-inline-form">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{credential.name}</span>
@@ -468,10 +460,10 @@ function CredentialItem({
             variant="ghost"
             onClick={() => testCred.mutate()}
             disabled={testCred.isPending || !credential.has_api_key}
-            title="测试连通"
+            title="测试连通性"
           >
             <Plug className="h-4 w-4" />
-            <span className="ml-1 hidden text-xs sm:inline">Test</span>
+            <span className="ml-1 hidden text-xs sm:inline">测试</span>
           </Button>
           <Button
             type="button"
@@ -498,17 +490,13 @@ function CredentialItem({
 
       {testResult && (
         <div
-          className={`rounded border p-2 text-xs ${
-            testResult.ok
-              ? "border-emerald-300 bg-emerald-50"
-              : "border-red-300 bg-red-50"
-          }`}
+          className={`rounded-xl border p-2.5 text-xs ${testResult.ok ? "border-[hsl(var(--success))]/30 bg-[hsl(172_50%_94%)]" : "border-destructive/30 bg-destructive/5"}`}
         >
           <div className="text-muted-foreground">
             {testResult.provider ?? "—"} · {testResult.latency_ms} ms
           </div>
           {testResult.ok ? (
-            <p className="text-emerald-700">
+            <p className="text-[hsl(var(--success))]">
               {testResult.message ?? testResult.response ?? "OK"}
             </p>
           ) : (
@@ -587,10 +575,10 @@ function CredentialItem({
             onClick={() => setShowDiscover(true)}
             className="w-full text-xs"
             disabled={!credential.has_api_key}
-            title={credential.has_api_key ? "从 provider 拉取模型列表" : "先设置 API Key"}
+            title={credential.has_api_key ? "从服务商拉取模型列表" : "先设置 API Key"}
           >
             <Plug className="h-3 w-3" />
-            <span className="ml-1">发现模型（从 provider 拉取）</span>
+            <span className="ml-1">发现模型（从服务商拉取）</span>
           </Button>
           <Button
             type="button"
@@ -693,7 +681,7 @@ function AddCredentialForm({
 
   return (
     <form
-      className="space-y-2 rounded-md border bg-muted/30 p-3"
+      className="admin-inline-form"
       onSubmit={(e) => {
         e.preventDefault();
         if (name && apiKey) create.mutate();
@@ -721,7 +709,7 @@ function AddCredentialForm({
         />
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">modality:</span>
+        <span className="text-muted-foreground">能力类型：</span>
         {(spec?.modalities ?? []).map((m) => (
           <label key={m} className="inline-flex items-center gap-1">
             <input
@@ -795,7 +783,7 @@ function EditCredentialForm({
 
   return (
     <form
-      className="space-y-2 rounded-md border bg-muted/30 p-3"
+      className="admin-inline-form"
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate();
@@ -863,7 +851,7 @@ function AddModelForm({
 
   return (
     <form
-      className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2"
+      className="admin-inline-form flex flex-wrap items-center gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         if (name && !dup) create.mutate();
@@ -877,7 +865,7 @@ function AddModelForm({
         className="max-w-[180px]"
       />
       <select
-        className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+        className="admin-select h-9 w-auto"
         value={type}
         onChange={(e) => setType(e.target.value)}
       >

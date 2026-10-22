@@ -63,19 +63,52 @@ def _inspect_zip(data: bytes) -> tuple[str, str]:
         return prefix, zf.read(member).decode("utf-8")
 
 
-def _frontmatter_name(text: str) -> str | None:
+def _parse_frontmatter(text: str) -> dict[str, str]:
+    """Parse simple YAML-like frontmatter keys (name / description)."""
     if not text.startswith("---"):
-        return None
+        return {}
     rest = text[3:]
     end = rest.find("\n---")
     if end < 0:
-        return None
+        return {}
+    result: dict[str, str] = {}
+    current_key: str | None = None
+    current_parts: list[str] = []
+
+    def _flush() -> None:
+        nonlocal current_key, current_parts
+        if current_key is None:
+            return
+        value = " ".join(part.strip() for part in current_parts).strip().strip("'\"")
+        if value:
+            result[current_key] = value
+        current_key = None
+        current_parts = []
+
     for line in rest[:end].splitlines():
         stripped = line.strip()
-        if stripped.lower().startswith("name:"):
-            value = stripped.split(":", 1)[1].strip().strip("'\"")
-            return value or None
-    return None
+        if not stripped:
+            continue
+        if ":" in stripped and not stripped.startswith("#"):
+            key, raw = stripped.split(":", 1)
+            key_l = key.strip().lower()
+            if key_l in {"name", "description"}:
+                _flush()
+                current_key = key_l
+                current_parts = [raw.strip()]
+                continue
+        if current_key is not None:
+            current_parts.append(stripped)
+    _flush()
+    return result
+
+
+def _frontmatter_name(text: str) -> str | None:
+    return _parse_frontmatter(text).get("name") or None
+
+
+def _frontmatter_description(text: str) -> str | None:
+    return _parse_frontmatter(text).get("description") or None
 
 
 def _extract(data: bytes, dest: Path, prefix: str) -> tuple[int, int]:
@@ -132,12 +165,13 @@ async def create_skill_from_zip(session: AsyncSession, *, uploaded_by: int, data
         raise BadRequestError("技能包超过 32MB")
     prefix, skill_md = _inspect_zip(data)
     name = _frontmatter_name(skill_md)
+    description = _frontmatter_description(skill_md)
     if name:
         await _ensure_unique_name(session, name)
 
     skill = Skill(
         name=name or "pending",
-        description=None,
+        description=description,
         version=None,
         storage_path="",
         file_count=0,
@@ -221,3 +255,123 @@ def skill_zip_bytes(skill: Skill) -> bytes:
                 if path.is_file():
                     zf.write(path, path.relative_to(root).as_posix())
     return buf.getvalue()
+
+
+def read_skill_markdown(skill: Skill) -> str | None:
+    """Return SKILL.md text from the extracted skill directory, if present."""
+    root = Path(skill.storage_path)
+    path = root / _SKILL_MD
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def skill_meta_for_prompt(skill: Skill) -> tuple[str, str | None]:
+    """Name + description for drafting an agent system prompt.
+
+    Prefer live SKILL.md frontmatter (authoritative), then DB fields.
+    """
+    md = read_skill_markdown(skill)
+    fm = _parse_frontmatter(md) if md else {}
+    name = (fm.get("name") or skill.name or "").strip() or skill.name
+    description = (fm.get("description") or skill.description or "").strip() or None
+    return name, description
+
+
+def _infer_role(skill_name: str, agent_name: str | None) -> str:
+    if agent_name and agent_name.strip():
+        return agent_name.strip()
+    lowered = skill_name.lower()
+    if any(token in lowered for token in ("pptx", "ppt", "slide", "deck", "officecli")):
+        return "PPT / 演示文稿专家"
+    if any(token in lowered for token in ("mindmap", "mind-map", "导图")):
+        return "思维导图专家"
+    return f"{skill_name} 专家"
+
+
+
+def _is_mindmap_skill(skill_name: str) -> bool:
+    lowered = skill_name.lower()
+    return any(token in lowered for token in ("mindmap", "mind-map", "导图"))
+
+
+def build_system_prompt_draft(
+    *,
+    skill_name: str,
+    skill_description: str | None = None,
+    agent_name: str | None = None,
+) -> str:
+    """Draft a complementary system prompt for Studio + Claude Code.
+
+    Runtime already:
+    - copies the skill into `.claude/skills/<name>/` (Claude Code loads SKILL.md);
+    - prepends format-specific output instructions;
+    - appends a fixed prompt about inputs.json / outputs / MANIFEST.
+
+    So this draft must NOT paste the whole skill body or repeat MANIFEST schema.
+    It should set role, scope, skill usage, language, and failure behavior.
+    """
+    role = _infer_role(skill_name, agent_name)
+    desc = (skill_description or "").strip()
+    if len(desc) > 280:
+        desc = desc[:277].rstrip() + "…"
+    desc_block = (
+        f"- 技能用途（摘要）：{desc}"
+        if desc
+        else "- 技能用途：以 `.claude/skills` 中该技能的 SKILL.md 为准。"
+    )
+    lines = [
+        f"你是「{role}」，在视频笔记 Studio 任务中完成交付。",
+        "",
+        "## 技能",
+        f"- 已绑定技能：`{skill_name}`。运行时会出现在 `.claude/skills/{skill_name}/`，请严格按该目录下 SKILL.md 的工作流、工具与质量门槛执行。",
+        desc_block,
+        "- 不要把技能全文复述进回复；需要细节时查阅技能文件与其 help，不要臆造命令或参数。",
+        "",
+        "## 输入与交付",
+        "- 先阅读工作区 `inputs.json`（含 language、fields、sources：视频字幕与笔记文本），据此理解任务目标与可用材料。",
+        "- 主产物与 `outputs/MANIFEST.json` 必须写在 `outputs/`；路径、mime、MANIFEST 字段以任务提示中的格式说明与固定约定为准，不要改成技能自有清单结构。",
+        "- 不要修改 `inputs.json`。",
+    ]
+    if _is_mindmap_skill(skill_name):
+        lines.extend(
+            [
+                "",
+                "## 思维导图主题",
+                "- `fields` 中 `key=topic` 是聚焦问题与导图形态：有主题时只展开直接相关分支，勿按来源做全章目录式覆盖。",
+                "- 纯背景、征兆清单、宏观叙事等无关块默认省略；必要时最多一个短「必要前提」节点。",
+                "- 仅当主题为空或用户明确要完整大纲时，才按全文做结构导图。产物格式细则以任务提示中的格式说明为准。",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## 原则",
+            "- 输出语言：若 `inputs.json.language` 有指定则用该语言，否则默认中文。",
+            "- 材料不足时：在已有 sources/fields 范围内尽力完成；缺关键信息时在说明中写清缺口，不要伪造数据、占位符或无依据的结论。",
+            "- 失败时给出可操作的原因（缺依赖、命令失败、材料不足等），并尽量留下已产出的部分文件，而不是空目录。",
+            "- 完成后确认 `outputs/` 中有可被平台验收的主文件与 MANIFEST。",
+        ]
+    )
+    return "\n".join(lines)
+
+
+async def draft_system_prompt(
+    session: AsyncSession, skill_id: int, *, agent_name: str | None = None
+) -> dict[str, str | None]:
+    skill = await _get_live_skill(session, skill_id)
+    name, description = skill_meta_for_prompt(skill)
+    prompt = build_system_prompt_draft(
+        skill_name=name,
+        skill_description=description,
+        agent_name=agent_name,
+    )
+    return {
+        "skill_name": name,
+        "skill_description": description,
+        "system_prompt": prompt,
+    }
+

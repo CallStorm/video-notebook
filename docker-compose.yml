@@ -1,0 +1,143 @@
+# docker-compose.yml
+# 一键启动全栈：中间件 + api + media/studio worker + web。
+# 用法：
+#   cp .env.example .env          # 已有 .env 勿覆盖
+#   docker compose up -d --build  # 或 make up
+# 访问：
+#   Web  http://127.0.0.1:8080
+#   API  http://127.0.0.1:8000/docs
+#
+# 仅中间件（本地跑 api/web）：make middleware
+# 详见 docs/deployment.md
+
+include:
+  - path: compose.middleware.yml
+
+x-api-env: &api-env
+  MYSQL_HOST: mysql
+  MYSQL_PORT: "3306"
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  STORAGE_ROOT: /data/video-notebook
+  SKILLS_ROOT: /data/skills
+  APP_ENV: ${APP_ENV:-prod}
+  DEBUG: ${DEBUG:-false}
+
+x-api-volumes: &api-volumes
+  - ./storage:/data/video-notebook
+  - ./skills:/data/skills
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: video-notebook-api:local
+    container_name: vnb-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *api-env
+    volumes: *api-volumes
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  media-worker:
+    image: video-notebook-api:local
+    container_name: vnb-media-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *api-env
+    volumes: *api-volumes
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.media.worker:celery_app
+      - worker
+      - -Q
+      - media
+      - -c
+      - "4"
+      - -n
+      - media@%h
+      - -l
+      - INFO
+
+  studio-worker:
+    image: video-notebook-api:local
+    container_name: vnb-studio-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *api-env
+    volumes: *api-volumes
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.studio.worker:celery_app
+      - worker
+      - -Q
+      - studio
+      - -c
+      - "2"
+      - -n
+      - studio@%h
+      - -l
+      - INFO
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: video-notebook-web:local
+    container_name: vnb-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
+        condition: service_healthy

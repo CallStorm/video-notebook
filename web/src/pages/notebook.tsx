@@ -4,12 +4,18 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Plus,
-  LayoutList,
-  SlidersHorizontal,
   Upload as UploadIcon,
   Link2,
   Loader2,
+  Library,
+  Sparkles,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { usePersistedBool } from "@/lib/use-persisted-bool";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +25,7 @@ import { SourceTranscript } from "@/components/source-transcript";
 import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu";
 import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type ChatRelay } from "@/components/notebook-chat";
 import { MarkdownMessage } from "@/components/chat-markdown";
-import { StudioPanel } from "@/components/studio-panel";
+import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
 import { StudioFile } from "@/components/studio-file";
@@ -73,6 +79,9 @@ interface NotebookDetail {
   icon: string | null;
   is_pinned: boolean;
   share_all: boolean;
+  owner_id?: number | null;
+  owner_name?: string | null;
+  is_owner?: boolean | null;
   source_count: number;
   note_count: number;
   sources: SourceSummary[];
@@ -145,6 +154,54 @@ function fmtSize(b: number | null): string {
   return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+
+const LEFT_COLLAPSE_KEY = "vn.notebook.panel.leftCollapsed";
+const RIGHT_COLLAPSE_KEY = "vn.notebook.panel.rightCollapsed";
+
+function SideRail({
+  side,
+  label,
+  icon: Icon,
+  badge,
+  onExpand,
+}: {
+  side: "left" | "right";
+  label: string;
+  icon: typeof Library;
+  badge?: string | number | null;
+  onExpand: () => void;
+}) {
+  const ExpandIcon = side === "left" ? PanelLeftOpen : PanelRightOpen;
+  return (
+    <div className="panel-rail">
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8 rounded-full hover:bg-primary/10 hover:text-primary"
+        title={`展开${label}`}
+        aria-label={`展开${label}`}
+        onClick={onExpand}
+      >
+        <ExpandIcon className="h-4 w-4" />
+      </Button>
+      <button
+        type="button"
+        className="flex flex-1 flex-col items-center gap-3 rounded-xl px-0.5 py-2 text-muted-foreground transition-colors hover:bg-card hover:text-foreground hover:shadow-soft"
+        title={`展开${label}`}
+        onClick={onExpand}
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-soft">
+          <Icon className="h-4 w-4" />
+        </span>
+        <span className="panel-rail-label">{label}</span>
+        {badge != null && badge !== "" ? (
+          <span className="panel-count">{badge}</span>
+        ) : null}
+      </button>
+    </div>
+  );
+}
+
 export default function NotebookPage() {
   const { id } = useParams<{ id: string }>();
   const notebookId = Number(id);
@@ -189,6 +246,7 @@ export default function NotebookPage() {
     setPreviewTaskId(null);
     setPreviewFormat(null);
     setPreviewExpanded(false);
+    setPendingCapabilityId(null);
     setRelay(null);
     discussing.current = false;
   }, [notebookId]);
@@ -200,6 +258,9 @@ export default function NotebookPage() {
   const [renameTarget, setRenameTarget] = useState<
     { kind: "source"; id: number; title: string } | { kind: "note"; id: number; title: string } | null
   >(null);
+  const [leftCollapsed, setLeftCollapsed] = usePersistedBool(LEFT_COLLAPSE_KEY, false);
+  const [rightCollapsed, setRightCollapsed] = usePersistedBool(RIGHT_COLLAPSE_KEY, false);
+  const [pendingCapabilityId, setPendingCapabilityId] = useState<number | null>(null);
 
   const upload = useMutation({
     mutationFn: (file: File) => uploadSource(token, notebookId, file),
@@ -342,7 +403,7 @@ export default function NotebookPage() {
             <CardTitle>笔记本不存在</CardTitle>
           </CardHeader>
           <CardContent>
-            <Link to="/" className="text-sm text-blue-600 underline">
+            <Link to="/" className="text-sm text-primary hover:underline">
               返回首页
             </Link>
           </CardContent>
@@ -355,12 +416,18 @@ export default function NotebookPage() {
   }
 
   const nb = detail.data;
+  const isOwner = nb.is_owner !== false; // 缺省按主人处理，兼容旧响应
   const notes = nb.notes ?? [];
   const selected = nb.sources.find((source) => source.video_id === selectedVideoId) ?? null;
   const openNote = notes.find((note) => note.id === openNoteId) ?? null;
   const browsingList = !selected;
   const listRows = mixSourceRows(nb.sources, notes);
   const previewMessage = mindMapNotice(preview.isLoading, preview.isError, preview.error, preview.data);
+  const workbenchColumns = [
+    leftCollapsed ? "3rem" : "minmax(15rem, 1fr)",
+    "minmax(0, 2.2fr)",
+    rightCollapsed ? "3rem" : "minmax(16rem, 2fr)",
+  ].join(" ");
 
   async function discussMindMap(message: string) {
     const task = preview.data;
@@ -442,7 +509,7 @@ export default function NotebookPage() {
   return (
     <div className="flex h-screen flex-col bg-background">
       {/* 顶栏 */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 py-2.5 backdrop-blur-md">
+      <header className="app-header-shell flex shrink-0 items-center justify-between px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <Button
             size="icon"
@@ -458,6 +525,11 @@ export default function NotebookPage() {
           <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
             {nb.source_count} 个来源 · {nb.note_count} 条笔记
           </span>
+          {!isOwner ? (
+            <span className="hidden rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 sm:inline">
+              只读 · {nb.owner_name?.trim() || "他人"} 的公开分享
+            </span>
+          ) : null}
         </div>
         <UserMenu
           onLogout={() => {
@@ -467,16 +539,45 @@ export default function NotebookPage() {
         />
       </header>
 
-      {/* 三栏：圆角浮动面板 */}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)] gap-3 overflow-hidden p-3">
+      {/* 三栏：圆角浮动面板（左右可折叠） */}
+      <div
+        className="notebook-workbench grid min-h-0 flex-1 gap-3 overflow-hidden p-3"
+        style={{ gridTemplateColumns: workbenchColumns }}
+      >
         {/* 左：来源 */}
         <aside
-          className={`panel-surface flex min-h-0 min-w-0 flex-col ${browsingList ? "overflow-y-auto" : "overflow-hidden"}`}
+          className={cn(
+            "panel-surface flex min-h-0 min-w-0 flex-col",
+            leftCollapsed ? "overflow-hidden" : browsingList ? "overflow-y-auto" : "overflow-hidden",
+          )}
         >
-          <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border/50 bg-card/95 px-4 py-2.5 backdrop-blur">
-            <h2 className="text-sm font-semibold tracking-tight">来源</h2>
-            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="视图切换">
-              <LayoutList className="h-4 w-4" />
+          {leftCollapsed ? (
+            <SideRail
+              side="left"
+              label="来源"
+              icon={Library}
+              badge={nb.source_count || null}
+              onExpand={() => setLeftCollapsed(false)}
+            />
+          ) : (
+            <>
+          <header className="panel-header">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Library className="h-3.5 w-3.5" />
+              </span>
+              <h2 className="text-sm font-semibold tracking-tight">来源</h2>
+              <span className="panel-count">{nb.source_count}</span>
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
+              title="折叠来源"
+              aria-label="折叠来源"
+              onClick={() => setLeftCollapsed(true)}
+            >
+              <PanelLeftClose className="h-4 w-4" />
             </Button>
           </header>
 
@@ -494,12 +595,13 @@ export default function NotebookPage() {
             />
           ) : null}
 
-          {/* 两按钮：添加来源 / 新建笔记 */}
-          <div className={browsingList ? "flex gap-2 border-b border-border/50 px-3 py-3" : "hidden"}>
+          {/* 两按钮：添加来源 / 新建笔记（仅主人） */}
+          {isOwner ? (
+          <div className={browsingList ? "flex gap-2 border-b border-border/40 px-3 py-3" : "hidden"}>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full border-border/70"
+              className="flex-1 rounded-full border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
               onClick={() => {
                 setShowAddSource(true);
               }}
@@ -510,27 +612,29 @@ export default function NotebookPage() {
               variant="outline"
               size="sm"
               className="flex-1 rounded-full border-border/70"
-              onClick={() => alert("笔记功能 v2 实装")}
-              title="v2 实装"
+              onClick={() => alert("笔记功能即将上线")}
+              title="即将上线"
             >
               <Plus className="mr-1 h-3.5 w-3.5" /> 新建笔记
             </Button>
           </div>
+          ) : browsingList ? (
+            <div className="border-b border-border/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+              这是公开分享的笔记本，可浏览来源与字幕；添加与管理仅主人可用。
+            </div>
+          ) : null}
 
           {/* 工具栏：filter + select all */}
-          <div className={browsingList ? "flex items-center justify-between border-b border-border/50 px-4 py-2 text-xs text-muted-foreground" : "hidden"}>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 rounded-full"
-              title="筛选"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-            <SelectAll
-              sources={nb.sources}
-              onChange={(selected) => setSelection.mutate({ selected })}
-            />
+          <div className={browsingList ? "flex items-center justify-between border-b border-border/40 px-3.5 py-2 text-xs text-muted-foreground" : "hidden"}>
+            <span className="text-[11px]">
+              已选 {nb.sources.filter((s) => s.selected_for_chat).length}/{nb.sources.length}
+            </span>
+            {isOwner ? (
+              <SelectAll
+                sources={nb.sources}
+                onChange={(selected) => setSelection.mutate({ selected })}
+              />
+            ) : null}
           </div>
 
           {/* 上传 / URL 弹窗（AddSourceDialog 在 portal 里渲染） */}
@@ -554,19 +658,27 @@ export default function NotebookPage() {
           />
 
           {browsingList && listRows.length === 0 ? (
-            <p className="px-4 py-10 text-center text-xs text-muted-foreground">
-              还没有来源。点上方「添加来源」上传或粘贴 URL。
-            </p>
+            <div className="empty-panel">
+              <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Library className="h-5 w-5" />
+              </span>
+              <p className="text-sm font-medium text-foreground">还没有来源</p>
+              <p className="mt-1.5 max-w-[14rem] text-xs leading-relaxed text-muted-foreground">
+                点上方「添加来源」，上传视频或粘贴链接。
+              </p>
+            </div>
           ) : null}
           {browsingList && listRows.length > 0 ? (
-            <div className="space-y-0.5 p-2">
+            <div className="space-y-1 p-2">
               {listRows.map((row) =>
                 row.kind === "source" ? (
                   <SimpleSourceRow
                     key={`source-${row.source.video_id}`}
                     source={row.source}
                     active={selectedVideoId === row.source.video_id}
+                    manageable={isOwner}
                     onOpen={() => {
+                      setLeftCollapsed(false);
                       setFocusCue(null);
                       setSelectedVideoId(row.source.video_id);
                     }}
@@ -609,7 +721,10 @@ export default function NotebookPage() {
                     key={`note-${row.note.id}`}
                     note={row.note}
                     active={openNoteId === row.note.id}
-                    onOpen={() => setOpenNoteId(row.note.id)}
+                    onOpen={() => {
+                      setRightCollapsed(false);
+                      setOpenNoteId(row.note.id);
+                    }}
                     onRename={() =>
                       setRenameTarget({ kind: "note", id: row.note.id, title: row.note.title })
                     }
@@ -624,21 +739,31 @@ export default function NotebookPage() {
               )}
             </div>
           ) : null}
+            </>
+          )}
         </aside>
 
-        <main className="panel-surface flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <header className="flex shrink-0 items-center border-b border-border/50 px-4 py-2.5">
-            <h2 className="text-sm font-semibold tracking-tight">对话</h2>
+        <main className="panel-surface panel-surface-center flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <header className="panel-header">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="text-sm font-semibold tracking-tight">对话</h2>
+              <span className="panel-count">
+                {nb.sources.filter((s) => s.selected_for_chat).length + notes.filter((n) => n.selected_for_chat).length}
+              </span>
+            </div>
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">基于已勾选的来源与笔记</span>
           </header>
           <NotebookChat
             access={token}
             notebookId={notebookId}
+            readOnly={!isOwner}
             sources={nb.sources.map((source) => ({
               videoId: source.video_id,
               title: source.video.title || source.video.source_url || `来源 ${source.video_id}`,
               selected: source.selected_for_chat,
             }))}
             onJump={(videoId, lineNo) => {
+              setLeftCollapsed(false);
               setSelectedVideoId(videoId);
               setFocusCue({ videoId, lineNo });
             }}
@@ -646,104 +771,158 @@ export default function NotebookPage() {
           />
         </main>
 
-        <aside className="panel-surface flex min-h-0 min-w-0 flex-col overflow-hidden">
-          {openNote ? (
-            <StudioNote
-              note={openNote}
-              onOpenStudio={() => setOpenNoteId(null)}
-              onJump={(videoId, lineNo) => {
-                setSelectedVideoId(videoId);
-                setFocusCue({ videoId, lineNo });
-              }}
-            />
-          ) : previewTaskId != null && previewFormat === "slides" ? (
-            <StudioSlides
-              access={token}
-              taskId={previewTaskId}
-              title={preview.data?.title || "幻灯片"}
-              crumb={nb.title}
-              artifacts={preview.data?.artifacts ?? []}
-              pending={!preview.data && !preview.isError}
-              notice={
-                preview.isError
-                  ? preview.error instanceof ApiError
-                    ? preview.error.message
-                    : "加载失败"
-                  : null
-              }
-              videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
-              notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
-              expanded={previewExpanded}
-              onBack={() => {
-                setPreviewTaskId(null);
-                setPreviewFormat(null);
-                setPreviewExpanded(false);
-              }}
-              onToggleExpanded={() => setPreviewExpanded((value) => !value)}
-              onOpenVideo={(videoId) => {
-                setPreviewExpanded(false);
-                setFocusCue(null);
-                setSelectedVideoId(videoId);
-              }}
-              onOpenNote={(noteId) => {
-                setPreviewExpanded(false);
-                setOpenNoteId(noteId);
-              }}
-            />
-          ) : previewTaskId != null && previewFormat === "file" ? (
-            <StudioFile
-              access={token}
-              taskId={previewTaskId}
-              title={preview.data?.title || "文件"}
-              artifactId={preview.data?.artifacts?.find((item) => item.role === "main")?.id ?? null}
-              filename={preview.data?.artifacts?.find((item) => item.role === "main")?.filename ?? null}
-              onBack={() => {
-                setPreviewTaskId(null);
-                setPreviewFormat(null);
-                setPreviewExpanded(false);
-              }}
-            />
-          ) : previewTaskId != null ? (
-            <StudioMindmap
-              title={preview.data?.title || "导图"}
-              crumb={nb.title}
-              text={previewMessage ? null : (preview.data?.text_content ?? null)}
-              notice={previewMessage}
-              noticeError={preview.isError}
-              videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
-              notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
-              expanded={previewExpanded}
-              onBack={() => {
-                setPreviewTaskId(null);
-                setPreviewFormat(null);
-                setPreviewExpanded(false);
-              }}
-              onToggleExpanded={() => setPreviewExpanded((value) => !value)}
-              onOpenVideo={(videoId) => {
-                setPreviewExpanded(false);
-                setFocusCue(null);
-                setSelectedVideoId(videoId);
-              }}
-              onOpenNote={(noteId) => {
-                setPreviewExpanded(false);
-                setOpenNoteId(noteId);
-              }}
-              onDiscuss={(message) => {
-                void discussMindMap(message);
-              }}
-            />
-          ) : (
-            <StudioHome
+        <aside className="panel-surface relative flex min-h-0 min-w-0 flex-col overflow-hidden">
+          {rightCollapsed ? (
+            <StudioCollapsedRail
               access={token}
               notebookId={notebookId}
-              sources={nb.sources}
-              notes={notes}
+              onExpand={() => setRightCollapsed(false)}
+              onOpenCapability={(capabilityId) => {
+                setPreviewTaskId(null);
+                setPreviewFormat(null);
+                setPreviewExpanded(false);
+                setOpenNoteId(null);
+                setPendingCapabilityId(capabilityId);
+                setRightCollapsed(false);
+              }}
               onOpenTask={(taskId, formatKey) => {
+                setOpenNoteId(null);
+                setPendingCapabilityId(null);
                 setPreviewExpanded(false);
                 setPreviewFormat(formatKey);
                 setPreviewTaskId(taskId);
+                setRightCollapsed(false);
               }}
             />
+          ) : (
+            <>
+              {openNote || previewTaskId != null ? (
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="absolute -left-3 top-1/2 z-20 h-7 w-7 -translate-y-1/2 rounded-full border-border/70 bg-card shadow-soft"
+                  title="折叠 Studio"
+                  aria-label="折叠 Studio"
+                  onClick={() => setRightCollapsed(true)}
+                >
+                  <PanelRightClose className="h-3.5 w-3.5" />
+                </Button>
+              ) : null}
+              {openNote ? (
+                <StudioNote
+                  note={openNote}
+                  onOpenStudio={() => setOpenNoteId(null)}
+                  onJump={(videoId, lineNo) => {
+                    setLeftCollapsed(false);
+                    setSelectedVideoId(videoId);
+                    setFocusCue({ videoId, lineNo });
+                  }}
+                />
+              ) : previewTaskId != null && previewFormat === "slides" ? (
+                <StudioSlides
+                  access={token}
+                  taskId={previewTaskId}
+                  title={preview.data?.title || "幻灯片"}
+                  crumb={nb.title}
+                  artifacts={preview.data?.artifacts ?? []}
+                  pending={!preview.data && !preview.isError}
+                  notice={
+                    preview.isError
+                      ? preview.error instanceof ApiError
+                        ? preview.error.message
+                        : "加载失败"
+                      : null
+                  }
+                  videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
+                  notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
+                  expanded={previewExpanded}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+                  onOpenVideo={(videoId) => {
+                    setPreviewExpanded(false);
+                    setLeftCollapsed(false);
+                    setFocusCue(null);
+                    setSelectedVideoId(videoId);
+                  }}
+                  onOpenNote={(noteId) => {
+                    setPreviewExpanded(false);
+                    setRightCollapsed(false);
+                    setOpenNoteId(noteId);
+                  }}
+                />
+              ) : previewTaskId != null && previewFormat === "file" ? (
+                <StudioFile
+                  access={token}
+                  taskId={previewTaskId}
+                  title={preview.data?.title || "文件"}
+                  artifactId={preview.data?.artifacts?.find((item) => item.role === "main")?.id ?? null}
+                  filename={preview.data?.artifacts?.find((item) => item.role === "main")?.filename ?? null}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                />
+              ) : previewTaskId != null ? (
+                <StudioMindmap
+                  title={preview.data?.title || "导图"}
+                  crumb={nb.title}
+                  text={previewMessage ? null : (preview.data?.text_content ?? null)}
+                  notice={previewMessage}
+                  noticeError={preview.isError}
+                  videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
+                  notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
+                  expanded={previewExpanded}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+                  onOpenVideo={(videoId) => {
+                    setPreviewExpanded(false);
+                    setLeftCollapsed(false);
+                    setFocusCue(null);
+                    setSelectedVideoId(videoId);
+                  }}
+                  onOpenNote={(noteId) => {
+                    setPreviewExpanded(false);
+                    setRightCollapsed(false);
+                    setOpenNoteId(noteId);
+                  }}
+                  onDiscuss={(message) => {
+                    void discussMindMap(message);
+                  }}
+                />
+              ) : !isOwner ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+                    <p className="text-sm font-medium">Studio 仅主人可用</p>
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      公开分享模式下可查看来源与字幕，生成产出请使用自己的笔记本。
+                    </p>
+                  </div>
+                ) : (
+                <StudioHome
+                  access={token}
+                  notebookId={notebookId}
+                  sources={nb.sources}
+                  notes={notes}
+                  pendingCapabilityId={pendingCapabilityId}
+                  onPendingCapabilityHandled={() => setPendingCapabilityId(null)}
+                  onCollapse={() => setRightCollapsed(true)}
+                  onOpenTask={(taskId, formatKey) => {
+                    setRightCollapsed(false);
+                    setPreviewExpanded(false);
+                    setPreviewFormat(formatKey);
+                    setPreviewTaskId(taskId);
+                  }}
+                />
+              )}
+            </>
           )}
         </aside>
       </div>
@@ -801,17 +980,15 @@ function NoteRow({
   onToggleSelected: (selected: boolean) => void;
 }) {
   return (
-    <div
-      className={`group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/70 ${
-        active ? "source-selected" : ""
-      }`}
-    >
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[hsl(175_60%_94%)] text-[hsl(var(--success))]">
-        <StickyNote className="h-3 w-3" />
+    <div className={`group source-card ${active ? "source-selected" : ""}`}>
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[hsl(175_60%_94%)] text-[hsl(var(--success))]">
+        <StickyNote className="h-3.5 w-3.5" />
       </div>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
-        <div className="line-clamp-2 text-xs font-medium">{note.title}</div>
-        <div className="mt-0.5 text-[10px] text-muted-foreground">笔记</div>
+        <div className="line-clamp-2 text-[13px] font-medium leading-snug">{note.title}</div>
+        <div className="mt-1">
+          <span className="status-chip status-chip-ok">笔记</span>
+        </div>
       </button>
       <SourceRowMenu onRename={onRename} onRemove={onRemove} />
       <input
@@ -831,17 +1008,38 @@ function StudioHome({
   sources,
   notes,
   onOpenTask,
+  onCollapse,
+  pendingCapabilityId,
+  onPendingCapabilityHandled,
 }: {
   access: string;
   notebookId: number;
   sources: SourceSummary[];
   notes: NoteRead[];
   onOpenTask: (taskId: number, formatKey: string) => void;
+  onCollapse: () => void;
+  pendingCapabilityId?: number | null;
+  onPendingCapabilityHandled?: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center border-b border-border/50 px-4 py-2.5">
-        <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
+      <header className="panel-header">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Sparkles className="h-3.5 w-3.5" />
+          </span>
+          <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
+        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
+          title="折叠 Studio"
+          aria-label="折叠 Studio"
+          onClick={onCollapse}
+        >
+          <PanelRightClose className="h-4 w-4" />
+        </Button>
       </header>
       <StudioPanel
         access={access}
@@ -849,6 +1047,8 @@ function StudioHome({
         sources={sources}
         notes={notes}
         onOpenTask={onOpenTask}
+        pendingCapabilityId={pendingCapabilityId}
+        onPendingCapabilityHandled={onPendingCapabilityHandled}
       />
     </div>
   );
@@ -936,23 +1136,31 @@ function StudioNote({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <p className="text-xs text-muted-foreground">
+      <header className="panel-header">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
           <button type="button" className="hover:text-foreground hover:underline" onClick={onOpenStudio}>
             Studio
           </button>
           <span className="px-1">›</span>
-          <span className="text-foreground">Note</span>
+          <span className="text-foreground">笔记</span>
         </p>
-        <Button size="icon" variant="ghost" className="h-7 w-7" title="返回 Studio" onClick={onOpenStudio}>
-          <X className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 rounded-full"
+            title={copied ? "已复制" : "复制"}
+            onClick={() => void copyNote()}
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="返回 Studio" onClick={onOpenStudio}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </header>
       <div className="flex shrink-0 items-start gap-2 px-4 pb-2 pt-3">
-        <h2 className="min-w-0 flex-1 text-base font-semibold leading-6">{note.title}</h2>
-        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" title={copied ? "已复制" : "复制"} onClick={() => void copyNote()}>
-          <Copy className="h-3.5 w-3.5" />
-        </Button>
+        <h2 className="min-w-0 flex-1 text-base font-semibold leading-6 tracking-tight">{note.title}</h2>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
         <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
@@ -1015,6 +1223,7 @@ function SelectAll({
 function SimpleSourceRow({
   source,
   active = false,
+  manageable = true,
   onOpen,
   onRename,
   onRemove,
@@ -1025,6 +1234,7 @@ function SimpleSourceRow({
 }: {
   source: SourceSummary;
   active?: boolean;
+  manageable?: boolean;
   onOpen: () => void;
   onRename: () => void;
   onRemove: () => void;
@@ -1039,14 +1249,15 @@ function SimpleSourceRow({
   const TypeIcon = v.source_type === "upload" ? UploadIcon : Link2;
   const fetch = fetchLabel(v);
   const sub = fetch ? null : subtitleLabel(v.subtitle_status);
+  const meta = !fetch
+    ? [fmtDuration(v.duration_ms), v.width && v.height ? `${v.width}×${v.height}` : null, fmtSize(v.size_bytes)]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   return (
-    <div
-      className={`group flex items-start gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/70 ${
-        active ? "source-selected" : ""
-      }`}
-    >
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <TypeIcon className="h-3 w-3" />
+    <div className={`group source-card ${active ? "source-selected" : ""}`}>
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <TypeIcon className="h-3.5 w-3.5" />
       </div>
       <button
         type="button"
@@ -1055,46 +1266,64 @@ function SimpleSourceRow({
           if (!busy && v.status === "ready") onOpen();
         }}
       >
-        <div className="line-clamp-2 text-xs font-medium">
+        <div className="line-clamp-2 text-[13px] font-medium leading-snug">
           {v.title || v.source_url || `来源 ${v.id}`}
         </div>
-        <div
-          className={`mt-0.5 text-[10px] ${
-            failed
-              ? "text-destructive"
-              : busy
-                ? "status-busy"
-                : v.subtitle_status === "ready"
-                  ? "status-success"
-                  : "text-muted-foreground"
-          }`}
-        >
-          {fetch
-            ? fetch
-            : `${fmtDuration(v.duration_ms)} · ${
-                v.width && v.height ? `${v.width}×${v.height}` : "—"
-              } · ${fmtSize(v.size_bytes)}${sub ? ` · ${sub}` : ""}`}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {fetch ? (
+            <span className="status-chip status-chip-busy">{fetch}</span>
+          ) : failed ? (
+            <span className="status-chip status-chip-fail">处理失败</span>
+          ) : sub ? (
+            <span className="status-chip status-chip-busy">{sub}</span>
+          ) : v.subtitle_status === "ready" ? (
+            <span className="status-chip status-chip-ok">字幕就绪</span>
+          ) : (
+            <span className="status-chip status-chip-idle">待处理</span>
+          )}
+          {meta ? <span className="text-[10px] text-muted-foreground">{meta}</span> : null}
         </div>
+        {failed ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-amber-200/80 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-900">
+            <span className="min-w-0 flex-1 leading-snug">处理遇到问题，可重试或稍后再看。</span>
+            {onRetryFetch ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium hover:bg-amber-200"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRetryFetch();
+                }}
+              >
+                重试
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </button>
-      <SourceRowMenu
-        onRename={onRename}
-        onRemove={onRemove}
-        onRegenerate={onRegenerate}
-        onRetryFetch={onRetryFetch}
-        onCancelFetch={onCancelFetch}
-        alwaysVisible={busy || Boolean(onRetryFetch) || Boolean(onCancelFetch)}
-      />
-      {busy ? (
-        <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" />
-      ) : failed ? null : (
-        <input
-          type="checkbox"
-          className="mt-1.5 rounded"
-          checked={source.selected_for_chat}
-          onClick={(event) => event.stopPropagation()}
-          onChange={() => onToggleSelected(!source.selected_for_chat)}
-        />
-      )}
+      {manageable ? (
+        <>
+          <SourceRowMenu
+            onRename={onRename}
+            onRemove={onRemove}
+            onRegenerate={onRegenerate}
+            onRetryFetch={onRetryFetch}
+            onCancelFetch={onCancelFetch}
+            alwaysVisible={busy || Boolean(onRetryFetch) || Boolean(onCancelFetch)}
+          />
+          {busy ? (
+            <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" />
+          ) : failed ? null : (
+            <input
+              type="checkbox"
+              className="mt-1.5 rounded"
+              checked={source.selected_for_chat}
+              onClick={(event) => event.stopPropagation()}
+              onChange={() => onToggleSelected(!source.selected_for_chat)}
+            />
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

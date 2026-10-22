@@ -1,4 +1,4 @@
-"""/api/covers — AI 生成笔记本封面样式。"""
+"""/api/covers — AI 生成笔记本/集合封面样式。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -20,12 +20,15 @@ class CoverGenerateRequest(BaseModel):
 
 class CoverGenerateResponse(BaseModel):
     cover_url: str
+    layout: str
+    motif: str
     pattern: str
     a: str
     b: str
     c: str
     ink: str
     mist: str
+    label: str = ""
 
 
 @router.post("/generate", response_model=CoverGenerateResponse)

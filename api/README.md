@@ -38,4 +38,6 @@ uv run alembic upgrade head
 
 ## 容器化
 
-`docker compose up`（在仓库根）会一起起 api、worker、web、mysql、redis。
+仓库根目录 `docker compose up -d --build`（或 `make up`）会一起起  
+mysql / redis / qdrant / api / media-worker / studio-worker / web。  
+说明见 [`docs/deployment.md`](../docs/deployment.md)。
