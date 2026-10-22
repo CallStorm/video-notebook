@@ -217,11 +217,12 @@ function SearchPageInner() {
 
       <div className="search-dock sticky top-16 z-10">
         <div className="search-dock-inner">
+          <div className="search-shell-wrap">
           <div className="search-shell search-shell-lg">
             <div className="relative min-w-0 flex-1">
               <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-12 border-0 bg-transparent pl-11 text-[15px] shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0"
+                className="h-11 border-0 bg-transparent pl-11 text-[14px] shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0"
                 placeholder="输入关键词，例如：AI 学习方法、经济下行应对…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -232,7 +233,7 @@ function SearchPageInner() {
               />
             </div>
             <Button
-              className="h-11 shrink-0 rounded-full px-7 text-[15px] shadow-glow"
+              className="h-10 shrink-0 rounded-full px-6 text-sm shadow-glow"
               disabled={!query.trim() || search.isPending}
               onClick={runSearch}
             >
@@ -246,52 +247,35 @@ function SearchPageInner() {
               )}
             </Button>
           </div>
+          </div>
 
-          <div className="search-filter-panel mt-3.5">
-            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-              <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="search-filter-label">平台</span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {PLATFORM_CHIPS.map((chip) => {
-                      const active = platform === chip.id;
-                      return (
-                        <button
-                          key={chip.id}
-                          type="button"
-                          title={chip.hint}
-                          onClick={() => setPlatform(chip.id)}
-                          className={cn(
-                            "platform-filter",
-                            chip.tone,
-                            active
-                              ? "platform-filter-active"
-                              : "platform-filter-idle",
-                          )}
-                          aria-pressed={active}
-                        >
-                          <span className="platform-filter-dot" aria-hidden />
-                          {chip.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="search-filter-label">类型</span>
-                  <span className="platform-filter platform-filter-idle pointer-events-none opacity-90">
-                    仅视频
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    暂不支持图文/合集
-                  </span>
-                </div>
-              </div>
+          {/* Google 式：主 Tab=平台；右侧=类型提示 + 结果数 */}
+          <div className="search-tabs-bar">
+            <div className="search-tabs" role="tablist" aria-label="平台">
+              {PLATFORM_CHIPS.map((chip) => {
+                const active = platform === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    role="tab"
+                    title={chip.hint}
+                    aria-selected={active}
+                    onClick={() => setPlatform(chip.id)}
+                    className={cn("search-tab", active && "search-tab-active")}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="search-tabs-meta">
+              <span>仅视频 · 暂不支持图文/合集</span>
               {result && !search.isPending ? (
-                <p className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+                <span>
                   {searchedQuery ? `「${searchedQuery}」· ` : ""}
                   {items.length} 条
-                </p>
+                </span>
               ) : null}
             </div>
           </div>

@@ -800,16 +800,72 @@
   }
 
   .search-shell-lg {
-    @apply rounded-[1.35rem] p-2 shadow-soft-md;
+    @apply rounded-[1.35rem] p-1.5 shadow-soft-md sm:p-2;
   }
 
-  /* 发现 / 聚合搜索：搜索条件软面板（统一） */
+  /* 输入壳居中收窄（Google 式），条件面板仍用全宽 dock */
+  .search-shell-wrap {
+    @apply mx-auto w-full max-w-xl;
+  }
+
+  /* 发现 / 聚合搜索：旧软面板类保留（兼容），页面已改用 tabs */
   .search-filter-panel {
     @apply rounded-2xl border border-border/60 bg-card/80 px-3.5 py-3 shadow-soft backdrop-blur-sm;
   }
 
   .search-filter-label {
     @apply w-[4.75rem] shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground;
+  }
+
+  /* Google 式文字 Tab：横排 + 底边下划线 */
+  .search-tabs-bar {
+    @apply mx-auto mt-3 flex w-full max-w-xl flex-wrap items-end justify-between gap-x-3 gap-y-1;
+  }
+
+  .search-tabs {
+    @apply flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto border-b border-border/50;
+    scrollbar-width: none;
+  }
+
+  .search-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .search-tab {
+    @apply relative shrink-0 whitespace-nowrap px-3 pb-2.5 pt-1 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground;
+  }
+
+  .search-tab-active {
+    @apply text-foreground;
+  }
+
+  .search-tab-active::after {
+    content: '';
+    @apply absolute inset-x-1 bottom-0 h-[3px] rounded-t-sm bg-primary;
+  }
+
+  .search-tabs-meta {
+    @apply flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 pb-2 text-[12px] text-muted-foreground;
+  }
+
+  .search-mode-btn {
+    @apply inline-flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground;
+  }
+
+  .search-mode-btn-active {
+    @apply font-semibold text-primary;
+  }
+
+  .search-tabs-sub {
+    @apply mx-auto mt-2 flex w-full max-w-xl flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground;
+  }
+
+  .search-score-chip {
+    @apply inline-flex items-center rounded-md px-1.5 py-0.5 tabular-nums transition-colors hover:bg-muted/70 hover:text-foreground;
+  }
+
+  .search-score-chip-active {
+    @apply bg-muted font-medium text-foreground;
   }
 
   .platform-filter {

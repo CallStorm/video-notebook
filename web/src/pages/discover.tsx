@@ -182,11 +182,12 @@ export default function DiscoverPage() {
 
       <div className="search-dock sticky top-16 z-10">
         <div className="search-dock-inner">
+          <div className="search-shell-wrap">
           <div className="search-shell search-shell-lg">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-12 border-0 bg-transparent pl-11 text-[15px] shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0"
+                className="h-11 border-0 bg-transparent pl-11 text-[14px] shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0"
                 placeholder={placeholderFor(mode)}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -197,115 +198,93 @@ export default function DiscoverPage() {
               />
             </div>
             <Button
-              className="h-11 shrink-0 rounded-full px-7 text-[15px] shadow-glow"
+              className="h-10 shrink-0 rounded-full px-6 text-sm shadow-glow"
               onClick={runSearch}
             >
               搜索
             </Button>
           </div>
+          </div>
 
-          {/* 搜索条件：软面板分组 */}
-          <div className="search-filter-panel mt-3.5">
-            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-              <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="search-filter-label">方式</span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {MODE_CHIPS.map((chip) => {
-                      const active = mode === chip.id;
-                      const Icon = chip.icon;
-                      return (
-                        <button
-                          key={chip.id}
-                          type="button"
-                          onClick={() => setMode(chip.id)}
-                          className={cn(
-                            "platform-filter inline-flex items-center gap-1",
-                            active
-                              ? "platform-filter-active"
-                              : "platform-filter-idle",
-                          )}
-                          aria-pressed={active}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                          {chip.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="search-filter-label">范围</span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {SCOPE_CHIPS.map((chip) => {
-                      const active = scope === chip.id;
-                      return (
-                        <button
-                          key={chip.id}
-                          type="button"
-                          onClick={() => setScope(chip.id)}
-                          className={cn(
-                            "platform-filter",
-                            active
-                              ? "platform-filter-active"
-                              : "platform-filter-idle",
-                          )}
-                          aria-pressed={active}
-                        >
-                          {chip.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {mode === "semantic" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="search-filter-label">最低相似度</span>
-                    <div
-                      className="flex flex-wrap items-center gap-1.5"
-                      role="group"
-                      aria-label="最低相似度"
+          {/* Google 式：主 Tab=范围；右侧=方式 + 结果数；语义相似度次行 */}
+          <div className="search-tabs-bar">
+            <div className="search-tabs" role="tablist" aria-label="范围">
+              {SCOPE_CHIPS.map((chip) => {
+                const active = scope === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setScope(chip.id)}
+                    className={cn("search-tab", active && "search-tab-active")}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="search-tabs-meta">
+              <div
+                className="flex items-center gap-2.5"
+                role="group"
+                aria-label="搜索方式"
+              >
+                {MODE_CHIPS.map((chip) => {
+                  const active = mode === chip.id;
+                  const Icon = chip.icon;
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => setMode(chip.id)}
+                      className={cn(
+                        "search-mode-btn",
+                        active && "search-mode-btn-active",
+                      )}
+                      aria-pressed={active}
                     >
-                      {MIN_SCORE_PRESETS.map((pct) => {
-                        const active = minScorePct === pct;
-                        return (
-                          <button
-                            key={pct}
-                            type="button"
-                            onClick={() => setMinScorePct(pct)}
-                            className={cn(
-                              "platform-filter tabular-nums",
-                              active
-                                ? "platform-filter-active"
-                                : "platform-filter-idle",
-                            )}
-                            aria-pressed={active}
-                          >
-                            {pct}%
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">
-                      低于此分的结果不展示
-                    </span>
-                  </div>
-                ) : null}
+                      <Icon className="h-3 w-3" />
+                      {chip.label}
+                    </button>
+                  );
+                })}
               </div>
-
               {!list.isLoading && !list.isError ? (
-                <p className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+                <span>
                   {searching ? `「${query}」· ` : ""}
                   {total} 本
                   {mode === "semantic" && searching
                     ? ` · ≥${minScorePct}%`
                     : ""}
-                </p>
+                </span>
               ) : null}
             </div>
           </div>
+          {mode === "semantic" ? (
+            <div className="search-tabs-sub" role="group" aria-label="最低相似度">
+              <span>最低相似度</span>
+              {MIN_SCORE_PRESETS.map((pct) => {
+                const active = minScorePct === pct;
+                return (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => setMinScorePct(pct)}
+                    className={cn(
+                      "search-score-chip",
+                      active && "search-score-chip-active",
+                    )}
+                    aria-pressed={active}
+                  >
+                    {pct}%
+                  </button>
+                );
+              })}
+              <span className="opacity-80">低于此分不展示</span>
+            </div>
+          ) : null}
         </div>
       </div>
 
