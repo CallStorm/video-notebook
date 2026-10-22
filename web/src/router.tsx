@@ -32,10 +32,31 @@ const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
-      { path: "/", element: <HomePage /> },
+      {
+        path: "/",
+        element: (
+          <RequireAuth>
+            <HomePage />
+          </RequireAuth>
+        ),
+      },
       { path: "/login", element: <LoginPage /> },
-      { path: "/discover", element: <DiscoverPage /> },
-      { path: "/search", element: <SearchPage /> },
+      {
+        path: "/discover",
+        element: (
+          <RequireAuth>
+            <DiscoverPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "/search",
+        element: (
+          <RequireAuth>
+            <SearchPage />
+          </RequireAuth>
+        ),
+      },
       {
         path: "/notebooks/:id",
         element: (
@@ -84,7 +105,7 @@ const router = createBrowserRouter([
           </RequireAuth>
         ),
       },
-      // 兜底：未匹配路由 → 首页
+      // 兜底：未匹配路由 → 首页（未登录会由 RequireAuth 再跳登录）
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

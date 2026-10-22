@@ -1,14 +1,16 @@
 import { Link } from "react-router-dom";
 import { Brand } from "@/components/brand";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-export type AppNavKey = "mine" | "discover" | "search" | "collections";
+export type AppNavKey = "mine" | "discover" | "search" | "collections" | "admin";
 
-const NAV_ITEMS: { key: AppNavKey; label: string; to: string }[] = [
+const NAV_ITEMS: { key: AppNavKey; label: string; to: string; adminOnly?: boolean }[] = [
   { key: "mine", label: "我的笔记本", to: "/" },
   { key: "discover", label: "发现", to: "/discover" },
   { key: "search", label: "聚合搜索", to: "/search" },
   { key: "collections", label: "集合", to: "/?tab=collections" },
+  { key: "admin", label: "后台配置", to: "/admin", adminOnly: true },
 ];
 
 interface AppHeaderProps {
@@ -27,6 +29,10 @@ export function AppHeader({
   className,
   sticky = true,
 }: AppHeaderProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const visibleNav = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+
   return (
     <header
       className={cn(
@@ -41,7 +47,7 @@ export function AppHeader({
         </Link>
 
         <nav className="nav-pill ml-2" aria-label="主导航">
-          {NAV_ITEMS.map((item) => {
+          {visibleNav.map((item) => {
             const isActive = active === item.key;
             return (
               <Link

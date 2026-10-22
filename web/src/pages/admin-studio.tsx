@@ -584,5 +584,5 @@ export function AdminStudioPanel() {
 
 /** 兼容旧链接 → 后台 Tab */
 export default function AdminStudioPage() {
-  return <Navigate to="/admin?tab=studio" replace />;
+  return <Navigate to="/admin?section=studio&tab=studio" replace />;
 }

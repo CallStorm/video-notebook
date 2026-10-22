@@ -50,7 +50,7 @@ export function readStoredSkin(): SkinId {
   } catch {
     /* private mode */
   }
-  return "cloud";
+  return "bamboo";
 }
 
 export function readStoredDark(): boolean {

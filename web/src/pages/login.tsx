@@ -1,114 +1,80 @@
-import { Link } from "react-router-dom";
-import {
-  BookOpen,
-  Clapperboard,
-  MessageSquareText,
-  Sparkles,
-} from "lucide-react";
 import { Brand } from "@/components/brand";
 import { LoginForm } from "@/components/login-form";
-
-const STEPS = [
-  {
-    icon: Clapperboard,
-    title: "导入视频",
-    desc: "上传或粘贴链接，自动字幕与概览",
-    tone: "bg-primary/10 text-primary",
-  },
-  {
-    icon: MessageSquareText,
-    title: "提问对话",
-    desc: "对着内容追问，引用可跳回原片",
-    tone: "bg-[hsl(172_50%_94%)] text-[hsl(var(--success))]",
-  },
-  {
-    icon: Sparkles,
-    title: "Studio 产出",
-    desc: "一键生成导图、幻灯片与笔记",
-    tone: "bg-[hsl(258_80%_96%)] text-[hsl(var(--violet))]",
-  },
-];
 
 export default function LoginPage() {
   return (
     <div className="login-mesh relative flex min-h-screen flex-col overflow-hidden lg:flex-row">
-      {/* 氛围光斑 */}
-      <div
-        className="login-orb -left-24 top-10 h-72 w-72 bg-primary/25"
-        aria-hidden
-      />
-      <div
-        className="login-orb right-[-4rem] top-24 h-80 w-80 bg-[hsl(var(--violet)/0.22)]"
-        style={{ animationDelay: "1.2s" }}
-        aria-hidden
-      />
-      <div
-        className="login-orb bottom-[-3rem] left-1/3 h-64 w-64 bg-[hsl(var(--success)/0.18)]"
-        style={{ animationDelay: "2.4s" }}
-        aria-hidden
-      />
+      {/* 极光装饰层：光球 / 玻璃片 / 轨道 / 波形 */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
+        <div className="login-orb login-orb-float -left-24 top-8 h-72 w-72 bg-primary/30" />
+        <div
+          className="login-orb login-orb-float right-[-5rem] top-12 h-[22rem] w-[22rem] bg-[hsl(var(--violet)/0.28)]"
+          style={{ animationDelay: "-2.2s" }}
+        />
+        <div
+          className="login-orb login-orb-float bottom-[-5rem] left-[26%] h-80 w-80 bg-[hsl(var(--success)/0.22)]"
+          style={{ animationDelay: "-4.4s" }}
+        />
+        <div
+          className="login-orb login-orb-float left-[48%] top-[36%] h-36 w-36 bg-primary/18"
+          style={{ animationDelay: "-1.1s" }}
+        />
 
-      {/* 左：产品介绍 */}
+        <div className="login-pane login-pane-a left-[7%] top-[20%] hidden lg:block" />
+        <div className="login-pane login-pane-b left-[20%] top-[56%] hidden lg:block" />
+        <div className="login-pane login-pane-c right-[40%] top-[16%] hidden lg:block" />
+
+        <div className="login-orbit left-[5%] top-[28%] hidden lg:block" />
+
+        <svg
+          className="login-wave absolute bottom-[14%] left-[5%] hidden w-[min(420px,42vw)] text-primary/30 lg:block"
+          viewBox="0 0 420 56"
+          fill="none"
+        >
+          <path
+            d="M0 28 C 42 10, 84 46, 126 28 S 210 10, 252 28 S 336 46, 378 28 S 410 14, 420 28"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="5 7"
+            strokeLinecap="round"
+          />
+          <path
+            className="login-wave-line"
+            d="M0 34 C 52 16, 96 42, 148 30 S 236 14, 286 30 S 360 44, 420 26"
+            stroke="currentColor"
+            strokeWidth="1.25"
+            opacity="0.55"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+
+      {/* 左：极简文案 */}
       <aside className="relative z-10 flex flex-1 flex-col justify-center px-8 py-12 lg:px-14 xl:px-20">
-        <div className="mx-auto w-full max-w-lg animate-fade-up space-y-8 lg:mx-0">
+        <div className="mx-auto w-full max-w-md animate-fade-up space-y-7 lg:mx-0">
           <Brand />
-          <div className="space-y-3">
-            <p className="inline-flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              视频笔记
-            </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-              把长视频变成可提问的笔记本
+          <div className="space-y-4">
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-[2.55rem] lg:leading-[1.15]">
+              把长视频变成笔记本
             </h1>
-            <p className="max-w-md text-sm leading-relaxed text-muted-foreground sm:text-base">
-              上传或粘贴链接，提问与记笔记，并生成导图、幻灯片。
-            </p>
+            <div
+              className="login-title-bar h-1 w-24 rounded-full bg-gradient-to-r from-primary/80 via-primary/35 to-transparent"
+              aria-hidden
+            />
           </div>
-          <ul className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-            {STEPS.map(({ icon: Icon, title, desc, tone }) => (
-              <li
-                key={title}
-                className="group flex gap-3 rounded-2xl border border-border/50 bg-card/75 p-3.5 shadow-soft backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-soft-md"
-              >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone}`}
-                >
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">{title}</p>
-                  <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                    {desc}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
-            <BookOpen className="h-3.5 w-3.5" />
-            内部使用 · 账号由管理员开通
-          </p>
         </div>
       </aside>
 
-      {/* 右：登录卡 */}
+      {/* 右：磨砂登录卡 */}
       <section className="relative z-10 flex flex-1 items-center justify-center px-4 py-10 lg:px-10">
-        <div className="w-full max-w-sm animate-fade-up space-y-5" style={{ animationDelay: "80ms" }}>
-          <div className="space-y-1 text-center lg:text-left">
-            <h2 className="text-xl font-semibold tracking-tight">欢迎回来</h2>
-            <p className="text-sm text-muted-foreground">
-              账号由管理员创建。如还未开通，请联系管理员。
-            </p>
-          </div>
+        <div
+          className="w-full max-w-sm animate-fade-up space-y-4"
+          style={{ animationDelay: "80ms" }}
+        >
+          <h2 className="text-center text-xl font-semibold tracking-tight lg:text-left">
+            欢迎回来
+          </h2>
           <LoginForm />
-          <p className="text-center lg:text-left">
-            <Link
-              to="/"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              返回首页
-            </Link>
-          </p>
         </div>
       </section>
     </div>

@@ -2,7 +2,7 @@
  * 登录态管理（v1 简化版：localStorage 存 token）。
  * 真要持久 SSO/OAuth 等 v2 再说。
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export interface AuthUser {
@@ -49,10 +49,30 @@ function clear() {
   window.localStorage.removeItem(STORAGE_KEY);
 }
 
+/** api.ts 用的会话桥：读最新 token、写 refresh 结果、鉴权失败清会话并跳登录 */
+export interface AuthSessionBridge {
+  getSnapshot: () => AuthState;
+  applyTokens: (access: string, refresh: string) => void;
+  clearSessionAndRedirectToLogin: () => void;
+}
+
+let sessionBridge: AuthSessionBridge | null = null;
+
+export function getAuthSessionBridge(): AuthSessionBridge | null {
+  return sessionBridge;
+}
+
+/** 无 React 树时也能读到持久化会话（refresh 单飞 / 冷启动） */
+export function readAuthSnapshot(): AuthState {
+  return sessionBridge?.getSnapshot() ?? readPersisted();
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>(() => readPersisted());
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -62,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     clear();
     setState({ user: null, access: null, refresh: null });
-    // 把跳转推到下个 tick，避免在 React 渲染中调用 navigate
+    // 把跳转推到下一 tick，避免在 React 渲染中调用 navigate
     setTimeout(() => navigate("/login", { replace: true }), 0);
   }, [navigate]);
 
@@ -70,6 +90,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setAccess = useCallback((access: string) => {
     setState((prev) => ({ ...prev, access }));
   }, []);
+
+  useEffect(() => {
+    sessionBridge = {
+      getSnapshot: () => stateRef.current,
+      applyTokens: (access, refresh) => {
+        setState((prev) => {
+          const next = { ...prev, access, refresh };
+          persist(next);
+          return next;
+        });
+      },
+      clearSessionAndRedirectToLogin: () => {
+        clear();
+        setState({ user: null, access: null, refresh: null });
+        const next = typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : "/";
+        const target =
+          next.startsWith("/login")
+            ? "/login"
+            : `/login?next=${encodeURIComponent(next || "/")}`;
+        setTimeout(() => navigate(target, { replace: true }), 0);
+      },
+    };
+    return () => {
+      sessionBridge = null;
+    };
+  }, [navigate]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ ...state, login, logout, setAccess }),
@@ -91,7 +139,7 @@ export function useAuth(): AuthContextValue {
  * 给 fetch 调用方用：自动带上 Authorization。
  *
  * 返回 plain object 而非 Headers 实例：Object.entries(Headers) === [] 会让调用方
- * 误以为没设上。plain object 走 fetch 的 HeadersInit 也能被识别。
+ * 误以为没设上。plain object 作为 fetch 的 HeadersInit 也能被识别。
  */
 export function authedHeaders(
   access: string | null,

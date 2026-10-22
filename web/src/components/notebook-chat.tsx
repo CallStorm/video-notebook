@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Check, Copy, MessageSquare } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, recoverAccessAfter401 } from "@/lib/api";
 import { authedHeaders } from "@/lib/auth";
 import { MarkdownMessage } from "@/components/chat-markdown";
 
@@ -368,23 +368,37 @@ export async function readChatStream(
     source_ids: sourceIds,
   };
   if (handlers.noteIds !== undefined) payload.note_ids = handlers.noteIds;
-  const response = await fetch(`/api/notebooks/${notebookId}/chat`, {
-    method: "POST",
-    headers: authedHeaders(access, { "Content-Type": "application/json", Accept: "text/event-stream" }),
-    body: JSON.stringify(payload),
-  });
+
+  async function postChat(token: string): Promise<Response> {
+    return fetch(`/api/notebooks/${notebookId}/chat`, {
+      method: "POST",
+      headers: authedHeaders(token, {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      }),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  let response = await postChat(access);
+  if (response.status === 401) {
+    const fresh = await recoverAccessAfter401();
+    if (fresh) {
+      response = await postChat(fresh);
+    }
+  }
   if (!response.ok) {
-    let payload: { code?: string; message?: string } | null = null;
+    let errBody: { code?: string; message?: string } | null = null;
     try {
-      payload = await response.json();
+      errBody = await response.json();
     } catch {
       /* empty */
     }
     throw new ApiError(
       response.status,
-      payload?.code ?? `http_${response.status}`,
-      payload?.message ?? "发送失败",
-      payload,
+      errBody?.code ?? `http_${response.status}`,
+      errBody?.message ?? "发送失败",
+      errBody,
     );
   }
   if (!response.body) {
