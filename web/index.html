@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>视频笔记</title>
+    <script>
+      (function () {
+        try {
+          var skin = localStorage.getItem("vn-skin");
+          if (skin !== "cloud" && skin !== "ink" && skin !== "sand" && skin !== "bamboo") {
+            skin = "cloud";
+          }
+          document.documentElement.setAttribute("data-skin", skin);
+          var raw = localStorage.getItem("vn-dark");
+          var dark;
+          if (raw === "1" || raw === "true") dark = true;
+          else if (raw === "0" || raw === "false") dark = false;
+          else dark = skin === "ink";
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {
+          document.documentElement.setAttribute("data-skin", "cloud");
+        }
+      })();
+    </script>
   </head>
   <body class="min-h-screen bg-background text-foreground antialiased">
     <div id="root"></div>

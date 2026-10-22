@@ -92,6 +92,251 @@
     --player-foreground: 210 20% 96%;
   }
 
+  /* ── 皮肤：默认 :root / .dark 等价云青；用 data-skin 覆盖色板 ── */
+  /* 云青：显式声明，与 :root 一致 */
+  html[data-skin="cloud"] {
+    --background: 220 20% 97.5%;
+    --foreground: 222 35% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 35% 12%;
+    --primary: 224 86% 54%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 18% 96%;
+    --secondary-foreground: 222 28% 22%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 215 14% 44%;
+    --accent: 224 100% 97%;
+    --accent-foreground: 224 78% 42%;
+    --border: 220 16% 90%;
+    --input: 220 16% 90%;
+    --ring: 224 86% 54%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 35% 12%;
+    --violet: 258 78% 58%;
+    --glow: 224 86% 54%;
+    --player: 222 32% 8%;
+    --player-foreground: 210 20% 96%;
+    --success: 172 66% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 35% 12%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  html.dark[data-skin="cloud"] {
+    --background: 222 28% 7%;
+    --foreground: 210 20% 96%;
+    --card: 222 24% 10%;
+    --card-foreground: 210 20% 96%;
+    --primary: 224 86% 62%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 18% 14%;
+    --secondary-foreground: 210 20% 92%;
+    --muted: 220 16% 14%;
+    --muted-foreground: 215 12% 62%;
+    --accent: 224 40% 16%;
+    --accent-foreground: 214 100% 85%;
+    --border: 220 16% 18%;
+    --input: 220 16% 18%;
+    --ring: 224 86% 62%;
+    --popover: 222 24% 10%;
+    --popover-foreground: 210 20% 96%;
+    --violet: 258 72% 68%;
+    --glow: 224 86% 62%;
+    --player: 222 36% 5%;
+    --player-foreground: 210 20% 96%;
+    --success: 172 60% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 35% 12%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  /* 墨夜：浅模式也偏深靛，深模式更深 */
+  html[data-skin="ink"] {
+    --background: 230 28% 12%;
+    --foreground: 220 20% 94%;
+    --card: 230 24% 16%;
+    --card-foreground: 220 20% 94%;
+    --primary: 252 86% 70%;
+    --primary-foreground: 230 40% 10%;
+    --secondary: 230 20% 18%;
+    --secondary-foreground: 220 18% 90%;
+    --muted: 230 18% 18%;
+    --muted-foreground: 225 12% 62%;
+    --accent: 252 40% 20%;
+    --accent-foreground: 252 90% 88%;
+    --border: 230 16% 22%;
+    --input: 230 16% 22%;
+    --ring: 252 86% 70%;
+    --popover: 230 24% 16%;
+    --popover-foreground: 220 20% 94%;
+    --violet: 268 78% 68%;
+    --glow: 252 86% 70%;
+    --player: 232 36% 6%;
+    --player-foreground: 220 20% 94%;
+    --success: 168 55% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 230 40% 10%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  html.dark[data-skin="ink"] {
+    --background: 232 32% 6%;
+    --foreground: 220 20% 96%;
+    --card: 232 28% 9%;
+    --card-foreground: 220 20% 96%;
+    --primary: 252 90% 74%;
+    --primary-foreground: 232 40% 8%;
+    --secondary: 232 22% 12%;
+    --secondary-foreground: 220 18% 92%;
+    --muted: 232 18% 12%;
+    --muted-foreground: 225 12% 60%;
+    --accent: 252 36% 16%;
+    --accent-foreground: 252 95% 90%;
+    --border: 232 16% 16%;
+    --input: 232 16% 16%;
+    --ring: 252 90% 74%;
+    --popover: 232 28% 9%;
+    --popover-foreground: 220 20% 96%;
+    --violet: 270 80% 72%;
+    --glow: 252 90% 74%;
+    --player: 234 40% 4%;
+    --player-foreground: 220 20% 96%;
+    --success: 168 55% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 232 40% 8%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  /* 暖沙：米色纸感 + 赤陶 */
+  html[data-skin="sand"] {
+    --background: 36 36% 96%;
+    --foreground: 24 28% 14%;
+    --card: 40 40% 99%;
+    --card-foreground: 24 28% 14%;
+    --primary: 18 72% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 34 28% 93%;
+    --secondary-foreground: 24 24% 24%;
+    --muted: 34 22% 92%;
+    --muted-foreground: 28 12% 42%;
+    --accent: 28 80% 95%;
+    --accent-foreground: 18 70% 36%;
+    --border: 32 22% 86%;
+    --input: 32 22% 86%;
+    --ring: 18 72% 46%;
+    --popover: 40 40% 99%;
+    --popover-foreground: 24 28% 14%;
+    --violet: 38 78% 48%;
+    --glow: 18 72% 46%;
+    --player: 24 28% 10%;
+    --player-foreground: 36 30% 96%;
+    --success: 152 45% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 48%;
+    --warning-foreground: 24 28% 14%;
+    --destructive: 0 70% 48%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  html.dark[data-skin="sand"] {
+    --background: 24 22% 9%;
+    --foreground: 36 28% 94%;
+    --card: 24 20% 12%;
+    --card-foreground: 36 28% 94%;
+    --primary: 22 78% 58%;
+    --primary-foreground: 24 30% 8%;
+    --secondary: 24 16% 16%;
+    --secondary-foreground: 36 22% 90%;
+    --muted: 24 14% 15%;
+    --muted-foreground: 30 12% 62%;
+    --accent: 22 40% 18%;
+    --accent-foreground: 28 90% 86%;
+    --border: 24 14% 20%;
+    --input: 24 14% 20%;
+    --ring: 22 78% 58%;
+    --popover: 24 20% 12%;
+    --popover-foreground: 36 28% 94%;
+    --violet: 38 70% 55%;
+    --glow: 22 78% 58%;
+    --player: 24 30% 6%;
+    --player-foreground: 36 28% 94%;
+    --success: 152 45% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 24 30% 8%;
+    --destructive: 0 70% 52%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  /* 竹青：薄荷灰 + 玉绿 */
+  html[data-skin="bamboo"] {
+    --background: 150 18% 97%;
+    --foreground: 160 28% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 160 28% 12%;
+    --primary: 160 56% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 16% 94%;
+    --secondary-foreground: 160 22% 22%;
+    --muted: 150 14% 93%;
+    --muted-foreground: 155 10% 40%;
+    --accent: 160 50% 95%;
+    --accent-foreground: 160 56% 28%;
+    --border: 150 14% 88%;
+    --input: 150 14% 88%;
+    --ring: 160 56% 38%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 160 28% 12%;
+    --violet: 145 42% 42%;
+    --glow: 160 56% 38%;
+    --player: 165 28% 9%;
+    --player-foreground: 150 18% 96%;
+    --success: 160 56% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 48%;
+    --warning-foreground: 160 28% 12%;
+    --destructive: 0 70% 48%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
+  html.dark[data-skin="bamboo"] {
+    --background: 165 22% 8%;
+    --foreground: 150 16% 95%;
+    --card: 165 18% 11%;
+    --card-foreground: 150 16% 95%;
+    --primary: 158 55% 48%;
+    --primary-foreground: 165 30% 6%;
+    --secondary: 165 14% 15%;
+    --secondary-foreground: 150 14% 90%;
+    --muted: 165 12% 14%;
+    --muted-foreground: 155 10% 60%;
+    --accent: 158 30% 16%;
+    --accent-foreground: 158 70% 82%;
+    --border: 165 12% 18%;
+    --input: 165 12% 18%;
+    --ring: 158 55% 48%;
+    --popover: 165 18% 11%;
+    --popover-foreground: 150 16% 95%;
+    --violet: 145 40% 50%;
+    --glow: 158 55% 48%;
+    --player: 168 30% 5%;
+    --player-foreground: 150 16% 95%;
+    --success: 158 50% 44%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 165 30% 6%;
+    --destructive: 0 70% 52%;
+    --destructive-foreground: 0 0% 100%;
+  }
+
   * {
     @apply border-border;
   }
@@ -142,10 +387,10 @@
   .login-mesh {
     background-color: hsl(var(--background));
     background-image:
-      radial-gradient(ellipse 90% 70% at 8% 15%, hsl(224 86% 54% / 0.16), transparent 58%),
-      radial-gradient(ellipse 70% 55% at 92% 8%, hsl(258 78% 58% / 0.12), transparent 52%),
-      radial-gradient(ellipse 55% 45% at 75% 90%, hsl(172 66% 34% / 0.09), transparent 55%),
-      radial-gradient(ellipse 40% 30% at 40% 60%, hsl(224 86% 54% / 0.04), transparent 60%);
+      radial-gradient(ellipse 90% 70% at 8% 15%, hsl(var(--primary) / 0.16), transparent 58%),
+      radial-gradient(ellipse 70% 55% at 92% 8%, hsl(var(--violet) / 0.12), transparent 52%),
+      radial-gradient(ellipse 55% 45% at 75% 90%, hsl(var(--success) / 0.09), transparent 55%),
+      radial-gradient(ellipse 40% 30% at 40% 60%, hsl(var(--primary) / 0.04), transparent 60%);
   }
 
   .login-orb {
