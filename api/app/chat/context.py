@@ -104,7 +104,12 @@ def parse_citations(text: str, lines: dict[int, CitedLine]) -> list[dict]:
 
 
 def strip_citations(text: str) -> str:
-    return _CITE_RE.sub("", text).strip()
+    """去掉正文里的 [n] 引用标记，并理顺留下的空白。"""
+    cleaned = _CITE_RE.sub("", text)
+    cleaned = re.sub(r"[ \t]+([，。！？、；：,.!?])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    return cleaned.strip()
 
 
 def _source_block(

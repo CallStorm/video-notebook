@@ -29,6 +29,7 @@ from app.models.studio import (
 from app.storage import get_storage
 from app.studio.formats import FormatMismatch, NoOutput, accept_outputs, get_format
 from app.subtitles.store import load_subtitle
+from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
 
 _FIXED_PROMPT = (
     "阅读 inputs.json。若存在 .claude/skills 则使用其中的技能。"
@@ -900,35 +901,70 @@ async def execute_studio_task(
     pdf_timeout_seconds: float | None = None,
 ) -> None:
     factory = get_sessionmaker()
+    notebook_id: int | None = None
+    format_key: str | None = None
+    capability_name: str | None = None
+    model_name: str | None = None
     async with factory() as session:
         task = await session.get(StudioTask, task_id)
         if task is None or task.status != "queued":
             return
+        notebook_id = task.notebook_id
+        format_key = task.format_key
         try:
             prepared = await _prepare(session, task)
         except RuntimeError as exc:
             await _fail_if_queued(session, task_id, str(exc))
             return
+        capability_name = prepared.capability_name
+        model_name = prepared.model_name or None
         limit = prepared.agent_timeout if timeout_seconds is None else timeout_seconds
         if not await _claim_running(session, task_id):
             return
+
+    trace_id = start_llm_trace(
+        kind="studio",
+        notebook_id=notebook_id,
+        provider="claude_code",
+        model_name=model_name,
+    )
+    t0 = time.perf_counter()
+    trace_status = "ok"
+    trace_error: str | None = None
 
     stored_keys: list[str] = []
     work: Path | None = None
     try:
         work = Path(tempfile.mkdtemp(prefix=f"studio_{task_id}_"))
         prompt = _write_workspace(work, prepared)
+        llm_span(
+            trace_id,
+            "task_meta",
+            content=json.dumps(
+                {
+                    "task_id": task_id,
+                    "format_key": format_key,
+                    "capability": capability_name,
+                },
+                ensure_ascii=False,
+            ),
+            role="meta",
+        )
+        llm_span(trace_id, "prompt", content=prompt, role="user")
         if prepared.skill_missing:
             await _mark_failed(factory, task_id, "process_failed", "技能目录不存在", work)
+            trace_status, trace_error = "failed", "技能目录不存在"
             return
         if not prepared.api_key or not prepared.model_name:
             await _mark_failed(factory, task_id, "process_failed", "还没有配置 Claude Code", work)
+            trace_status, trace_error = "failed", "还没有配置 Claude Code"
             return
 
         try:
             resolved_bin = resolve_claude_bin(claude_bin)
         except FileNotFoundError as exc:
             await _mark_failed(factory, task_id, "process_failed", str(exc), work)
+            trace_status, trace_error = "failed", str(exc)
             return
 
         outcome, code, stderr = await _run_claude(
@@ -944,6 +980,7 @@ async def execute_studio_task(
         )
         if outcome == "canceled" or await _stopped(factory, task_id):
             shutil.rmtree(work, ignore_errors=True)
+            trace_status = "canceled"
             return
         outputs = work / "outputs"
         if outcome == "timeout":
@@ -956,6 +993,7 @@ async def execute_studio_task(
                 if tail:
                     msg = f"{msg}\n{tail}"
                 await _mark_failed(factory, task_id, "timeout", msg, work)
+                trace_status, trace_error = "timeout", msg
                 return
             await _store_success(
                 factory,
@@ -976,14 +1014,18 @@ async def execute_studio_task(
         except FormatMismatch:
             if code != 0:
                 await _mark_failed(factory, task_id, "process_failed", fail_detail, work)
+                trace_status, trace_error = "failed", fail_detail
             else:
                 await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
+                trace_status, trace_error = "failed", "format mismatch"
             return
         except NoOutput:
             if code != 0:
                 await _mark_failed(factory, task_id, "process_failed", fail_detail, work)
+                trace_status, trace_error = "failed", fail_detail
             else:
                 await _mark_failed(factory, task_id, "no_output", "no output", work)
+                trace_status, trace_error = "failed", "no output"
             return
 
         await _store_success(
@@ -1008,3 +1050,11 @@ async def execute_studio_task(
             except OSError:
                 pass
         await _abandon_attempt(factory, task_id, detail, work, stored_keys)
+        trace_status, trace_error = "failed", detail
+    finally:
+        end_llm_trace(
+            trace_id,
+            status=trace_status,
+            error_text=trace_error,
+            t0=t0,
+        )

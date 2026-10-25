@@ -33,11 +33,11 @@ def job_running(video_id: int) -> bool:
     return False
 
 
-def kick_fetch_job(video_id: int) -> None:
+def kick_fetch_job(video_id: int, *, notebook_id: int | None = None) -> None:
     """Enqueue URL download + subtitle pipeline on the media worker."""
     from app.media.enqueue import enqueue_pipeline
 
-    enqueue_pipeline(video_id, stage="full")
+    enqueue_pipeline(video_id, stage="full", notebook_id=notebook_id)
 
 
 async def run_fetch_pipeline(

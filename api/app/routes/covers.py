@@ -16,6 +16,7 @@ router = APIRouter(prefix="/covers", tags=["covers"])
 class CoverGenerateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
+    mode: str | None = Field(default=None, description="optional override: image|svg")
 
 
 class CoverGenerateResponse(BaseModel):
@@ -41,5 +42,7 @@ async def generate_cover(
         session,
         title=body.title,
         description=body.description,
+        mode=body.mode,
     )
+    result.pop("storage_key", None)
     return CoverGenerateResponse(**result)

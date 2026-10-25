@@ -25,12 +25,14 @@ import { SourceTranscript } from "@/components/source-transcript";
 import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu";
 import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type ChatRelay } from "@/components/notebook-chat";
 import { MarkdownMessage } from "@/components/chat-markdown";
+import { NoteRichEditor, getMarkdown } from "@/components/note-editor";
+import type { Editor } from "@tiptap/react";
 import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
-import { Copy, StickyNote, X } from "lucide-react";
+import { Check, Copy, Pencil, StickyNote, X } from "lucide-react";
 
 interface VideoRead {
   id: number;
@@ -294,6 +296,18 @@ export default function NotebookPage() {
       api<NoteRead>(`/notes/${noteId}`, { method: "PATCH", access: token, body: { title } }),
     onSuccess: () => {
       setRenameTarget(null);
+      qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+    },
+  });
+
+  const updateNote = useMutation({
+    mutationFn: ({ noteId, content_text }: { noteId: number; content_text: string }) =>
+      api<NoteRead>(`/notes/${noteId}`, {
+        method: "PATCH",
+        access: token,
+        body: { content_text },
+      }),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
     },
   });
@@ -811,6 +825,10 @@ export default function NotebookPage() {
               {openNote ? (
                 <StudioNote
                   note={openNote}
+                  saving={updateNote.isPending}
+                  onSaveContent={(content_text) =>
+                    updateNote.mutateAsync({ noteId: openNote.id, content_text })
+                  }
                   onOpenStudio={() => setOpenNoteId(null)}
                   onJump={(videoId, lineNo) => {
                     setLeftCollapsed(false);
@@ -1115,14 +1133,27 @@ function mindMapNotice(
 
 function StudioNote({
   note,
+  saving,
+  onSaveContent,
   onOpenStudio,
   onJump,
 }: {
   note: NoteRead;
+  saving?: boolean;
+  onSaveContent: (content_text: string) => Promise<unknown>;
   onOpenStudio: () => void;
   onJump: (videoId: number, lineNo: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+
+  useEffect(() => {
+    setEditing(false);
+    setEditError(null);
+    editorRef.current = null;
+  }, [note.id]);
 
   async function copyNote() {
     try {
@@ -1132,6 +1163,25 @@ function StudioNote({
     } catch {
       setCopied(false);
     }
+  }
+
+  async function saveEdit() {
+    const editor = editorRef.current;
+    if (!editor || saving) return;
+    setEditError(null);
+    try {
+      const content_text = getMarkdown(editor);
+      await onSaveContent(content_text);
+      setEditing(false);
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "保存失败");
+    }
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setEditError(null);
+    editorRef.current = null;
   }
 
   return (
@@ -1145,15 +1195,51 @@ function StudioNote({
           <span className="text-foreground">笔记</span>
         </p>
         <div className="flex items-center gap-0.5">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 rounded-full"
-            title={copied ? "已复制" : "复制"}
-            onClick={() => void copyNote()}
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
+          {editing ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 rounded-full px-2 text-xs"
+                disabled={!!saving}
+                onClick={cancelEdit}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 rounded-full px-2.5 text-xs"
+                disabled={!!saving}
+                onClick={() => void saveEdit()}
+              >
+                {saving ? "保存中…" : "保存"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-full"
+                title="编辑"
+                onClick={() => {
+                  setEditError(null);
+                  setEditing(true);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-full"
+                title={copied ? "已复制" : "复制"}
+                onClick={() => void copyNote()}
+              >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </Button>
+            </>
+          )}
           <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="返回 Studio" onClick={onOpenStudio}>
             <X className="h-3.5 w-3.5" />
           </Button>
@@ -1162,9 +1248,20 @@ function StudioNote({
       <div className="flex shrink-0 items-start gap-2 px-4 pb-2 pt-3">
         <h2 className="min-w-0 flex-1 text-base font-semibold leading-6 tracking-tight">{note.title}</h2>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-        <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
-      </div>
+      {editError ? <p className="px-4 pb-2 text-xs text-destructive">{editError}</p> : null}
+      {editing ? (
+        <NoteRichEditor
+          key={`edit-${note.id}`}
+          initialMarkdown={note.content_text}
+          onEditor={(ed) => {
+            editorRef.current = ed;
+          }}
+        />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+          <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
+        </div>
+      )}
     </div>
   );
 }

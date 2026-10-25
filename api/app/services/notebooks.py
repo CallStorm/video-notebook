@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.cover_url import expand_cover_url, normalize_cover_url
 from app.core.errors import NotFoundError
 from app.models.notebook import Note, Notebook, NotebookSource, Video
 from app.models.notebook_index import NotebookIndexState
@@ -58,7 +59,7 @@ def _to_read_dict(
         "title": nb.title,
         "description": nb.description,
         "icon": nb.icon,
-        "cover_url": nb.cover_url,
+        "cover_url": expand_cover_url(nb.cover_url),
         "is_pinned": nb.is_pinned,
         "share_all": nb.share_all,
         "owner_id": nb.owner_id,
@@ -572,7 +573,7 @@ async def create_notebook(
         title=title,
         description=description,
         icon=icon,
-        cover_url=cover_url,
+        cover_url=normalize_cover_url(cover_url),
         is_pinned=False,
         share_all=False,
     )
@@ -602,7 +603,7 @@ async def update_notebook(
     if icon is not None:
         nb.icon = icon
     if cover_url_set:
-        nb.cover_url = cover_url
+        nb.cover_url = normalize_cover_url(cover_url)
     if is_pinned is not None:
         nb.is_pinned = is_pinned
     session.add(nb)
@@ -615,8 +616,22 @@ async def delete_notebook(
     session: AsyncSession, *, owner_id: int, notebook_id: int
 ) -> None:
     nb = await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
-    nb.deleted_at = datetime.now(UTC)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    nb.deleted_at = now
     session.add(nb)
+    # Soft-delete notes so admin content stats / lists stay consistent
+    notes = (
+        await session.execute(
+            select(Note).where(
+                Note.notebook_id == notebook_id,
+                Note.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    for note in notes:
+        note.deleted_at = now
+        note.message_id = None
+        session.add(note)
     await session.commit()
 
 

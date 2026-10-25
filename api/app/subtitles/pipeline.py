@@ -24,6 +24,7 @@ from app.subtitles.overview import write_overview
 from app.subtitles.srt import Cue
 from app.subtitles.store import load_subtitle, replace_subtitle, subtitle_view
 from app.subtitles.transcribe import TranscribeError, transcribe_file
+from app.observability.pipeline_log import log_event, pipeline_stage
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,11 @@ def job_running(video_id: int) -> bool:
     return False
 
 
-def kick_subtitle_job(video_id: int, *, force: bool = False) -> None:
+def kick_subtitle_job(video_id: int, *, force: bool = False, notebook_id: int | None = None) -> None:
     """Enqueue subtitle pipeline on the media worker (shares concurrency slots)."""
     from app.media.enqueue import enqueue_pipeline
 
-    enqueue_pipeline(video_id, stage="subtitle_only", force=force)
+    enqueue_pipeline(video_id, stage="subtitle_only", force=force, notebook_id=notebook_id)
 
 
 async def read_subtitle_for_owner(
@@ -77,9 +78,124 @@ async def request_regenerate(
     session.add(video)
     await session.commit()
     await session.refresh(video)
-    kick_subtitle_job(video.id, force=True)
+    from app.models.notebook import NotebookSource
+    from sqlalchemy import select as _select
+
+    nb_id = await session.scalar(
+        _select(NotebookSource.notebook_id)
+        .where(NotebookSource.video_id == video.id)
+        .limit(1)
+    )
+    kick_subtitle_job(video.id, force=True, notebook_id=nb_id)
     subtitle, lines = await load_subtitle(session, video)
     return subtitle_view(video, subtitle, lines)
+
+
+
+async def run_overview_if_needed(
+    video_id: int, *, session: AsyncSession | None = None, notebook_id: int | None = None
+) -> None:
+    """字幕已 ready 时：按设置自动写概览，或 overview 已是 processing 时强制写。
+
+    平台字幕捷径跳过 run_subtitle_pipeline 时也走这里，避免概览永远 pending。
+    """
+
+    async def _use(fn: Callable[[AsyncSession], Awaitable[None]]) -> None:
+        if session is not None:
+            try:
+                await fn(session)
+            except Exception:
+                await session.rollback()
+                raise
+            return
+        async with get_sessionmaker()() as owned:
+            await fn(owned)
+
+    async def _arm_and_write(db: AsyncSession) -> None:
+        from app.services.overview_settings import get_overview_settings_row
+
+        video = await db.get(Video, video_id)
+        if video is None:
+            return
+        if video.subtitle_status != "ready":
+            return
+
+        if video.overview_status != "processing":
+            settings = await get_overview_settings_row(db)
+            auto = bool(settings.auto_generate_after_subtitle)
+            empty_text = not (video.overview_text or "").strip()
+            should_auto = auto and (
+                video.overview_status == "pending"
+                or (empty_text and video.overview_status != "ready")
+            )
+            if not should_auto:
+                # Incremental / already-done path: always emit so UI is not "未执行".
+                if video.overview_status == "ready" and not empty_text:
+                    log_event(
+                        "overview",
+                        "skipped",
+                        summary="overview already ready",
+                        detail={"video_id": video_id},
+                    )
+                elif not auto:
+                    log_event(
+                        "overview",
+                        "skipped",
+                        summary="auto generate disabled",
+                        detail={
+                            "video_id": video_id,
+                            "overview_status": video.overview_status,
+                        },
+                    )
+                else:
+                    log_event(
+                        "overview",
+                        "skipped",
+                        summary=f"overview status={video.overview_status}",
+                        detail={"video_id": video_id},
+                    )
+                return
+            video.overview_status = "processing"
+            video.overview_error = None
+            db.add(video)
+            await db.commit()
+            await db.refresh(video)
+
+        with pipeline_stage("overview", summary="generate source overview"):
+            try:
+                _subtitle, lines = await load_subtitle(db, video)
+                nb_id = notebook_id
+                if nb_id is None:
+                    from sqlalchemy import select as _select
+
+                    from app.models.notebook import NotebookSource
+
+                    nb_id = await db.scalar(
+                        _select(NotebookSource.notebook_id)
+                        .where(NotebookSource.video_id == video.id)
+                        .order_by(NotebookSource.notebook_id.asc())
+                        .limit(1)
+                    )
+                video.overview_text = await write_overview(
+                    db, lines, video=video, notebook_id=nb_id
+                )
+                video.overview_status = "ready"
+                video.overview_error = None
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("overview failed video_id=%s: %s", video_id, exc)
+                video.overview_status = "failed"
+                video.overview_error = str(exc)[:2000]
+                raise
+            finally:
+                db.add(video)
+                await db.commit()
+
+    try:
+        await _use(_arm_and_write)
+    except Exception:
+        # overview failure already persisted; do not bubble for platform shortcut
+        # (caller may ignore). For regenerate path we still don't fail subtitle.
+        return
 
 
 async def run_subtitle_pipeline(
@@ -115,63 +231,29 @@ async def run_subtitle_pipeline(
     if path is None:
         return
 
-    async def _arm_and_write_overview(db: AsyncSession) -> None:
-        """字幕成功后：重新生成已是 processing；或设置开启自动且仍 pending/空时再生成。"""
-        from app.services.overview_settings import get_overview_settings_row
-
-        video = await db.get(Video, video_id)
-        if video is None:
-            return
-
-        if video.overview_status != "processing":
-            settings = await get_overview_settings_row(db)
-            auto = bool(settings.auto_generate_after_subtitle)
-            empty_text = not (video.overview_text or "").strip()
-            should_auto = auto and (
-                video.overview_status == "pending"
-                or (empty_text and video.overview_status != "ready")
-            )
-            if not should_auto:
-                return
-            video.overview_status = "processing"
-            video.overview_error = None
-            db.add(video)
-            await db.commit()
-            await db.refresh(video)
-
-        try:
-            _subtitle, lines = await load_subtitle(db, video)
-            video.overview_text = await write_overview(db, lines, video=video)
-            video.overview_status = "ready"
-            video.overview_error = None
-        except Exception as exc:  # noqa: BLE001 — 概览失败不能把已经写好的字幕打回失败
-            logger.warning("overview failed video_id=%s: %s", video_id, exc)
-            video.overview_status = "failed"
-            video.overview_error = str(exc)[:2000]
-        db.add(video)
-        await db.commit()
-
     try:
-        embedded = await asyncio.to_thread(extract_embedded_cues, path)
-        if embedded is not None:
-            cues, language = embedded
-            origin = "embedded"
-        else:
-            cues, language = await _transcribe(path, session)
-            origin = "asr"
-        if not cues:
-            raise TranscribeError("没有识别到字幕")
+        with pipeline_stage("subtitle", summary="extract or ASR"):
+            embedded = await asyncio.to_thread(extract_embedded_cues, path)
+            if embedded is not None:
+                cues, language = embedded
+                origin = "embedded"
+            else:
+                with pipeline_stage("asr", summary="speech-to-text"):
+                    cues, language = await _transcribe(path, session)
+                origin = "asr"
+            if not cues:
+                raise TranscribeError("没有识别到字幕")
 
-        async def _save(db: AsyncSession) -> None:
-            video = await db.get(Video, video_id)
-            if video is None:
-                return
-            await replace_subtitle(
-                db, video, cues, source=origin, language=language
-            )
+            async def _save(db: AsyncSession) -> None:
+                video = await db.get(Video, video_id)
+                if video is None:
+                    return
+                await replace_subtitle(
+                    db, video, cues, source=origin, language=language
+                )
 
-        await _use(_save)
-        await _use(_arm_and_write_overview)
+            await _use(_save)
+        await run_overview_if_needed(video_id, session=session)
     except Exception as exc:  # noqa: BLE001 — 失败要写回状态，不能把任务吞掉后一直停在 processing
         try:
             from celery.exceptions import SoftTimeLimitExceeded as _SoftLimit

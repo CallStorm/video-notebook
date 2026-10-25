@@ -66,7 +66,7 @@ const PLATFORM_CHIPS: {
   { id: "all", label: "全部", hint: "三平台一起搜", tone: "platform-chip-all" },
   { id: "bilibili", label: "B站", hint: "Bilibili", tone: "platform-chip-bili" },
   { id: "youtube", label: "YouTube", hint: "YouTube", tone: "platform-chip-yt" },
-  { id: "douyin", label: "抖音", hint: "抖音", tone: "platform-chip-dy" },
+  // douyin temporarily disabled from aggregate UI
 ];
 
 const PLATFORM_BADGE: Record<
@@ -434,7 +434,7 @@ function SearchPageInner() {
               输入关键词开始搜索
             </p>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground/80">
-              支持 B站 · YouTube · 抖音 · 点封面可预览
+              支持 B站 · YouTube · 点封面可预览
             </p>
           </div>
         )}

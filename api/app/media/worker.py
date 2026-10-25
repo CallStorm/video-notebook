@@ -18,6 +18,13 @@ from app.core.config import get_settings
 from app.db.session import dispose_engine, get_sessionmaker
 from app.fetch_settings.runtime import get_settings_fresh
 from app.models.notebook import Video
+from app.observability.pipeline_log import (
+    bind_run,
+    end_pipeline_run,
+    pipeline_stage,
+    start_pipeline_run,
+)
+from app.observability.purge import request_purge
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +54,11 @@ celery_app.conf.update(
         "sweep-media-tasks": {
             "task": "media.sweep",
             "schedule": float(_SWEEP_INTERVAL_SECONDS),
-        }
+        },
+        "observability-purge": {
+            "task": "observability.purge",
+            "schedule": 3600.0,
+        },
     },
 )
 
@@ -86,6 +97,8 @@ def media_pipeline(
     video_id: int,
     stage: Literal["full", "subtitle_only"] = "full",
     force: bool = False,
+    run_id: str | None = None,
+    record_success: bool = True,
 ) -> None:
     snap = get_settings_fresh()
     from app.media import slots
@@ -100,7 +113,15 @@ def media_pipeline(
         raise self.retry(countdown=5, max_retries=None)
 
     try:
-        _run_isolated(_run_pipeline(video_id, stage=stage, force=force))
+        _run_isolated(
+            _run_pipeline(
+                video_id,
+                stage=stage,
+                force=force,
+                run_id=run_id,
+                record_success=record_success,
+            )
+        )
     except SoftTimeLimitExceeded:
         _run_isolated(_mark_timeout(video_id, stage=stage))
         raise
@@ -113,28 +134,106 @@ async def _run_pipeline(
     *,
     stage: Literal["full", "subtitle_only"],
     force: bool,
+    run_id: str | None = None,
+    record_success: bool = True,
 ) -> None:
-    if stage == "full":
-        from app.sources.fetch import run_fetch_pipeline
+    from app.media.enqueue import pop_run_meta
+    from app.observability.pipeline_log import log_event
 
-        await run_fetch_pipeline(video_id)
-        # Subtitle after successful fetch (run_fetch_pipeline used to kick in-process)
-        async with get_sessionmaker()() as db:
-            video = await db.get(Video, video_id)
-            if video is None or not video.storage_key:
+    # Prefer Celery kwargs; fall back to Redis meta; else start a new run.
+    rid = run_id
+    rec = record_success
+    if not rid:
+        rid, rec = pop_run_meta(video_id)
+    else:
+        # consume redis meta if present so it does not leak
+        pop_run_meta(video_id)
+    if rid:
+        bind_run(rid, record_success=rec)
+    else:
+        nb_id = None
+        try:
+            from app.media.enqueue import _lookup_notebook_id
+
+            nb_id = _lookup_notebook_id(video_id)
+        except Exception:
+            nb_id = None
+        start_pipeline_run(
+            video_id=video_id,
+            stage=stage,
+            force=force,
+            celery_task_id=None,
+            notebook_id=nb_id,
+        )
+
+    status = "ok"
+    err: str | None = None
+    try:
+        if stage == "full":
+            from app.sources.fetch import run_fetch_pipeline
+
+            with pipeline_stage("fetch", summary="download / persist"):
+                await run_fetch_pipeline(video_id)
+            async with get_sessionmaker()() as db:
+                video = await db.get(Video, video_id)
+                if video is None or not video.storage_key:
+                    log_event(
+                        "fetch",
+                        "failed",
+                        summary="no storage_key after fetch",
+                    )
+                    status = "failed"
+                    err = "no storage_key after fetch"
+                    return
+                if video.status != "ready":
+                    log_event(
+                        "fetch",
+                        "failed",
+                        summary=f"status={video.status}",
+                        error_text=(video.error_message or "")[:2000] or None,
+                    )
+                    status = "failed"
+                    err = video.error_message or f"status={video.status}"
+                    return
+                subtitle_ready = video.subtitle_status == "ready" and not force
+            if subtitle_ready:
+                from app.subtitles.pipeline import run_overview_if_needed
+
+                log_event(
+                    "subtitle",
+                    "skipped",
+                    summary="字幕已就绪，跳过 ASR（沿用已有字幕，页面仍有字幕）",
+                )
+                await run_overview_if_needed(video_id)
+                await _refresh_vector_indexes(video_id)
                 return
-            if video.status != "ready":
-                return
-            if video.subtitle_status == "ready" and not force:
-                return
+            from app.subtitles.pipeline import run_subtitle_pipeline
+
+            await run_subtitle_pipeline(video_id)
+            await _refresh_vector_indexes(video_id)
+            return
+
         from app.subtitles.pipeline import run_subtitle_pipeline
 
         await run_subtitle_pipeline(video_id)
-        return
+        await _refresh_vector_indexes(video_id)
+    except Exception as exc:
+        status = "failed"
+        err = str(exc)[:2000]
+        raise
+    finally:
+        end_pipeline_run(status=status, error_summary=err)
 
-    from app.subtitles.pipeline import run_subtitle_pipeline
 
-    await run_subtitle_pipeline(video_id)
+
+async def _refresh_vector_indexes(video_id: int) -> None:
+    """Media/overview succeeded — refresh notebook vector indexes (non-fatal)."""
+    try:
+        from app.vector.enqueue import refresh_indexes_for_video
+
+        await refresh_indexes_for_video(video_id)
+    except Exception:
+        logger.exception("vector refresh hook failed video_id=%s", video_id)
 
 
 async def _mark_timeout(
@@ -228,10 +327,30 @@ def vector_index_notebook(notebook_id: int, force: bool = False) -> None:
     """Embed notebook document and upsert into Qdrant."""
 
     async def _run() -> None:
-        from app.vector.indexer import index_notebook
+        from app.vector.enqueue import index_notebook_logged
 
-        factory = get_sessionmaker()
-        async with factory() as session:
-            await index_notebook(session, int(notebook_id), force=bool(force))
+        start_pipeline_run(
+            video_id=None, stage="vector", force=force, notebook_id=int(notebook_id)
+        )
+        status = "ok"
+        err = None
+        try:
+            st = await index_notebook_logged(int(notebook_id), force=bool(force))
+            if st == "failed":
+                status = "failed"
+                err = "index_notebook returned failed"
+            elif st == "skipped":
+                status = "ok"
+        except Exception as exc:
+            status = "failed"
+            err = str(exc)[:2000]
+            raise
+        finally:
+            end_pipeline_run(status=status, error_summary=err)
 
     _run_isolated(_run())
+
+
+@celery_app.task(name="observability.purge")
+def observability_purge() -> None:
+    request_purge()

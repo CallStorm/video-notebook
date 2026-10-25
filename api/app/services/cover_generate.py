@@ -1,4 +1,4 @@
-"""按名称 + 可选描述生成笔记本/集合封面样式 token（gen:v3）。"""
+"""按名称 + 可选描述生成笔记本/集合封面（文生图或 SVG token）。"""
 from __future__ import annotations
 
 import hashlib
@@ -7,9 +7,12 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import BadRequestError
-from app.llm.config_service import get_active_logo_llm
+from app.core.errors import AppError, BadRequestError, NotFoundError, ServiceUnavailableError
+from app.llm.config_service import get_active_cover_image_llm, get_active_logo_llm
+from app.llm.image_generate import generate_image_bytes
 from app.llm.providers import make_provider
+from app.services import cover_settings as cover_cfg
+from app.services.cover_url import expand_cover_url, put_cover_image
 
 _PATTERNS = ("orbs", "waves", "mesh", "beams", "rings", "grid")
 _LAYOUTS = ("accent", "split", "badge", "bands", "frame", "hero")
@@ -36,6 +39,7 @@ _PALETTE_BANK: list[dict[str, str]] = [
 ]
 
 # 关键词 → (色板区间, motif, 推荐 layout 池)
+# 色板索引见 _PALETTE_BANK。具体场景规则放前面，避免被「管理/笔记」等宽泛词抢先。
 _THEME_RULES: list[tuple[tuple[str, ...], tuple[int, int], str, tuple[str, ...], str]] = [
     (
         ("新能源", "电动", "汽车", "充电", "能源", "电池", "电车", "EV", "ev"),
@@ -45,22 +49,43 @@ _THEME_RULES: list[tuple[tuple[str, ...], tuple[int, int], str, tuple[str, ...],
         "",
     ),
     (
-        ("科技", "编程", "代码", "AI", "算法", "数据", "数字", "互联网", "软件", "技术", "工程", "芯片"),
+        ("工地", "施工", "建筑", "土木", "工程现场", "基建", "钢筋", "混凝土"),
+        (14, 14),
+        "nature",
+        ("bands", "hero", "split"),
+        "",
+    ),
+    (
+        ("党建", "党史", "红色", "思政", "党校"),
+        (9, 10),
+        "creative",
+        ("badge", "hero", "frame"),
+        "",
+    ),
+    (
+        ("合同", "造价", "预算", "审计", "会计", "招投标", "结算"),
+        (13, 15),
+        "finance",
+        ("bands", "accent", "frame"),
+        "",
+    ),
+    (
+        ("科技", "编程", "代码", "AI", "算法", "数据", "数字", "互联网", "软件", "技术", "芯片"),
         (0, 4),
         "tech",
         ("accent", "frame", "split"),
         "",
     ),
     (
-        ("经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "管理", "财务"),
-        (13, 14),
+        ("经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "财务"),
+        (13, 15),
         "finance",
         ("bands", "accent", "frame"),
         "",
     ),
     (
         ("自然", "健康", "运动", "环保", "植物", "旅行", "户外", "生态"),
-        (5, 6),
+        (5, 7),
         "nature",
         ("hero", "split", "bands"),
         "",
@@ -80,7 +105,7 @@ _THEME_RULES: list[tuple[tuple[str, ...], tuple[int, int], str, tuple[str, ...],
         "",
     ),
     (
-        ("学习", "教育", "考试", "课程", "笔记", "知识", "阅读", "书"),
+        ("学习", "教育", "考试", "课程", "笔记", "知识", "阅读", "书", "培训"),
         (0, 2),
         "study",
         ("accent", "frame", "bands"),
@@ -94,21 +119,6 @@ _THEME_RULES: list[tuple[tuple[str, ...], tuple[int, int], str, tuple[str, ...],
         "",
     ),
 ]
-
-_SYSTEM = (
-    "你是现代 AI 产品封面设计师。根据「名称」语义设计封面的布局、主题纹样与配色。\n"
-    "只输出一个 JSON，不要 markdown，不要解释。格式严格为：\n"
-    '{"layout":"accent|split|badge|bands|frame|hero",'
-    '"motif":"ev|tech|finance|food|nature|creative|study|abstract",'
-    '"pattern":"orbs|waves|mesh|beams|rings|grid",'
-    '"a":"#RRGGBB","b":"#RRGGBB","c":"#RRGGBB","ink":"#RRGGBB","mist":"#RRGGBB"}\n'
-    "规则：\n"
-    "1) 先理解名称含义再选型。新能源/汽车→ev+青绿；经济/金融→finance+石墨金；"
-    "科技→tech+冷靛蓝；美食→food+暖橙；自然→nature+绿；学习→study；创意→creative。\n"
-    "2) layout 决定构图，不同主题尽量选不同 layout，禁止千篇一律。\n"
-    "3) a 深底 b 主色 c 高光 ink/mist 装饰高光色（封面不印文字，仅作图形配色）。对比要足。\n"
-    "4) 禁止不论名称一律蓝青。\n"
-)
 
 _HEX = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 _JSON_OBJ = re.compile(r"\{[^{}]*\}")
@@ -126,19 +136,30 @@ def _title_seed(title: str) -> int:
     return int(digest[:8], 16)
 
 
-def match_theme(title: str) -> tuple[tuple[int, int], str, tuple[str, ...], str] | None:
+def match_theme(text: str) -> tuple[tuple[int, int], str, tuple[str, ...], str] | None:
+    """优先匹配更长的关键词，减少「管理/笔记」等宽泛词误伤。"""
+    hay = text or ""
+    hay_cf = hay.casefold()
+    best: tuple[int, tuple[tuple[int, int], str, tuple[str, ...], str]] | None = None
     for keys, rng, motif, layouts, label in _THEME_RULES:
         for key in keys:
-            if key.casefold() in title.casefold() or key in title:
-                return rng, motif, layouts, label
-    return None
+            hit = key in hay or key.casefold() in hay_cf
+            if not hit:
+                continue
+            score = len(key)
+            cand = (rng, motif, layouts, label)
+            if best is None or score > best[0]:
+                best = (score, cand)
+    return best[1] if best else None
 
 
-def style_from_title(title: str) -> dict:
-    """纯名称驱动的确定性样式：同名稳定、不同名差异明显，并尽量语义相关。"""
+def style_from_title(title: str, description: str | None = None) -> dict:
+    """名称(+描述)驱动的确定性样式：同输入稳定、不同输入差异明显，并尽量语义相关。"""
     trimmed = (title or "").strip() or "未命名"
-    seed = _title_seed(trimmed)
-    theme = match_theme(trimmed)
+    desc = (description or "").strip()
+    combined = f"{trimmed}\n{desc}" if desc else trimmed
+    seed = _title_seed(combined)
+    theme = match_theme(combined)
 
     if theme is not None:
         rng, motif, layout_pool, label = theme
@@ -173,17 +194,18 @@ def style_from_title(title: str) -> dict:
     }
 
 
-def _parse_style(raw: str, *, fallback: dict) -> dict:
+def _parse_style(raw: str, *, fallback: dict) -> dict | None:
+    """解析模型 JSON；无法解析时返回 None（由调用方决定是否回退）。"""
     text = (raw or "").strip()
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
     text = re.sub(r"\s*```$", "", text)
     match = _JSON_OBJ.search(text)
     if not match:
-        return dict(fallback)
+        return None
     try:
         data = json.loads(match.group(0))
     except json.JSONDecodeError:
-        return dict(fallback)
+        return None
 
     pattern = str(data.get("pattern", fallback["pattern"])).lower().strip()
     if pattern not in _PATTERNS:
@@ -224,11 +246,48 @@ def encode_cover_token(style: dict) -> str:
     return ":".join(parts)
 
 
+def _finalize_style(
+    style: dict,
+    *,
+    base: dict,
+    title: str,
+    description: str = "",
+    force_keyword_motif: bool,
+) -> dict:
+    out = dict(style)
+    combined = f"{title}\n{description}" if description else title
+    # 若模型仍退回「万能蓝」且语义不需要蓝：只替换色板，保留模型 layout/motif/pattern
+    if _looks_generic_blue(out) and not _text_wants_blue(combined):
+        out["a"] = base["a"]
+        out["b"] = base["b"]
+        out["c"] = base["c"]
+        out["ink"] = base["ink"]
+        out["mist"] = base["mist"]
+        if out["layout"] not in _LAYOUTS:
+            out["layout"] = base["layout"]
+        if out["motif"] not in _MOTIFS:
+            out["motif"] = base["motif"]
+        if out["pattern"] not in _PATTERNS:
+            out["pattern"] = base["pattern"]
+    if force_keyword_motif:
+        theme = match_theme(combined)
+        if theme is not None:
+            _, motif, layout_pool, _label = theme
+            out["motif"] = motif
+            out["label"] = ""
+            if out["layout"] not in layout_pool:
+                out["layout"] = layout_pool[0] if layout_pool else base["layout"]
+    else:
+        out["label"] = ""
+    return out
+
+
 async def generate_cover(
     session: AsyncSession,
     *,
     title: str,
     description: str | None = None,
+    mode: str | None = None,
 ) -> dict:
     trimmed = (title or "").strip()
     if not trimmed:
@@ -239,8 +298,128 @@ async def generate_cover(
     if len(desc) > 2000:
         raise BadRequestError("描述过长")
 
-    base = style_from_title(trimmed)
-    style = dict(base)
+    settings_row = await cover_cfg.get_cover_settings_row(session)
+    override = (mode or "").strip().lower()
+    if override in ("image", "svg"):
+        mode = override
+    else:
+        mode = cover_cfg.resolve_mode(settings_row)
+    if mode == "image":
+        return await _generate_cover_image(
+            session, settings_row=settings_row, title=trimmed, description=desc
+        )
+    return await _generate_cover_svg(
+        session, settings_row=settings_row, title=trimmed, description=desc
+    )
+
+
+async def _generate_cover_image(
+    session: AsyncSession,
+    *,
+    settings_row,
+    title: str,
+    description: str,
+) -> dict:
+    system_prompt = cover_cfg.resolve_image_system_prompt(settings_row)
+    user_template = cover_cfg.resolve_image_user_prompt(settings_row)
+    size = cover_cfg.resolve_image_size(settings_row)
+    prompt = cover_cfg.render_image_prompt(
+        system_prompt, user_template, title=title, description=description
+    )
+    try:
+        llm = await get_active_cover_image_llm(session)
+    except NotFoundError as exc:
+        raise BadRequestError(
+            "未配置「封面文生图」模型：请到管理后台 → 模型配置，为「封面文生图」绑定出图模型。"
+            "MiniMax 请新增模型名 image-01（同一凭证即可）；"
+            "OpenAI 兼容网关可用 FLUX / Kolors / dall-e。不要绑聊天模型当出图模型。"
+        ) from exc
+    try:
+        raw, content_type = await generate_image_bytes(
+            api_key=llm.api_key,
+            base_url=llm.base_url,
+            model_name=llm.model_name,
+            prompt=prompt,
+            size=size,
+            provider=getattr(llm, "provider", None),
+        )
+    except (BadRequestError, ServiceUnavailableError, AppError):
+        raise
+    except Exception as exc:
+        msg = str(exc).strip() or exc.__class__.__name__
+        raise ServiceUnavailableError(f"封面文生图失败：{msg}") from exc
+
+    if not raw:
+        raise ServiceUnavailableError("封面文生图返回空内容")
+
+    stored = put_cover_image(data=raw, content_type=content_type)
+    return {
+        "cover_url": expand_cover_url(stored) or stored,
+        "layout": "image",
+        "motif": "image",
+        "pattern": "image",
+        "a": "#000000",
+        "b": "#000000",
+        "c": "#000000",
+        "ink": "#FFFFFF",
+        "mist": "#888888",
+        "label": "",
+        "storage_key": stored,
+    }
+
+
+async def _generate_cover_svg(
+    session: AsyncSession,
+    *,
+    settings_row,
+    title: str,
+    description: str,
+) -> dict:
+    trimmed = title
+    desc = description
+    system_prompt = cover_cfg.resolve_system_prompt(settings_row)
+    user_template = cover_cfg.resolve_user_prompt(settings_row)
+    temperature = cover_cfg.resolve_temperature(settings_row)
+    force_keyword = cover_cfg.resolve_force_keyword_motif(settings_row)
+    fallback_on_error = cover_cfg.resolve_fallback_on_error(settings_row)
+
+    base = style_from_title(trimmed, desc)
+    rich_soften = 24
+    try:
+        from app.cover_settings.defaults import DEFAULT_RICH_DESC_SOFTEN_CHARS
+
+        rich_soften = int(DEFAULT_RICH_DESC_SOFTEN_CHARS)
+    except Exception:
+        rich_soften = 24
+    if desc and len(desc) >= rich_soften:
+        force_keyword = False
+
+    def _ok(style: dict) -> dict:
+        final = _finalize_style(
+            style,
+            base=base,
+            title=trimmed,
+            description=desc,
+            force_keyword_motif=force_keyword,
+        )
+        token = encode_cover_token(final)
+        return {
+            "cover_url": token,
+            **{
+                k: final[k]
+                for k in (
+                    "layout",
+                    "motif",
+                    "pattern",
+                    "a",
+                    "b",
+                    "c",
+                    "ink",
+                    "mist",
+                    "label",
+                )
+            },
+        }
 
     try:
         llm = await get_active_logo_llm(session)
@@ -251,54 +430,53 @@ async def generate_cover(
             model_name=llm.model_name,
             params_json=llm.params_json,
         )
-        user_msg = (
-            f"名称：{trimmed}\n"
-            "请根据这个名称的含义设计封面布局(layout)、主题纹样(motif)与配色。"
-            "封面是纯图形、不印任何文字；标题另在卡片下方展示。视觉须与名称语义相关，并与其他主题明显区分。"
+        user_msg = cover_cfg.render_user_prompt(
+            user_template, title=trimmed, description=desc
         )
-        if desc:
-            user_msg += f"\n补充描述：{desc}"
-
         raw = await provider.complete(
             user_msg,
-            system=_SYSTEM,
+            system=system_prompt,
             max_tokens=280,
-            temperature=1.0,
+            temperature=temperature,
         )
-        style = _parse_style(raw, fallback=base)
-        # 若模型仍退回「万能蓝」且名称没有科技语义，用名称底稿替换主色，保留模型 layout/motif/pattern
-        if _looks_generic_blue(style) and not _title_wants_blue(trimmed):
-            style = {
-                **base,
-                "layout": style["layout"] if style["layout"] in _LAYOUTS else base["layout"],
-                "motif": style["motif"] if style["motif"] in _MOTIFS else base["motif"],
-                "pattern": style["pattern"] if style["pattern"] in _PATTERNS else base["pattern"],
-            }
-        # 关键词命中时，强制 motif 贴合语义（LLM 偶发跑偏）
-        theme = match_theme(trimmed)
-        if theme is not None:
-            _, motif, layout_pool, label = theme
-            style["motif"] = motif
-            style["label"] = ""
-            if style["layout"] not in layout_pool:
-                style["layout"] = base["layout"]
-    except Exception:
-        style = dict(base)
+        parsed = _parse_style(raw, fallback=base)
+        if parsed is None:
+            raise ServiceUnavailableError("封面模型返回无法解析，请稍后重试")
+        return _ok(parsed)
+    except ServiceUnavailableError:
+        if fallback_on_error:
+            return _ok(dict(base))
+        raise
+    except AppError:
+        if fallback_on_error:
+            return _ok(dict(base))
+        raise
+    except Exception as exc:
+        if fallback_on_error:
+            return _ok(dict(base))
+        msg = str(exc).strip() or exc.__class__.__name__
+        raise ServiceUnavailableError(f"封面生成失败：{msg}") from exc
 
-    token = encode_cover_token(style)
-    return {"cover_url": token, **{k: style[k] for k in ("layout", "motif", "pattern", "a", "b", "c", "ink", "mist", "label")}}
 
 
 def _looks_generic_blue(style: dict) -> bool:
-    b = (style.get("b") or "").upper()
-    mist = (style.get("mist") or "").upper()
-    blues = ("2563EB", "3B82F6", "0EA5E9", "38BDF8", "0284C7", "0891B2", "22D3EE", "60A5FA")
-    return any(x in b or x in mist for x in blues)
+    """仅当主色+雾色都是常见万能蓝青时才判定，避免误伤合理的科技蓝。"""
+    b = (style.get("b") or "").upper().lstrip("#")
+    mist = (style.get("mist") or "").upper().lstrip("#")
+    a = (style.get("a") or "").upper().lstrip("#")
+    blues = {"2563EB", "3B82F6", "0EA5E9", "38BDF8", "0284C7", "0891B2", "22D3EE", "60A5FA", "93C5FD"}
+    navy = {"0B1F4A", "1E3A8A", "172554", "082F49"}
+    b_blue = b in blues
+    mist_blue = mist in blues
+    a_navy = a in navy
+    # 经典「深蓝底 + 亮蓝主色」万能模板
+    return (b_blue and mist_blue) or (a_navy and b_blue)
 
 
-def _title_wants_blue(title: str) -> bool:
+def _text_wants_blue(text: str) -> bool:
     keys = (
         "科技", "编程", "代码", "AI", "算法", "数据", "数字", "互联网", "软件", "技术",
-        "学习", "教育", "知识", "新能源", "汽车", "能源",
+        "芯片", "新能源", "汽车", "能源", "电动",
     )
-    return any(k in title for k in keys)
+    return any(k in (text or "") for k in keys)
+

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { GeneratedCover } from "@/components/generated-cover";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
-import { encodeCoverVariant } from "@/lib/cover-gen";
+import { EMPTY_COVER_TOKEN, isEmptyCover } from "@/lib/cover-gen";
 import { generateCover } from "@/lib/generate-cover";
 
 interface NewNotebookDialogProps {
@@ -30,16 +30,18 @@ export function NewNotebookDialog({
   const { access } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [coverUrl, setCoverUrl] = useState<string>(encodeCoverVariant(0));
+  const [coverUrl, setCoverUrl] = useState<string>(EMPTY_COVER_TOKEN);
   const [genPending, setGenPending] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [genHint, setGenHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setTitle("");
       setDescription("");
-      setCoverUrl(encodeCoverVariant(0));
+      setCoverUrl(EMPTY_COVER_TOKEN);
       setGenError(null);
+      setGenHint(null);
       setGenPending(false);
     }
   }, [open]);
@@ -52,7 +54,9 @@ export function NewNotebookDialog({
     onSubmit({
       title: title.trim(),
       description: description.trim(),
-      cover_url: coverUrl,
+      cover_url: isEmptyCover(coverUrl)
+        ? "gen:v3:accent:abstract:orbs:1C1917:44403C:A8A29E:FAFAF9:78716C"
+        : coverUrl,
     });
   };
 
@@ -60,6 +64,11 @@ export function NewNotebookDialog({
     if (!access || !title.trim() || genPending) return;
     setGenPending(true);
     setGenError(null);
+    if (!description.trim()) {
+      setGenHint("填写描述后生成更贴切");
+    } else {
+      setGenHint(null);
+    }
     try {
       const result = await generateCover(access, title.trim(), description.trim());
       setCoverUrl(result.cover_url);
@@ -98,14 +107,14 @@ export function NewNotebookDialog({
             <aside className="flex w-full shrink-0 flex-col items-center gap-3 sm:w-[9.5rem]">
               <div className="book-front relative w-[8.5rem] overflow-hidden shadow-md sm:w-full">
                 <GeneratedCover
-                  title={title.trim() || "新笔记本"}
+                  title={isEmptyCover(coverUrl) ? "" : title.trim() || "新笔记本"}
                   coverUrl={coverUrl}
                   meta="刚刚 · 0 个来源"
                   className="h-full w-full"
                 />
                 {genPending ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white backdrop-blur-[1px]">
-                    AI 生成中…
+                    生成中…
                   </div>
                 ) : null}
               </div>
@@ -121,8 +130,11 @@ export function NewNotebookDialog({
                 {genPending ? "生成中…" : "生成封面"}
               </Button>
               <p className="text-center text-[11px] leading-snug text-muted-foreground">
-                点击后由 AI 根据名称与描述生成
+                根据名称与描述生成封面图（需后台配置封面文生图模型）
               </p>
+              {genHint && !genError ? (
+                <p className="text-center text-[11px] text-amber-700 dark:text-amber-400">{genHint}</p>
+              ) : null}
               {genError ? (
                 <p className="text-center text-xs text-destructive">{genError}</p>
               ) : null}

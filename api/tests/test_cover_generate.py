@@ -66,12 +66,13 @@ def test_encode_token_roundtrip_shape():
 def test_parse_style_fallback():
     fb = style_from_title("兜底")
     got = _parse_style("not json", fallback=fb)
-    assert got == fb
+    assert got is None
     raw = (
         '{"layout":"hero","motif":"tech","pattern":"waves","a":"#112233","b":"#445566",'
         '"c":"#778899","ink":"#FFFFFF","mist":"#AABBCC"}'
     )
     got2 = _parse_style(raw, fallback=fb)
+    assert got2 is not None
     assert got2["layout"] == "hero"
     assert got2["motif"] == "tech"
     assert got2["pattern"] == "waves"
@@ -87,3 +88,24 @@ def test_style_label_empty_no_cover_text():
         # token 本身也不应含中文标题
         assert title not in token
         assert "·" not in token
+
+
+def test_match_theme_uses_description():
+    """描述里的具体名词应能命中主题（即使名称很泛）。"""
+    hit = match_theme("项目笔记\n工地施工安全巡检")
+    assert hit is not None
+    assert hit[1] == "nature"
+    hit2 = match_theme("资料整理\n合同造价与预算审计")
+    assert hit2 is not None
+    assert hit2[1] == "finance"
+    hit3 = match_theme("学习材料\n党建与思政专题")
+    assert hit3 is not None
+    assert hit3[1] == "creative"
+
+
+def test_style_from_title_respects_description():
+    plain = style_from_title("项目笔记")
+    with_desc = style_from_title("项目笔记", "工地施工现场安全管理")
+    assert with_desc["motif"] == "nature"
+    # 有描述时不应与无描述的泛用抽象完全同构（允许偶发碰撞，但 motif 应不同）
+    assert plain["motif"] != "nature" or with_desc["b"] != plain["b"]

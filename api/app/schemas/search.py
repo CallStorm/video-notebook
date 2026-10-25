@@ -6,7 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 Platform = Literal["youtube", "bilibili", "douyin"]
-ALL_PLATFORMS: tuple[Platform, ...] = ("youtube", "bilibili", "douyin")
+# 默认聚合不含抖音（Bing 回退不稳定，暂时下线；代码与类型保留，显式传 platforms 仍可调）
+ALL_PLATFORMS: tuple[Platform, ...] = ("youtube", "bilibili")
 
 
 class SearchRequest(BaseModel):

@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.cover_url import expand_cover_url, normalize_cover_url
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.collection import Collection, CollectionNotebook
 from app.models.notebook import Notebook
@@ -50,7 +51,7 @@ async def _preview_notebooks(
         )
     ).all()
     return [
-        {"id": row.id, "title": row.title, "cover_url": row.cover_url}
+        {"id": row.id, "title": row.title, "cover_url": expand_cover_url(row.cover_url)}
         for row in rows
     ]
 
@@ -60,7 +61,7 @@ async def _to_read(session: AsyncSession, collection: Collection) -> dict:
         "id": collection.id,
         "name": collection.name,
         "icon": collection.icon,
-        "cover_url": collection.cover_url,
+        "cover_url": expand_cover_url(collection.cover_url),
         "notebook_count": await _notebook_count(session, collection.id),
         "preview_notebooks": await _preview_notebooks(session, collection.id),
         "created_at": _dt(collection.created_at),
@@ -100,7 +101,7 @@ async def create_collection(
         owner_id=user_id,
         name=_normalize_name(name),
         icon=(icon.strip() if isinstance(icon, str) and icon.strip() else None),
-        cover_url=(cover_url.strip() if isinstance(cover_url, str) and cover_url.strip() else None),
+        cover_url=normalize_cover_url(cover_url.strip() if isinstance(cover_url, str) and cover_url.strip() else None),
     )
     session.add(collection)
     await session.commit()
@@ -148,7 +149,7 @@ async def update_collection(
     if icon_provided:
         collection.icon = icon.strip() if isinstance(icon, str) and icon.strip() else None
     if cover_url_provided:
-        collection.cover_url = (
+        collection.cover_url = normalize_cover_url(
             cover_url.strip() if isinstance(cover_url, str) and cover_url.strip() else None
         )
     session.add(collection)

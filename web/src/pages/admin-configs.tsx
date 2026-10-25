@@ -50,7 +50,7 @@ interface ModelRow {
 }
 
 interface DefaultModelRow {
-  role: "chat" | "tts" | "stt" | "logo" | "embedding";
+  role: "chat" | "tts" | "stt" | "logo" | "embedding" | "cover_image";
   model_id: number | null;
 }
 
@@ -159,6 +159,7 @@ const ROLE_MODEL_TYPE: Record<string, "language" | "text_to_speech" | "speech_to
   tts: "text_to_speech",
   stt: "speech_to_text",
   logo: "language",
+  cover_image: "language",
   embedding: "embedding",
 };
 
@@ -167,6 +168,7 @@ const ROLE_LABEL: Record<string, string> = {
   tts: "文字转语音",
   stt: "语音转文字",
   logo: "生成图标",
+  cover_image: "封面文生图",
   embedding: "向量模型",
 };
 
@@ -332,6 +334,11 @@ function DefaultModelSelectors({
                       ? `还没有 ${modelType} 类型的模型`
                       : "未选"}
                 </p>
+                {row.role === "cover_image" ? (
+                  <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                    MiniMax 请选模型名 image-01；其它网关选 FLUX/Kolors/dall-e。聊天模型会失败。
+                  </p>
+                ) : null}
               </div>
             );
           })}

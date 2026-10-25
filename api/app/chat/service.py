@@ -23,6 +23,8 @@ from app.llm.providers import make_provider
 from app.models.notebook import ChatMessage, ChatThread, Note, NotebookSource
 from app.services.chat_settings import get_history_limit
 from app.services.notebooks import get_notebook, get_notebook_readable
+from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +36,9 @@ _SYSTEM = (
 )
 _SYSTEM_WITH_NOTES = (
     "你是视频笔记助手。可以根据这次给出的字幕和笔记回答，不要编造两者里都没有的事实。"
-    "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
-    "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
-    "笔记没有编号，不要给笔记编造 [n]。"
+    "依据某句字幕时，必须在句末用它前面的编号引用，例如 [1]；有字幕依据时不要省略编号。"
+    "编号必须来自这次字幕，不要沿用历史回答或笔记正文里的数字，也不要自己发明。"
+    "笔记没有引用编号：不要给笔记另编 [n]，也不要把笔记里残留的 [数字] 当成引用。"
     "用中文回答。"
 )
 
@@ -49,6 +51,7 @@ _SOURCES_TOO_LARGE = (
 @dataclass
 class PreparedChat:
     thread_id: int
+    notebook_id: int
     prompt: str
     history: list[dict[str, str]]
     context: BuiltContext
@@ -168,6 +171,7 @@ async def prepare_chat(
 
     return PreparedChat(
         thread_id=thread.id,
+        notebook_id=notebook_id,
         prompt=prompt_core,
         history=history,
         context=context,
@@ -191,7 +195,23 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
         model_name=prepared.llm.model_name,
         params_json=prepared.llm.params_json,
     )
+    trace_id = start_llm_trace(
+        kind="chat",
+        notebook_id=prepared.notebook_id,
+        thread_id=prepared.thread_id,
+        provider=prepared.llm.provider,
+        model_name=prepared.llm.model_name,
+    )
+    llm_span(trace_id, "system", content=prepared.system, role="system")
+    if prepared.history:
+        hist_preview = "\n".join(
+            f"{h.get('role')}: {(h.get('content') or '')[:200]}" for h in prepared.history[-6:]
+        )
+        llm_span(trace_id, "history", content=hist_preview, role="history")
+    llm_span(trace_id, "user", content=prepared.prompt, role="user")
+    t0 = time.perf_counter()
     parts: list[str] = []
+    stream_error: str | None = None
     try:
         async for token in provider.stream_chat(
             prepared.prompt,
@@ -203,17 +223,42 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
             yield {"type": "token", "t": token}
     except Exception as exc:  # noqa: BLE001 — 流里的失败要写成一条事件，不能把连接直接掐断
         logger.warning("chat stream failed thread_id=%s: %s", prepared.thread_id, exc)
-        yield {"type": "error", "message": str(exc)[:500]}
+        stream_error = str(exc)[:500]
+        yield {"type": "error", "message": stream_error}
     text = "".join(parts).strip()
     citations = parse_citations(text, prepared.context.lines) if text else []
     message_id = None
     if text:
         message_id = await _save_assistant(prepared, text, citations)
+        llm_span(trace_id, "generation", content=text, role="assistant")
+        usage = getattr(provider, "last_usage", None)
+        end_llm_trace(
+            trace_id,
+            status="ok",
+            message_id=message_id,
+            t0=t0,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+        )
+    else:
+        usage = getattr(provider, "last_usage", None)
+        end_llm_trace(
+            trace_id,
+            status="failed" if stream_error else "ok",
+            error_text=stream_error,
+            t0=t0,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+        )
     yield {"type": "done", "message_id": message_id, "citations": citations}
 
 
 def _notes_block(notes: list[Note]) -> str:
-    return "\n\n".join(f"笔记：{item.title}\n{item.content_text}" for item in notes)
+    # Prompt hygiene only: strip residual [n] in note bodies so they cannot shadow subtitle cites.
+    # Does not change stored notes or chat messages.
+    return "\n\n".join(
+        f"笔记：{item.title}\n{strip_citations(item.content_text)}" for item in notes
+    )
 
 
 def _history_chars(history: list[dict[str, str]]) -> int:
@@ -312,6 +357,7 @@ async def _history(
     for row in reversed(rows):
         if row.role not in ("user", "assistant"):
             continue
+        # Prompt hygiene only: old [n] refer to a prior context pack. Stored/API messages keep markers.
         content = strip_citations(row.content_text) if row.role == "assistant" else row.content_text
         if content:
             history.append({"role": row.role, "content": content})

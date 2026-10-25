@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Sparkles, X } from "lucide-react";
 import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
+import { EMPTY_COVER_TOKEN } from "@/lib/cover-gen";
 import { generateCover } from "@/lib/generate-cover";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ export function CollectionEditDialog({
     setSearch("");
     if (mode === "create") {
       setName("");
-      setCoverUrl(null);
+      setCoverUrl(EMPTY_COVER_TOKEN);
       setSelected(new Set());
       return;
     }
@@ -89,18 +90,10 @@ export function CollectionEditDialog({
       const trimmed = name.trim();
       if (!trimmed) throw new Error("名称不能为空");
       const notebook_ids = [...selected];
-      let iconToken = coverUrl;
-      // 新建且未点生成时，自动按名称生成目录图标
-      if (mode === "create" && !iconToken) {
-        try {
-          const result = await generateCover(access, trimmed);
-          iconToken = result.cover_url;
-          setCoverUrl(result.cover_url);
-        } catch {
-          // 无 AI 时仍可保存；前端会按名称派生目录图标
-          iconToken = null;
-        }
-      }
+      let iconToken =
+        coverUrl && coverUrl !== EMPTY_COVER_TOKEN ? coverUrl : null;
+      // 新建且未点生成：不自动 AI，保存为空图标（固定占位）
+      // 用户可之后再点「生成图标」
       if (mode === "create") {
         const created = await api<{ id: number }>("/collections", {
           method: "POST",
@@ -142,7 +135,7 @@ export function CollectionEditDialog({
     setCoverPending(true);
     setCoverError(null);
     try {
-      const result = await generateCover(access, name.trim());
+      const result = await generateCover(access, name.trim(), undefined, { mode: "svg" });
       setCoverUrl(result.cover_url);
     } catch (err) {
       setCoverError(err instanceof ApiError ? err.message : "生成图标失败");
@@ -187,13 +180,13 @@ export function CollectionEditDialog({
                 <p className="text-[11px] text-muted-foreground">按上方名称 AI 生成，不同名称主题不同</p>
               </div>
               <div className="flex items-center gap-1.5">
-                {coverUrl ? (
+                {coverUrl && coverUrl !== EMPTY_COVER_TOKEN ? (
                   <Button
                     type="button"
                     size="sm"
                     variant="ghost"
                     className="h-8 rounded-full text-xs"
-                    onClick={() => setCoverUrl(null)}
+                    onClick={() => setCoverUrl(EMPTY_COVER_TOKEN)}
                   >
                     清除图标
                   </Button>

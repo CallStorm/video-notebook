@@ -1,14 +1,15 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useMemo } from "react";
 import {
-  Bot,
   Cable,
   Home,
   LayoutDashboard,
   LogOut,
+  ScrollText,
   Settings2,
   Sparkles,
   Users,
+  Waypoints,
 } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { Button } from "@/components/ui/button";
@@ -16,19 +17,30 @@ import { UserMenu } from "@/components/user-menu";
 import { useAuth } from "@/lib/auth";
 import { AdminClaudePage } from "@/pages/admin-claude";
 import { AdminUsersPage } from "@/pages/admin-users";
+import { AdminPipelineLogsPage } from "@/pages/admin-pipeline-logs";
+import { AdminLlmTracesPage } from "@/pages/admin-llm-traces";
+import { AdminSettingsPage } from "@/pages/admin-settings";
 import { AdminConfigsPage } from "@/pages/admin-configs";
 import { AdminFetchNetworkPage } from "@/pages/admin-fetch-network";
 import { AdminFetchSettingsPage } from "@/pages/admin-fetch-settings";
 import { AdminSubtitleSlicePage } from "@/pages/admin-subtitle-slice";
 import { AdminOverviewPage } from "@/pages/admin-overview";
+import { AdminCoverPage } from "@/pages/admin-cover";
 import { AdminChatPage } from "@/pages/admin-chat";
 import { AdminVectorPage } from "@/pages/admin-vector";
 import { AdminSkillsPanel } from "@/pages/admin-skills";
 import { AdminAgentsPanel } from "@/pages/admin-agents";
 import { AdminStudioPanel } from "@/pages/admin-studio";
+import { AdminDashboard } from "@/pages/admin-dashboard";
 import { cn } from "@/lib/utils";
 
-type AdminSection = "pipeline" | "studio" | "system";
+type AdminSection =
+  | "pipeline"
+  | "studio"
+  | "pipeline-logs"
+  | "llm-traces"
+  | "settings"
+  | "accounts";
 
 type PipelineStep =
   | "models"
@@ -36,11 +48,11 @@ type PipelineStep =
   | "fetch-settings"
   | "subtitle-slice"
   | "source-overview"
+  | "cover"
   | "vector"
   | "chat";
 
 type StudioTab = "skills" | "agents" | "studio";
-type SystemTab = "accounts";
 
 const PIPELINE_STEPS: { id: PipelineStep; label: string; hint: string }[] = [
   { id: "models", label: "模型", hint: "模型与 Claude Code" },
@@ -48,6 +60,7 @@ const PIPELINE_STEPS: { id: PipelineStep; label: string; hint: string }[] = [
   { id: "fetch-settings", label: "抓取", hint: "并发与分块" },
   { id: "subtitle-slice", label: "切片", hint: "ASR 切段" },
   { id: "source-overview", label: "概览", hint: "自动概览与提示词" },
+  { id: "cover", label: "封面", hint: "SVG 封面提示词" },
   { id: "vector", label: "向量", hint: "语义索引" },
   { id: "chat", label: "对话", hint: "历史轮数" },
 ];
@@ -58,10 +71,6 @@ const STUDIO_TABS: { id: StudioTab; label: string; hint: string }[] = [
   { id: "studio", label: "Studio 工作台", hint: "产物与表单" },
 ];
 
-const SYSTEM_TABS: { id: SystemTab; label: string; hint: string }[] = [
-  { id: "accounts", label: "账号", hint: "用户管理" },
-];
-
 const SIDE_NAV: {
   id: "home" | AdminSection;
   label: string;
@@ -70,42 +79,12 @@ const SIDE_NAV: {
   { id: "home", label: "首页", icon: Home },
   { id: "pipeline", label: "抓取流水线", icon: Cable },
   { id: "studio", label: "Studio 能力", icon: Sparkles },
-  { id: "system", label: "系统与账号", icon: Users },
+  { id: "pipeline-logs", label: "流水线日志", icon: ScrollText },
+  { id: "llm-traces", label: "LLM 追踪", icon: Waypoints },
+  { id: "settings", label: "系统设置", icon: Settings2 },
+  { id: "accounts", label: "账号管理", icon: Users },
 ];
 
-const HUB_CARDS: {
-  section: AdminSection;
-  title: string;
-  desc: string;
-  cta: string;
-  accent: string;
-  footer: "pipeline" | "studio" | "system";
-}[] = [
-  {
-    section: "pipeline",
-    title: "抓取流水线",
-    desc: "从视频源到笔记知识的全流程配置：模型、网络、抓取、切片、概览、向量、对话。",
-    cta: "进入配置 →",
-    accent: "admin-hub-card-pipeline",
-    footer: "pipeline",
-  },
-  {
-    section: "studio",
-    title: "Studio 能力",
-    desc: "AI 能力编排与内容工作台：技能包、智能体与 Studio 产物。",
-    cta: "查看能力 →",
-    accent: "admin-hub-card-studio",
-    footer: "studio",
-  },
-  {
-    section: "system",
-    title: "系统与账号",
-    desc: "后台账号与权限管理。",
-    cta: "进入管理 →",
-    accent: "admin-hub-card-system",
-    footer: "system",
-  },
-];
 
 /** 旧 ?tab= 映射到 section + step/tab */
 const OLD_TAB_MAP: Record<
@@ -118,16 +97,27 @@ const OLD_TAB_MAP: Record<
   "fetch-settings": { section: "pipeline", step: "fetch-settings" },
   "subtitle-slice": { section: "pipeline", step: "subtitle-slice" },
   "source-overview": { section: "pipeline", step: "source-overview" },
+  cover: { section: "pipeline", step: "cover" },
   vector: { section: "pipeline", step: "vector" },
   chat: { section: "pipeline", step: "chat" },
   skills: { section: "studio", tab: "skills" },
   agents: { section: "studio", tab: "agents" },
   studio: { section: "studio", tab: "studio" },
-  accounts: { section: "system", tab: "accounts" },
+  accounts: { section: "accounts" },
+  "pipeline-logs": { section: "pipeline-logs" },
+  "llm-traces": { section: "llm-traces" },
+  settings: { section: "settings" },
 };
 
 function isSection(v: string | null): v is AdminSection {
-  return v === "pipeline" || v === "studio" || v === "system";
+  return (
+    v === "pipeline" ||
+    v === "studio" ||
+    v === "pipeline-logs" ||
+    v === "llm-traces" ||
+    v === "settings" ||
+    v === "accounts"
+  );
 }
 
 function isPipelineStep(v: string | null): v is PipelineStep {
@@ -136,10 +126,6 @@ function isPipelineStep(v: string | null): v is PipelineStep {
 
 function isStudioTab(v: string | null): v is StudioTab {
   return v === "skills" || v === "agents" || v === "studio";
-}
-
-function isSystemTab(v: string | null): v is SystemTab {
-  return v === "accounts";
 }
 
 function paramsFor(
@@ -152,7 +138,7 @@ function paramsFor(
   if (section === "studio") {
     return { section, tab: opts?.tab ?? "skills" };
   }
-  return { section, tab: opts?.tab ?? "accounts" };
+  return { section };
 }
 
 export default function AdminPage() {
@@ -160,10 +146,36 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // 兼容旧书签 ?tab=xxx → 新 section/step
+  // 兼容旧书签：?tab=xxx、section=observability|system
   useEffect(() => {
     const oldTab = searchParams.get("tab");
-    const hasSection = isSection(searchParams.get("section"));
+    const sectionNow = searchParams.get("section");
+
+    if (sectionNow === "observability") {
+      const next =
+        oldTab === "llm-traces"
+          ? "llm-traces"
+          : oldTab === "pipeline-logs"
+            ? "pipeline-logs"
+            : "pipeline-logs";
+      setSearchParams(paramsFor(next), { replace: true });
+      return;
+    }
+
+    if (sectionNow === "system") {
+      if (oldTab === "pipeline-logs" || oldTab === "llm-traces") {
+        setSearchParams(paramsFor(oldTab), { replace: true });
+        return;
+      }
+      if (oldTab === "settings") {
+        setSearchParams(paramsFor("settings"), { replace: true });
+        return;
+      }
+      setSearchParams(paramsFor("accounts"), { replace: true });
+      return;
+    }
+
+    const hasSection = isSection(sectionNow);
     if (!oldTab || hasSection) return;
     const mapped = OLD_TAB_MAP[oldTab];
     if (!mapped) return;
@@ -183,10 +195,6 @@ export default function AdminPage() {
   const studioTab: StudioTab = isStudioTab(searchParams.get("tab"))
     ? (searchParams.get("tab") as StudioTab)
     : "skills";
-
-  const systemTab: SystemTab = isSystemTab(searchParams.get("tab"))
-    ? (searchParams.get("tab") as SystemTab)
-    : "accounts";
 
   const stepIndex = useMemo(
     () => PIPELINE_STEPS.findIndex((s) => s.id === pipelineStep),
@@ -209,10 +217,6 @@ export default function AdminPage() {
     setSearchParams(paramsFor("studio", { tab }), { replace: true });
   }
 
-  function goSystemTab(tab: SystemTab) {
-    setSearchParams(paramsFor("system", { tab }), { replace: true });
-  }
-
   function goPrevStep() {
     if (stepIndex <= 0) return;
     goPipelineStep(PIPELINE_STEPS[stepIndex - 1].id);
@@ -228,14 +232,6 @@ export default function AdminPage() {
     else goSection(id);
   }
 
-  const sectionTitle =
-    section === "pipeline"
-      ? "抓取流水线"
-      : section === "studio"
-        ? "Studio 能力"
-        : section === "system"
-          ? "系统与账号"
-          : "三卡片总览";
 
   return (
     <div className="page-ambient flex min-h-screen flex-col">
@@ -306,20 +302,8 @@ export default function AdminPage() {
         </aside>
 
         <main className="admin-main">
-          <div className="admin-main-head">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">后台配置</p>
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                {sectionTitle}
-              </h1>
-            </div>
-          </div>
-
           {!section ? (
-            <AdminHub
-              onSelect={goSection}
-              onStudioTab={(tab) => goStudioTab(tab)}
-            />
+            <AdminDashboard />
           ) : (
             <div className="space-y-5">
               {section === "pipeline" ? (
@@ -340,6 +324,7 @@ export default function AdminPage() {
                     {pipelineStep === "fetch-settings" ? <AdminFetchSettingsPage /> : null}
                     {pipelineStep === "subtitle-slice" ? <AdminSubtitleSlicePage /> : null}
                     {pipelineStep === "source-overview" ? <AdminOverviewPage /> : null}
+                    {pipelineStep === "cover" ? <AdminCoverPage /> : null}
                     {pipelineStep === "vector" ? <AdminVectorPage /> : null}
                     {pipelineStep === "chat" ? <AdminChatPage /> : null}
                   </div>
@@ -398,112 +383,13 @@ export default function AdminPage() {
                 </div>
               ) : null}
 
-              {section === "system" ? (
-                <div className="space-y-5">
-                  <nav className="admin-tab-nav w-fit" aria-label="系统模块">
-                    {SYSTEM_TABS.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        title={item.hint}
-                        onClick={() => goSystemTab(item.id)}
-                        className={cn(
-                          "admin-tab-item",
-                          systemTab === item.id
-                            ? "admin-tab-item-active"
-                            : "admin-tab-item-idle",
-                        )}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </nav>
-                  <div className="space-y-6">
-                    {systemTab === "accounts" ? <AdminUsersPage /> : null}
-                  </div>
-                </div>
-              ) : null}
+              {section === "pipeline-logs" ? <AdminPipelineLogsPage /> : null}
+              {section === "llm-traces" ? <AdminLlmTracesPage /> : null}
+              {section === "settings" ? <AdminSettingsPage /> : null}
+              {section === "accounts" ? <AdminUsersPage /> : null}
             </div>
           )}
         </main>
-      </div>
-    </div>
-  );
-}
-
-function AdminHub({
-  onSelect,
-  onStudioTab,
-}: {
-  onSelect: (section: AdminSection) => void;
-  onStudioTab: (tab: StudioTab) => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-        按三大块组织配置入口。也可从左侧导航直接进入某一块。
-      </p>
-      <div className="admin-hub-grid">
-        {HUB_CARDS.map((card) => (
-          <div key={card.section} className={cn("admin-hub-card", card.accent)}>
-            <div className="admin-hub-card-glow" aria-hidden />
-            <div className="relative z-[1] flex h-full flex-col gap-3 text-left">
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                  {card.title}
-                </h2>
-                {card.section === "pipeline" ? (
-                  <Bot className="h-5 w-5 text-primary/70" aria-hidden />
-                ) : card.section === "studio" ? (
-                  <Sparkles className="h-5 w-5 text-primary/70" aria-hidden />
-                ) : (
-                  <Settings2 className="h-5 w-5 text-primary/70" aria-hidden />
-                )}
-              </div>
-              <p className="text-sm leading-relaxed text-muted-foreground">{card.desc}</p>
-              <button
-                type="button"
-                onClick={() => onSelect(card.section)}
-                className={cn(
-                  "mt-1 inline-flex w-fit items-center rounded-full px-3.5 py-1.5 text-xs font-medium transition",
-                  card.section === "studio"
-                    ? "border border-border/70 bg-card text-foreground hover:border-primary/30 hover:text-primary"
-                    : "bg-primary text-primary-foreground shadow-soft hover:opacity-95",
-                )}
-              >
-                {card.cta}
-              </button>
-              {card.footer === "pipeline" ? (
-                <div className="mt-auto flex flex-wrap gap-1.5 border-t border-border/50 pt-3">
-                  {PIPELINE_STEPS.map((s, i) => (
-                    <span key={s.id} className="admin-hub-mini-step">
-                      <span className="tabular-nums opacity-70">{i + 1}</span> {s.label}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {card.footer === "studio" ? (
-                <div className="mt-auto flex flex-wrap gap-2 border-t border-border/50 pt-3">
-                  {STUDIO_TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => onStudioTab(t.id)}
-                      className="text-xs font-medium text-muted-foreground transition hover:text-primary"
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {card.footer === "system" ? (
-                <div className="mt-auto border-t border-border/50 pt-3 text-xs text-muted-foreground">
-                  账号 · 权限
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-"""Aggregate video search across YouTube / Bilibili / Douyin."""
+"""Aggregate video search across YouTube / Bilibili (Douyin omitted from defaults)."""
 from __future__ import annotations
 
 import asyncio

@@ -58,7 +58,7 @@ async def post_upload(
     )
     from app.subtitles.pipeline import kick_subtitle_job
 
-    kick_subtitle_job(created["id"])
+    kick_subtitle_job(created["id"], notebook_id=notebook_id)
     return created
 
 

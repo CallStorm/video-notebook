@@ -337,6 +337,7 @@ function AnswerActions({
   );
 }
 
+/** Clipboard only — chat bubbles still render [n] via MarkdownMessage. */
 function textWithoutCitations(text: string): string {
   return text
     .replace(/\[\d+\]/g, "")

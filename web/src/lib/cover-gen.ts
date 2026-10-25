@@ -9,6 +9,8 @@ export const COVER_VARIANT_COUNT = 12;
 export const GEN_V1_PREFIX = "gen:v1:";
 export const GEN_V2_PREFIX = "gen:v2:";
 export const GEN_V3_PREFIX = "gen:v3:";
+/** Create-dialog placeholder - no title-driven motif until user clicks generate. */
+export const EMPTY_COVER_TOKEN = "gen:empty";
 
 export type CoverPalette = {
   a: string;
@@ -66,6 +68,15 @@ export type CoverStyle = {
   label?: string;
 };
 
+/** Neutral muted palette for empty / never-generated covers. */
+export const EMPTY_COVER_STYLE: CoverStyle = {
+  palette: { a: "#E7E5E4", b: "#D6D3D1", c: "#A8A29E", ink: "#57534E", mist: "#78716C" },
+  pattern: "orbs",
+  layout: "accent",
+  motif: "abstract",
+  label: "",
+};
+
 type ThemeHit = {
   motif: CoverMotif;
   layouts: CoverLayout[];
@@ -86,13 +97,13 @@ const THEME_RULES: { keys: string[]; motif: CoverMotif; layouts: CoverLayout[]; 
     label: "",
   },
   {
-    keys: ["经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "管理", "财务"],
+    keys: ["经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "管理", "财务", "合同", "造价", "预算", "审计", "会计"],
     motif: "finance",
     layouts: ["bands", "accent", "frame"],
     label: "",
   },
   {
-    keys: ["自然", "健康", "运动", "环保", "植物", "旅行", "户外", "生态"],
+    keys: ["自然", "健康", "运动", "环保", "植物", "旅行", "户外", "生态", "工地", "施工", "建筑", "土木", "工程现场"],
     motif: "nature",
     layouts: ["hero", "split", "bands"],
     label: "",
@@ -104,7 +115,7 @@ const THEME_RULES: { keys: string[]; motif: CoverMotif; layouts: CoverLayout[]; 
     label: "",
   },
   {
-    keys: ["创意", "设计", "艺术", "音乐", "电影", "娱乐", "游戏"],
+    keys: ["创意", "设计", "艺术", "音乐", "电影", "娱乐", "游戏", "党建", "党史", "红色", "思政"],
     motif: "creative",
     layouts: ["badge", "split", "frame"],
     label: "",
@@ -164,6 +175,14 @@ export function isGenCover(coverUrl: string | null | undefined): boolean {
   );
 }
 
+export function isEmptyCover(coverUrl: string | null | undefined): boolean {
+  // Only the explicit create-dialog token (or blank string). null/undefined
+  // still means "derive from variant" for existing notebook cards.
+  if (coverUrl == null) return false;
+  const t = coverUrl.trim();
+  return t === "" || t === EMPTY_COVER_TOKEN;
+}
+
 function hex6(raw: string, fallback: string): string {
   const s = raw.trim().replace(/^#/, "");
   if (!/^[0-9A-Fa-f]{6}$/.test(s)) return fallback;
@@ -198,6 +217,9 @@ export function parseCoverStyle(
   fallbackId = 0,
   titleForLegacy?: string,
 ): CoverStyle {
+  if (isEmptyCover(coverUrl)) {
+    return { ...EMPTY_COVER_STYLE, palette: { ...EMPTY_COVER_STYLE.palette } };
+  }
   if (coverUrl?.startsWith(GEN_V3_PREFIX)) {
     const parts = coverUrl.slice(GEN_V3_PREFIX.length).split(":");
     if (parts.length >= 8) {

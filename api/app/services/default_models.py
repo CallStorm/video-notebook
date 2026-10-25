@@ -1,6 +1,6 @@
-"""DefaultModels 服务：每个 role 选哪个 model_id。
+"""DefaultModels service: which model_id each role uses.
 
-roles：chat / tts / stt / logo / embedding。
+roles: chat / tts / stt / logo / embedding / cover_image.
 """
 from __future__ import annotations
 
@@ -71,6 +71,6 @@ async def clear_default_model(session: AsyncSession, role: str) -> None:
         await session.execute(select(DefaultModel).where(DefaultModel.role == role))
     ).scalar_one_or_none()
     if d is None:
-        raise NotFoundError(f"role={role} 当前未设置")
+        raise NotFoundError(f"role={role} is not set")
     await session.delete(d)
     await session.commit()

@@ -1,6 +1,8 @@
 import {
   coverStyleFromVariant,
+  isEmptyCover,
   parseCoverStyle,
+  EMPTY_COVER_STYLE,
   type CoverMotif,
   type CoverPalette,
   type CoverStyle,
@@ -149,12 +151,17 @@ export function GeneratedFolderIcon({
   showBadge?: boolean;
 }) {
   const short = title.trim() || "集合";
-  const resolved: CoverStyle = coverUrl
-    ? parseCoverStyle(coverUrl, variant, short)
-    : coverStyleFromVariant(variant, short);
+  const empty = isEmptyCover(coverUrl);
+  const resolved: CoverStyle = empty
+    ? EMPTY_COVER_STYLE
+    : coverUrl
+      ? parseCoverStyle(coverUrl, variant, short)
+      : coverStyleFromVariant(variant, short);
   const { palette: p, motif } = resolved;
-  const seed = (p.a + motif + short).length + short.charCodeAt(0);
-  const uid = `fi-${seed}-${short.length}-${motif}`;
+  const seed = empty
+    ? 1
+    : (p.a + motif + short).length + short.charCodeAt(0);
+  const uid = `fi-${seed}-${empty ? 0 : short.length}-${motif}`;
 
   return (
     <svg
@@ -223,7 +230,7 @@ export function GeneratedFolderIcon({
       {/* Lip under tab */}
       <rect x="8" y="34" width="112" height="5" fill={p.a} opacity="0.18" />
 
-      {showBadge ? (
+      {showBadge && !empty ? (
         <>
           <rect x="42" y="48" width="44" height="36" rx="11" fill={p.a} opacity="0.4" />
           <rect

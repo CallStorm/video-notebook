@@ -144,7 +144,7 @@ async def get_notebook_detail(
         for source in sources:
             video = source.video
             if video.subtitle_status == "pending" and video.storage_key:
-                kick_subtitle_job(video.id)
+                kick_subtitle_job(video.id, notebook_id=notebook_id)
     from app.services.notes import list_notes_readable
 
     notes = await list_notes_readable(

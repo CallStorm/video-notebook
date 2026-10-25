@@ -77,7 +77,13 @@ async def patch_note(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    return await rename_note(session, owner_id=user.id, note_id=note_id, title=body.title)
+    return await rename_note(
+        session,
+        owner_id=user.id,
+        note_id=note_id,
+        title=body.title,
+        content_text=body.content_text,
+    )
 
 
 @router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)

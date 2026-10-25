@@ -166,7 +166,7 @@ export default function HomePage() {
     if (!target) return;
     setGeneratingCoverId(id);
     try {
-      const result = await generateCover(token, target.name);
+      const result = await generateCover(token, target.name, undefined, { mode: "svg" });
       await api(`/collections/${id}`, {
         method: "PATCH",
         access: token,
