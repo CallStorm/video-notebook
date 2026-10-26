@@ -61,7 +61,7 @@ async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> Tas
     if task is None or task.deleted_at is not None or task.owner_id != owner_id:
         raise NotFoundError("任务不存在")
     text_content: str | None = None
-    if task.format_key == "mind_map" and task.status == "succeeded":
+    if task.format_key in {"mind_map", "structured_notes"} and task.status == "succeeded":
         artifact = await session.scalar(
             select(StudioArtifact)
             .where(

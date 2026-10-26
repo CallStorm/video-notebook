@@ -788,7 +788,7 @@ async def _store_success(
     main_key, data = _store_main(accepted_path, accepted_mime)
     stored_keys.append(main_key)
     text_content: str | None = None
-    if prepared.format_key == "mind_map":
+    if prepared.format_key in {"mind_map", "structured_notes"}:
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:

@@ -31,7 +31,7 @@ async def test_seed_is_idempotent_and_enable_requires_agent(client, admin_header
             select(StudioCapability).where(StudioCapability.is_builtin.is_(True))
         )
     ).scalars().all()
-    assert {row.format_key for row in rows} == {"mind_map", "slides"}
+    assert {row.format_key for row in rows} == {"mind_map", "structured_notes", "slides"}
     assert all(row.enabled is False for row in rows)
     mind = next(row for row in rows if row.format_key == "mind_map")
     mind.name = "改过的名字"

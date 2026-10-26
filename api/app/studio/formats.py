@@ -28,6 +28,27 @@ _SLIDES_INSTRUCTIONS = """\
 - `outputs/MANIFEST.json` 必须是这一份，字段名不能改，也不要写成技能自己的清单：
   {"status":"success","title":"演示标题","artifacts":[{"role":"main","path":"outputs/deck.pptx","mime":"application/vnd.openxmlformats-officedocument.presentationml.presentation"}]}"""
 
+_STRUCTURED_NOTES_INSTRUCTIONS = """\
+- 主文件是结构化笔记 JSON，路径 `outputs/notes.json`（UTF-8）。
+- 也可用 Markdown 备选：`outputs/notes.md`（仅当无法写 JSON 时）。
+- `outputs/MANIFEST.json` 必须是这一份，字段名不能改：
+  {"status":"success","title":"笔记标题","artifacts":[{"role":"main","path":"outputs/notes.json","mime":"application/json"}]}
+- JSON 字段（只写有内容的；数组可为空但不能省略键）：
+  {
+    "theme": "一句话主题",
+    "concepts": [{"term": "术语", "definition": "一句话解释"}],
+    "points": [{"time": "MM:SS 或 HH:MM:SS", "text": "带时间戳的要点"}],
+    "evidence": [{"text": "论据或原文要点（精简）"}],
+    "takeaways": ["可执行结论 / 行动项"]
+  }
+- 目标：帮助用户吸收来源——精简、好懂、可复查；禁止长散文堆砌。
+- `points.time` 尽量来自字幕/时间轴；没有可靠时间戳时可省略 time，只保留 text。
+- `concepts` 只收关键术语；`takeaways` 要可执行，不要空话。
+- 表单字段（`inputs.json` → `fields`）：
+  - `focus`：可选聚焦问题（有则围绕它裁剪，无关内容不写）
+  - `extra_constraints`：用户额外约束（若有，必须遵守）
+- MANIFEST title：优先用 theme 精炼短标题。"""
+
 _FILE_INSTRUCTIONS = """\
 一个非空主文件放在 `outputs/`。`outputs/MANIFEST.json` 必须是这一份，字段名不能改：
 {"status":"success","title":"文件名称","artifacts":[{"role":"main","path":"outputs/<文件名>","mime":"<mime>"}]}"""
@@ -35,6 +56,7 @@ _FILE_INSTRUCTIONS = """\
 _MIME_BY_SUFFIX: dict[str, str] = {
     ".md": "text/markdown",
     ".markdown": "text/markdown",
+    ".json": "application/json",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
@@ -64,6 +86,7 @@ class NoOutput(Exception):
 
 _PREFERRED_NAMES: dict[str, frozenset[str]] = {
     "mind_map": frozenset({"mindmap.md", "mindmap.markdown"}),
+    "structured_notes": frozenset({"notes.json", "notes.md", "notes.markdown"}),
     "slides": frozenset({"deck.pptx"}),
 }
 
@@ -74,6 +97,12 @@ _FORMATS: dict[str, OutputFormat] = {
         label="思维导图",
         instructions=_MIND_MAP_INSTRUCTIONS,
         extensions=(".md", ".markdown"),
+    ),
+    "structured_notes": OutputFormat(
+        key="structured_notes",
+        label="结构化笔记",
+        instructions=_STRUCTURED_NOTES_INSTRUCTIONS,
+        extensions=(".json", ".md", ".markdown"),
     ),
     "slides": OutputFormat(
         key="slides",
@@ -95,7 +124,7 @@ def get_format(key: str) -> OutputFormat:
 
 
 def list_formats() -> list[OutputFormat]:
-    return [_FORMATS[k] for k in ("mind_map", "slides", "file")]
+    return [_FORMATS[k] for k in ("mind_map", "structured_notes", "slides", "file")]
 
 
 def accept_outputs(fmt: OutputFormat, outputs_dir: Path) -> Accepted:

@@ -171,3 +171,34 @@ def test_mind_map_instructions_treat_topic_as_focus_axis():
     assert "必要前提" in instructions
     assert "禁止按视频/文档章节目录做全覆盖式导图" in instructions
 
+
+
+def test_structured_notes_json_manifest_accepted(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    payload = b'{"theme":"t","concepts":[],"points":[],"evidence":[],"takeaways":[]}'
+    _write(outputs, "notes.json", payload)
+    (outputs / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "title": "笔记",
+                "artifacts": [
+                    {"role": "main", "path": "outputs/notes.json", "mime": "application/json"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    accepted = accept_outputs(get_format("structured_notes"), outputs)
+    assert accepted.title == "笔记"
+    assert accepted.path.name == "notes.json"
+    assert accepted.mime == "application/json"
+
+
+def test_structured_notes_instructions_cover_schema():
+    instructions = get_format("structured_notes").instructions
+    assert "notes.json" in instructions
+    assert "concepts" in instructions
+    assert "takeaways" in instructions
+    assert "focus" in instructions

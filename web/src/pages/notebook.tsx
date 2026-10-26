@@ -29,6 +29,7 @@ import { NoteRichEditor, getMarkdown } from "@/components/note-editor";
 import type { Editor } from "@tiptap/react";
 import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
 import { StudioMindmap } from "@/components/studio-mindmap";
+import { StudioNotes } from "@/components/studio-notes";
 import { StudioSlides } from "@/components/studio-slides";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
@@ -436,7 +437,7 @@ export default function NotebookPage() {
   const openNote = notes.find((note) => note.id === openNoteId) ?? null;
   const browsingList = !selected;
   const listRows = mixSourceRows(nb.sources, notes);
-  const previewMessage = mindMapNotice(preview.isLoading, preview.isError, preview.error, preview.data);
+  const previewMessage = mindMapNotice(preview.isLoading, preview.isError, preview.error, preview.data, previewFormat);
   const workbenchColumns = [
     leftCollapsed ? "3rem" : "minmax(15rem, 1fr)",
     "minmax(0, 2.2fr)",
@@ -885,6 +886,34 @@ export default function NotebookPage() {
                     setPreviewExpanded(false);
                   }}
                 />
+              ) : previewTaskId != null && previewFormat === "structured_notes" ? (
+                <StudioNotes
+                  title={preview.data?.title || "结构化笔记"}
+                  crumb={nb.title}
+                  text={previewMessage ? null : (preview.data?.text_content ?? null)}
+                  notice={previewMessage}
+                  noticeError={preview.isError}
+                  videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
+                  notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
+                  expanded={previewExpanded}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+                  onOpenVideo={(videoId) => {
+                    setPreviewExpanded(false);
+                    setLeftCollapsed(false);
+                    setFocusCue(null);
+                    setSelectedVideoId(videoId);
+                  }}
+                  onOpenNote={(noteId) => {
+                    setPreviewExpanded(false);
+                    setRightCollapsed(false);
+                    setOpenNoteId(noteId);
+                  }}
+                />
               ) : previewTaskId != null ? (
                 <StudioMindmap
                   title={preview.data?.title || "导图"}
@@ -1120,14 +1149,17 @@ function mindMapNotice(
   failed: boolean,
   error: unknown,
   task: StudioTaskDetail | undefined,
+  formatKey?: string | null,
 ): string | null {
+  const emptyLabel = formatKey === "structured_notes" ? "没有笔记内容" : "没有导图内容";
+  const loadingLabel = formatKey === "structured_notes" ? "加载结构化笔记…" : "加载导图…";
   if (!task) {
-    if (loading) return "加载导图…";
+    if (loading) return loadingLabel;
     if (error instanceof ApiError) return error.message;
     if (failed) return "加载失败";
-    return "加载导图…";
+    return loadingLabel;
   }
-  if (task.text_content == null) return "没有导图内容";
+  if (task.text_content == null) return emptyLabel;
   return null;
 }
 

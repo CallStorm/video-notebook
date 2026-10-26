@@ -45,6 +45,26 @@ _MIND_MAP_FORM = [
         "multiline": True,
     },
 ]
+_STRUCTURED_NOTES_FORM = [
+    {"type": "language"},
+    {"type": "sources"},
+    {
+        "type": "text",
+        "key": "focus",
+        "label": "聚焦",
+        "placeholder": "可选：想吸收的问题，如：如何从零跑到十公里",
+        "required": False,
+        "multiline": False,
+    },
+    {
+        "type": "text",
+        "key": "extra_constraints",
+        "label": "额外约束",
+        "placeholder": "可选：例如只要概念卡、时间戳尽量密、不要行动清单…",
+        "required": False,
+        "multiline": True,
+    },
+]
 _SLIDES_FORM = [
     {"type": "language"},
     {"type": "sources"},
@@ -63,6 +83,12 @@ _BUILTINS = (
         "icon": "🧠",
         "format_key": "mind_map",
         "form_json": _MIND_MAP_FORM,
+    },
+    {
+        "name": "结构化笔记",
+        "icon": "📝",
+        "format_key": "structured_notes",
+        "form_json": _STRUCTURED_NOTES_FORM,
     },
     {
         "name": "PPT",

@@ -126,6 +126,38 @@ function sourceLabel(task: StudioTask): string {
   return count === 1 ? "1 个来源" : `${count} 个来源`;
 }
 
+function isTextStudioFormat(formatKey: string): boolean {
+  return formatKey === "mind_map" || formatKey === "structured_notes";
+}
+
+function isStudioOpenableFormat(formatKey: string): boolean {
+  return (
+    formatKey === "mind_map" ||
+    formatKey === "structured_notes" ||
+    formatKey === "slides" ||
+    formatKey === "file"
+  );
+}
+
+function formatShortLabel(formatKey: string): string {
+  if (formatKey === "slides") return "幻";
+  if (formatKey === "file") return "文";
+  if (formatKey === "structured_notes") return "笔";
+  return "导";
+}
+
+function deleteConfirmLabel(formatKey: string): string {
+  if (formatKey === "slides") return "删除这个幻灯片？";
+  if (formatKey === "structured_notes") return "删除这份结构化笔记？";
+  return "删除这个导图？";
+}
+
+function renameHeading(formatKey: string): string {
+  if (formatKey === "slides") return "重命名幻灯片";
+  if (formatKey === "structured_notes") return "重命名结构化笔记";
+  return "重命名导图";
+}
+
 
 function taskStatusChip(status: string): { label: string; className: string } | null {
   if (status === "queued") return { label: "排队中", className: "status-chip status-chip-idle" };
@@ -221,7 +253,7 @@ export function StudioCollapsedRail({
           const busy = task.status === "queued" || task.status === "running";
           const openable =
             task.status === "succeeded" &&
-            (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file");
+            isStudioOpenableFormat(task.format_key);
           const icon = capabilityIcon(capabilities.data, task);
           const chip = taskStatusChip(task.status);
           const tip = chip ? `${task.title} · ${chip.label}` : task.title;
@@ -241,7 +273,7 @@ export function StudioCollapsedRail({
                 <span className="text-base leading-none">{icon}</span>
               ) : (
                 <span className="text-[10px] font-semibold text-muted-foreground">
-                  {task.format_key === "slides" ? "幻" : task.format_key === "file" ? "文" : "导"}
+                  {formatShortLabel(task.format_key)}
                 </span>
               )}
               {busy ? (
@@ -356,7 +388,7 @@ export function StudioPanel({
       access,
     });
     if (!detail.text_content) {
-      setFormError("没有导图内容");
+      setFormError("没有可下载的文本内容");
       return;
     }
     const blob = new Blob([detail.text_content], { type: "text/markdown;charset=utf-8" });
@@ -460,7 +492,7 @@ export function StudioPanel({
           <div className="empty-panel mx-3 mb-3 py-8">
             <p className="text-sm font-medium text-foreground">还没有产出</p>
             <p className="mt-1.5 max-w-[16rem] text-xs leading-relaxed text-muted-foreground">
-              点上方能力，生成导图、幻灯片或文件。
+              点上方能力，生成导图、结构化笔记、幻灯片或文件。
             </p>
           </div>
         ) : null}
@@ -471,10 +503,10 @@ export function StudioPanel({
               task.status === "failed" ? failureLabel(task) : null;
             const openable =
               task.status === "succeeded" &&
-              (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file") &&
+              (isStudioOpenableFormat(task.format_key)) &&
               !!onOpenTask;
             const icon = capabilityIcon(capabilities.data, task);
-            if (task.format_key === "mind_map" || task.format_key === "slides") {
+            if (isTextStudioFormat(task.format_key) || task.format_key === "slides") {
               const when = relativeTime(task.created_at);
               const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
               const chip = taskStatusChip(task.status);
@@ -505,13 +537,16 @@ export function StudioPanel({
                   <TaskMenu
                     onRename={() => setRenameTask(task)}
                     onRemove={() => {
-                      const label = task.format_key === "slides" ? "删除这个幻灯片？" : "删除这个导图？";
+                      const label = deleteConfirmLabel(task.format_key);
                       if (window.confirm(label)) removeTask.mutate(task.id);
                     }}
                     onDownload={
                       task.status !== "succeeded"
                         ? undefined
-                        : () => void (task.format_key === "slides" ? downloadSlides(task) : downloadMindMap(task))
+                        : () =>
+                        void (task.format_key === "slides"
+                          ? downloadSlides(task)
+                          : downloadMindMap(task))
                     }
                   />
                 </div>
@@ -564,7 +599,7 @@ export function StudioPanel({
       <SourceRenameDialog
         open={renameTask !== null}
         title={renameTask?.title || ""}
-        heading={renameTask?.format_key === "slides" ? "重命名幻灯片" : "重命名导图"}
+        heading={renameTask ? renameHeading(renameTask.format_key) : "重命名"}
         pending={rename.isPending}
         error={rename.error instanceof ApiError ? rename.error.message : null}
         onClose={() => {
