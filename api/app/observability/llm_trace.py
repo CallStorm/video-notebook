@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from app.observability.settings_cache import get_flags
-from app.observability.writer import enqueue
+from app.observability.writer import enqueue, enqueue_sync
 
 _seq: dict[str, int] = {}
 
@@ -26,7 +26,7 @@ def start_llm_trace(
         return None
     tid = str(uuid.uuid4())
     _seq[tid] = 0
-    enqueue(
+    enqueue_sync(
         {
             "op": "llm_trace_upsert",
             "trace_id": tid,
@@ -99,7 +99,7 @@ def end_llm_trace(
     ms = latency_ms
     if ms is None and t0 is not None:
         ms = int((time.perf_counter() - t0) * 1000)
-    enqueue(
+    enqueue_sync(
         {
             "op": "llm_trace_upsert",
             "trace_id": trace_id,

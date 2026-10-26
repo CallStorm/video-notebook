@@ -102,7 +102,7 @@ class AnthropicCompatProvider(LlmProvider):
             messages=[{"role": "user", "content": prompt}],
             extra_body=_extra_body(kwargs),
         )
-        self.last_usage = parse_usage(getattr(resp, "usage", None))
+        self.last_usage = parse_usage(getattr(resp, "usage", None)) or parse_usage(resp)
         parts = []
         for block in resp.content:
             text = getattr(block, "text", None)
@@ -131,11 +131,15 @@ class AnthropicCompatProvider(LlmProvider):
             async for text in stream.text_stream:
                 if text:
                     yield text
+            final = None
             try:
                 final = await stream.get_final_message()
             except Exception:
                 final = None
-            self.last_usage = parse_usage(final)
+            usage = parse_usage(final)
+            if usage is None and final is not None:
+                usage = parse_usage(getattr(final, "usage", None))
+            self.last_usage = usage
 
 
 class StubLlmProvider(LlmProvider):

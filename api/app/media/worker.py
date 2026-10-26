@@ -99,6 +99,7 @@ def media_pipeline(
     force: bool = False,
     run_id: str | None = None,
     record_success: bool = True,
+    notebook_id: int | None = None,
 ) -> None:
     snap = get_settings_fresh()
     from app.media import slots
@@ -120,6 +121,7 @@ def media_pipeline(
                 force=force,
                 run_id=run_id,
                 record_success=record_success,
+                notebook_id=notebook_id,
             )
         )
     except SoftTimeLimitExceeded:
@@ -136,6 +138,7 @@ async def _run_pipeline(
     force: bool,
     run_id: str | None = None,
     record_success: bool = True,
+    notebook_id: int | None = None,
 ) -> None:
     from app.media.enqueue import pop_run_meta
     from app.observability.pipeline_log import log_event
@@ -148,16 +151,18 @@ async def _run_pipeline(
     else:
         # consume redis meta if present so it does not leak
         pop_run_meta(video_id)
-    if rid:
-        bind_run(rid, record_success=rec)
-    else:
-        nb_id = None
+    nb_id = notebook_id
+    if nb_id is None:
         try:
             from app.media.enqueue import _lookup_notebook_id
 
             nb_id = _lookup_notebook_id(video_id)
         except Exception:
             nb_id = None
+
+    if rid:
+        bind_run(rid, record_success=rec)
+    else:
         start_pipeline_run(
             video_id=video_id,
             stage=stage,
@@ -204,18 +209,18 @@ async def _run_pipeline(
                     "skipped",
                     summary="字幕已就绪，跳过 ASR（沿用已有字幕，页面仍有字幕）",
                 )
-                await run_overview_if_needed(video_id)
+                await run_overview_if_needed(video_id, notebook_id=nb_id)
                 await _refresh_vector_indexes(video_id)
                 return
             from app.subtitles.pipeline import run_subtitle_pipeline
 
-            await run_subtitle_pipeline(video_id)
+            await run_subtitle_pipeline(video_id, notebook_id=nb_id)
             await _refresh_vector_indexes(video_id)
             return
 
         from app.subtitles.pipeline import run_subtitle_pipeline
 
-        await run_subtitle_pipeline(video_id)
+        await run_subtitle_pipeline(video_id, notebook_id=nb_id)
         await _refresh_vector_indexes(video_id)
     except Exception as exc:
         status = "failed"

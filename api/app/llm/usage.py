@@ -27,6 +27,38 @@ def _as_int(value: Any) -> int | None:
     return n if n >= 0 else None
 
 
+def _to_mapping(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    data: dict[str, Any] = {}
+    # pydantic v2 / SDK models
+    for meth in ("model_dump", "dict", "to_dict"):
+        fn = getattr(raw, meth, None)
+        if callable(fn):
+            try:
+                dumped = fn()
+            except TypeError:
+                try:
+                    dumped = fn(exclude_none=False)
+                except Exception:
+                    dumped = None
+            except Exception:
+                dumped = None
+            if isinstance(dumped, dict):
+                return dumped
+    for key in (
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "usage",
+    ):
+        if hasattr(raw, key):
+            data[key] = getattr(raw, key)
+    return data
+
+
 def parse_usage(raw: Any) -> TokenUsage | None:
     """Accept Anthropic Message.usage, OpenAI usage dict, or similar objects.
 
@@ -40,24 +72,13 @@ def parse_usage(raw: Any) -> TokenUsage | None:
     if isinstance(raw, TokenUsage):
         return raw
 
-    data: dict[str, Any]
-    if isinstance(raw, dict):
-        data = raw
-    else:
-        # pydantic/SDK model or SimpleNamespace
-        data = {}
-        for key in (
-            "prompt_tokens",
-            "completion_tokens",
-            "total_tokens",
-            "input_tokens",
-            "output_tokens",
-        ):
-            if hasattr(raw, key):
-                data[key] = getattr(raw, key)
-        # nested .usage
-        if not data and hasattr(raw, "usage"):
-            return parse_usage(getattr(raw, "usage"))
+    data = _to_mapping(raw)
+    # nested .usage (Message -> usage)
+    if "usage" in data and data.get("usage") is not None:
+        nested = parse_usage(data.get("usage"))
+        if nested is not None:
+            return nested
+        # continue with top-level keys if nested empty
 
     prompt = _as_int(data.get("prompt_tokens"))
     if prompt is None:

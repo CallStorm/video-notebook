@@ -103,9 +103,10 @@ function formatTime(iso: string | null | undefined) {
 
 function formatTokens(t: TraceItem) {
   if (t.prompt_tokens == null && t.completion_tokens == null) return "—";
+  const total = (t.prompt_tokens ?? 0) + (t.completion_tokens ?? 0);
   const a = t.prompt_tokens ?? "—";
   const b = t.completion_tokens ?? "—";
-  return `${a}/${b}`;
+  return `${total}（${a}+${b}）`;
 }
 
 function statusTone(status: string): "ok" | "danger" | "info" | "idle" | "warn" {
@@ -451,9 +452,8 @@ export function AdminLlmTracesPage() {
       (s) => s.name === "generation" || s.role === "assistant",
     ) ?? [];
 
-  const hasTokenCol = (traces.data?.items ?? []).some(
-    (t) => t.prompt_tokens != null || t.completion_tokens != null,
-  );
+  // 始终展示 Token 列，便于核对消耗；无用量时显示 —
+  const hasTokenCol = true;
 
   return (
     <div className="space-y-4">
@@ -554,7 +554,7 @@ export function AdminLlmTracesPage() {
                     <th>类型</th>
                     <th>笔记本</th>
                     <th>模型</th>
-                    {hasTokenCol ? <th>Token</th> : null}
+                    {hasTokenCol ? <th>Token 合计</th> : null}
                     <th>耗时</th>
                     <th>状态</th>
                   </tr>

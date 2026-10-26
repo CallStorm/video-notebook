@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.context import (
-    MAX_CONTEXT_CHARS,
     BuiltContext,
     build_context,
     parse_citations,
@@ -21,7 +20,7 @@ from app.db.session import get_sessionmaker
 from app.llm.config_service import LlmResolved, get_active_llm
 from app.llm.providers import make_provider
 from app.models.notebook import ChatMessage, ChatThread, Note, NotebookSource
-from app.services.chat_settings import get_history_limit
+from app.services.chat_settings import get_history_limit, get_max_context_chars
 from app.services.notebooks import get_notebook, get_notebook_readable
 from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
 import time
@@ -143,10 +142,13 @@ async def prepare_chat(
         body = f"{body}\n\n{notes_block}"
     prompt_core = f"{body}\n\n问题：{question}"
     system = _SYSTEM_WITH_NOTES if notes else _SYSTEM
+    max_context_chars = await get_max_context_chars(session)
     fixed_chars = len(system) + len(prompt_core)
-    if context.chars > MAX_CONTEXT_CHARS or fixed_chars > MAX_CONTEXT_CHARS:
+    if context.chars > max_context_chars or fixed_chars > max_context_chars:
         raise BadRequestError(
-            _SOURCES_TOO_LARGE.format(chars=max(context.chars, fixed_chars), limit=MAX_CONTEXT_CHARS)
+            _SOURCES_TOO_LARGE.format(
+                chars=max(context.chars, fixed_chars), limit=max_context_chars
+            )
         )
 
     llm = await get_active_llm(session)
@@ -154,7 +156,7 @@ async def prepare_chat(
     history_limit = await get_history_limit(session)
     history = await _history(session, thread.id, turn_limit=history_limit)
     history, history_trimmed = _trim_history_to_budget(
-        history, fixed_chars=fixed_chars, max_chars=MAX_CONTEXT_CHARS
+        history, fixed_chars=fixed_chars, max_chars=max_context_chars
     )
 
     user = ChatMessage(
@@ -182,12 +184,6 @@ async def prepare_chat(
 
 
 async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
-    if prepared.history_trimmed:
-        yield {
-            "type": "warning",
-            "code": "history_trimmed",
-            "chars": prepared.context.chars,
-        }
     provider = make_provider(
         provider_name=prepared.llm.provider,
         api_key=prepared.llm.api_key,
@@ -195,6 +191,7 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
         model_name=prepared.llm.model_name,
         params_json=prepared.llm.params_json,
     )
+    # Start trace before any yield so client disconnect / reload cannot skip it.
     trace_id = start_llm_trace(
         kind="chat",
         notebook_id=prepared.notebook_id,
@@ -202,6 +199,12 @@ async def stream_answer(prepared: PreparedChat) -> AsyncIterator[dict]:
         provider=prepared.llm.provider,
         model_name=prepared.llm.model_name,
     )
+    if prepared.history_trimmed:
+        yield {
+            "type": "warning",
+            "code": "history_trimmed",
+            "chars": prepared.context.chars,
+        }
     llm_span(trace_id, "system", content=prepared.system, role="system")
     if prepared.history:
         hist_preview = "\n".join(

@@ -199,7 +199,10 @@ async def run_overview_if_needed(
 
 
 async def run_subtitle_pipeline(
-    video_id: int, *, session: AsyncSession | None = None
+    video_id: int,
+    *,
+    session: AsyncSession | None = None,
+    notebook_id: int | None = None,
 ) -> None:
     """生成字幕并覆盖写入。传入 session 时全程复用它（测试用）。"""
 
@@ -253,7 +256,9 @@ async def run_subtitle_pipeline(
                 )
 
             await _use(_save)
-        await run_overview_if_needed(video_id, session=session)
+        await run_overview_if_needed(
+            video_id, session=session, notebook_id=notebook_id
+        )
     except Exception as exc:  # noqa: BLE001 — 失败要写回状态，不能把任务吞掉后一直停在 processing
         try:
             from celery.exceptions import SoftTimeLimitExceeded as _SoftLimit

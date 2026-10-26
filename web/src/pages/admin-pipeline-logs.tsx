@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ChevronDown, Info } from "lucide-react";
+import { AlertTriangle, ChevronDown, Info, X } from "lucide-react";
 import {
   AdminEmptyState,
   AdminLoading,
@@ -217,10 +217,12 @@ function NotebookNameCombobox({
   items,
   valueId,
   onChange,
+  compact,
 }: {
   items: NotebookItem[];
   valueId: string;
   onChange: (id: string) => void;
+  compact?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const selected = items.find((n) => String(n.id) === valueId);
@@ -230,9 +232,10 @@ function NotebookNameCombobox({
 
   useEffect(() => {
     if (!touched) {
-      setQuery(selected ? selected.title || `笔记本 #${selected.id}` : "");
+      if (!valueId) setQuery("");
+      else setQuery(selected ? selected.title || `笔记本 #${selected.id}` : `笔记本 #${valueId}`);
     }
-  }, [selected, touched]);
+  }, [selected, touched, valueId]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -254,22 +257,27 @@ function NotebookNameCombobox({
     });
   }, [items, query]);
 
-  const applyPick = (nb: NotebookItem) => {
-    onChange(String(nb.id));
-    setQuery(nb.title || `笔记本 #${nb.id}`);
+  const applyPick = (nb: NotebookItem | null) => {
+    if (!nb) {
+      onChange("");
+      setQuery("");
+    } else {
+      onChange(String(nb.id));
+      setQuery(nb.title || `笔记本 #${nb.id}`);
+    }
     setTouched(false);
     setOpen(false);
   };
 
   const commitTyped = () => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
+    const ql = q.toLowerCase();
     if (!q) {
-      onChange("");
-      setTouched(false);
+      applyPick(null);
       return;
     }
     const exact = items.find(
-      (n) => (n.title || `笔记本 #${n.id}`).toLowerCase() === q || String(n.id) === q,
+      (n) => (n.title || `笔记本 #${n.id}`).toLowerCase() === ql || String(n.id) === q,
     );
     if (exact) {
       applyPick(exact);
@@ -279,20 +287,37 @@ function NotebookNameCombobox({
       applyPick(filtered[0]);
       return;
     }
+    // allow numeric notebook id even if not in list
+    if (/^\d+$/.test(q)) {
+      onChange(q);
+      setQuery(`笔记本 #${q}`);
+      setTouched(false);
+      setOpen(false);
+      return;
+    }
     if (selected) {
       const label = (selected.title || `笔记本 #${selected.id}`).toLowerCase();
-      if (!label.includes(q) && String(selected.id) !== q) onChange("");
+      if (!label.includes(ql) && String(selected.id) !== q) applyPick(null);
+    } else {
+      setTouched(false);
     }
-    setTouched(false);
   };
 
   return (
-    <div ref={wrapRef} className="admin-pl-name-combo relative min-w-[240px] max-w-md flex-1">
-      <label className="mb-1 block text-xs text-muted-foreground">名称</label>
+    <div
+      ref={wrapRef}
+      className={cn(
+        "relative",
+        compact ? "w-[13rem] min-w-0 shrink-0" : "admin-pl-name-combo min-w-[240px] max-w-md flex-1",
+      )}
+    >
+      {!compact ? (
+        <label className="mb-1 block text-xs text-muted-foreground">名称</label>
+      ) : null}
       <div className="relative">
         <input
-          className="admin-input w-full pr-9"
-          placeholder="选择或输入笔记本名称…"
+          className={cn("admin-input w-full pr-9", compact && "h-9 rounded-lg text-xs")}
+          placeholder="全部笔记本 / 名称 / ID…"
           value={query}
           onChange={(e) => {
             setTouched(true);
@@ -308,7 +333,11 @@ function NotebookNameCombobox({
             } else if (e.key === "Escape") {
               setOpen(false);
               setTouched(false);
-              setQuery(selected ? selected.title || `笔记本 #${selected.id}` : "");
+              if (!valueId) setQuery("");
+              else
+                setQuery(
+                  selected ? selected.title || `笔记本 #${selected.id}` : `笔记本 #${valueId}`,
+                );
             } else if (e.key === "ArrowDown") {
               setOpen(true);
             }
@@ -325,6 +354,7 @@ function NotebookNameCombobox({
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
+          aria-label="笔记本"
         />
         <button
           type="button"
@@ -341,11 +371,31 @@ function NotebookNameCombobox({
       </div>
       {open ? (
         <ul
-          className="admin-pl-name-menu absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border/70 bg-background py-1 shadow-soft"
+          className={cn(
+            "absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border/70 bg-background py-1 shadow-soft",
+            !compact && "admin-pl-name-menu",
+          )}
           role="listbox"
         >
+          <li role="option" aria-selected={!valueId}>
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/70",
+                !valueId && "bg-primary/10 text-foreground",
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                applyPick(null);
+              }}
+            >
+              <span>全部笔记本</span>
+            </button>
+          </li>
           {filtered.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-muted-foreground">无匹配笔记本</li>
+            <li className="px-3 py-2 text-xs text-muted-foreground">
+              无匹配；可直接输入笔记本数字 ID
+            </li>
           ) : (
             filtered.map((nb) => {
               const label = nb.title || `笔记本 #${nb.id}`;
@@ -457,11 +507,7 @@ export function AdminPipelineLogsPage() {
     enabled: !!token,
   });
 
-  useEffect(() => {
-    if (notebookId) return;
-    const items = notebooks.data?.items ?? [];
-    if (items.length) setNotebookId(String(items[0].id));
-  }, [notebooks.data, notebookId]);
+  const filtersActive = Boolean(notebookId || status);
 
   const enabled = !!settings.data?.pipeline_logs_enabled;
   const retention = settings.data?.retention_days ?? 7;
@@ -479,7 +525,7 @@ export function AdminPipelineLogsPage() {
         { access: token },
       );
     },
-    enabled: !!token && enabled && !!notebookId,
+    enabled: !!token && enabled,
     refetchInterval: enabled ? 5000 : false,
   });
 
@@ -507,47 +553,61 @@ export function AdminPipelineLogsPage() {
 
       {enabled ? (
         <>
-          <AdminSectionCard
-            title="筛选"
-            className="admin-pl-filter-card"
-            contentClassName="overflow-visible pb-1"
-          >
-            <div className="flex flex-wrap items-end gap-4">
+          {/* 方案 A：单行紧凑工具栏；状态与标签同组，避免 admin-input 的 w-full 把下拉挤换行 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-border/60 bg-card/80 px-3 py-2.5 shadow-soft">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-[11px] font-medium text-muted-foreground">笔记本</span>
               <NotebookNameCombobox
+                compact
                 items={notebooks.data?.items ?? []}
                 valueId={notebookId}
                 onChange={setNotebookId}
               />
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">状态</label>
-                <select
-                  className="admin-input w-36"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  <option value="">全部状态</option>
-                  <option value="running">进行中</option>
-                  <option value="ok">成功</option>
-                  <option value="failed">失败</option>
-                </select>
-              </div>
-              <span className="pb-2 text-xs text-muted-foreground">
-                共 {runs.data?.total ?? 0} 条运行
-              </span>
             </div>
-          </AdminSectionCard>
+            <span className="hidden h-4 w-px shrink-0 bg-border/70 sm:block" aria-hidden />
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="shrink-0 text-[11px] font-medium text-muted-foreground">状态</span>
+              <select
+                className="admin-input !h-9 !w-[7.5rem] shrink-0 rounded-lg text-xs"
+                value={status}
+                aria-label="状态"
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="">全部状态</option>
+                <option value="running">进行中</option>
+                <option value="ok">成功</option>
+                <option value="failed">失败</option>
+              </select>
+            </div>
+            {filtersActive ? (
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  setNotebookId("");
+                  setStatus("");
+                }}
+                aria-label="清除筛选"
+              >
+                <X className="h-3.5 w-3.5" />
+                清除
+              </button>
+            ) : null}
+            <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+              共 {runs.data?.total ?? 0} 条运行
+            </span>
+          </div>
 
-          {!notebookId ? (
-            <AdminEmptyState
-              title="请选择笔记本"
-              description="选择或输入笔记本名称后，会显示该笔记本下来源的处理时间线。"
-            />
-          ) : runs.isLoading ? (
+          {runs.isLoading ? (
             <AdminLoading />
           ) : !(runs.data?.items?.length) ? (
             <AdminEmptyState
               title="暂无流水线记录"
-              description="对该笔记本的来源重新生成或抓取后，这里会出现时间线。"
+              description={
+                filtersActive
+                  ? "当前筛选无结果，试试放宽条件。"
+                  : "对来源重新生成或抓取后，这里会出现时间线。"
+              }
             />
           ) : (
             <div className="space-y-4">

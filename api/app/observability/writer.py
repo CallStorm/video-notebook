@@ -45,6 +45,15 @@ def dropped_count() -> int:
     return _drop_count
 
 
+def enqueue_sync(item: dict[str, Any]) -> None:
+    """同步落库一条观测事件。用于 llm_trace 起止，避免 uvicorn --reload 冲掉内存队列。"""
+    try:
+        _flush([item])
+    except Exception:
+        logger.exception("observability sync write failed op=%s", item.get("op"))
+        enqueue(item)
+
+
 def _ensure_started() -> None:
     global _started
     if _started:

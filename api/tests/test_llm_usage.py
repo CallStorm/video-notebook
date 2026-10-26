@@ -23,3 +23,13 @@ def test_parse_nested_usage():
 def test_parse_empty():
     assert parse_usage(None) is None
     assert parse_usage({}) is None
+
+
+def test_parse_model_dump_message():
+    class Msg:
+        def model_dump(self):
+            return {"usage": {"input_tokens": 7, "output_tokens": 9}}
+
+    usage = parse_usage(Msg())
+    assert usage == TokenUsage(prompt_tokens=7, completion_tokens=9)
+    assert usage.total_tokens == 16

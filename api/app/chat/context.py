@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.notebook import NotebookSource, SubtitleLine, Video
 from app.subtitles.store import load_subtitle
 
-# 大约按字符估。仅用于总预算；勾选来源本身超限时由 service 报错，不在此截断。
+# 默认上下文字符预算；运行时以 chat_settings_config.max_context_chars 为准。
 MAX_CONTEXT_CHARS = 60_000
 _CITE_RE = re.compile(r"\[(\d+)\]")
 

@@ -167,6 +167,7 @@ def enqueue_pipeline(
         kwargs={
             "run_id": run_id,
             "record_success": record_success,
+            "notebook_id": notebook_id,
         },
         task_id=task_id,
         soft_time_limit=snap.soft_time_limit,
