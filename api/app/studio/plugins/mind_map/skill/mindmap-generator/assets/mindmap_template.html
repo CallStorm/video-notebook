@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>思维导图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f6fa; color: #2c3e50; overflow: hidden; }
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 10;
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: #ffffff; border-bottom: 1px solid #e1e4ea; box-shadow: 0 1px 4px rgba(0,0,0,.04);
+  }
+  #toolbar .title { font-size: 15px; font-weight: 700; color: #2c3e50; margin-right: auto; }
+  #toolbar .title small { font-weight: 400; color: #8a93a3; font-size: 12px; margin-left: 8px; }
+  #toolbar button {
+    border: 1px solid #d4d9e2; background: #fbfcfe; color: #34495e;
+    padding: 6px 12px; border-radius: 7px; font-size: 13px; cursor: pointer; transition: .15s;
+  }
+  #toolbar button:hover { background: #eef2f8; border-color: #b9c2d0; }
+  #toolbar .hint { font-size: 12px; color: #9aa3b2; }
+  #canvas { position: absolute; top: 52px; left: 0; right: 0; bottom: 0; overflow: hidden; cursor: grab; }
+  #canvas.grabbing { cursor: grabbing; }
+  svg { display: block; width: 100%; height: 100%; }
+  .node rect { cursor: pointer; transition: filter .15s; }
+  .node:hover rect { filter: brightness(1.05) drop-shadow(0 2px 6px rgba(0,0,0,.18)); }
+  .node text { pointer-events: none; font-weight: 600; }
+  .node .sub { pointer-events: none; font-weight: 400; opacity: .8; }
+  .toggle { cursor: pointer; }
+  .toggle circle { stroke: #fff; stroke-width: 1.5; }
+  .toggle text { fill: #fff; font-weight: 700; pointer-events: none; }
+  .edge { fill: none; stroke-width: 2; opacity: .55; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span class="title" id="docTitle"></span>
+  <span class="hint">点击节点折叠/展开 · 滚轮缩放 · 拖拽平移</span>
+  <button onclick="expandAll()">展开全部</button>
+  <button onclick="collapseAll()">折叠分支</button>
+  <button onclick="resetView()">重置视图</button>
+  <button onclick="exportImage()">导出</button>
+  <button onclick="zoomBy(1.2)">＋</button>
+  <button onclick="zoomBy(0.83)">－</button>
+</div>
+<div id="canvas">
+  <svg id="svg">
+    <g id="viewport">
+      <g id="edges"></g>
+      <g id="nodes"></g>
+    </g>
+  </svg>
+</div>
+
+<script>
+// 数据由 build_mindmap.py 注入；此处为缺省占位
+const data = window.MINDMAP_DATA || {text:"思维导图", sub:"", children:[]};
+document.getElementById('docTitle').textContent = (data.text || '思维导图') + (data.sub ? '：' + data.sub : '');
+
+const ROOT_COLOR = "#2c3e50";
+const PALETTE = ["#e2725b","#3a8fb7","#5b9b6b","#c79a3b","#8e6abf","#d8608a","#489aa8","#b5683f"];
+
+// ---- 布局 ----
+const ROW_H = 38, GAP = 26;
+const collapsed = new Set();
+let uid = 0;
+function prep(node, depth, parent, branchIdx){
+  node._id = uid++;
+  node._depth = depth;
+  node._parent = parent;
+  node._color = depth === 0 ? ROOT_COLOR
+              : depth === 1 ? PALETTE[branchIdx % PALETTE.length]
+              : parent._color;
+  if(node.children){
+    node.children.forEach((c,i)=> prep(c, depth+1, node, depth===0?i:branchIdx));
+  }
+}
+prep(data, 0, null, 0);
+
+const MAX_W = 380; // 模块最大宽度；文本超出此宽度的可视区域时，以"…"截断
+// 用 canvas 精确测量文字渲染宽度，超出 maxTextWidth 时按宽度截断并补"…"
+const _mctx = document.createElement("canvas").getContext("2d");
+function fitText(str, maxTextWidth, fontPx, weight){
+  if(!str) return "";
+  _mctx.font = (weight||600) + ' ' + fontPx + 'px "Microsoft YaHei","PingFang SC",sans-serif';
+  if(_mctx.measureText(str).width <= maxTextWidth) return str;
+  let lo = 0, hi = str.length;
+  while(lo < hi){
+    const mid = (lo + hi + 1) >> 1;
+    if(_mctx.measureText(str.slice(0, mid) + "…").width <= maxTextWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return str.slice(0, lo) + "…";
+}
+function widthOf(n){
+  const cw = n._depth===0 ? 15 : n._depth===1 ? 13.5 : 13; // 主文本实际字号
+  const tw = n.text.length * cw + 24;                       // 左右各留 12px
+  let sw = 70;
+  if(n.sub) sw = n.sub.length * 11 + 24;                    // 副标题实际 11px
+  return Math.min(Math.max(tw, sw), MAX_W);
+}
+function nodeColorBg(n){
+  if(n._depth===0) return ROOT_COLOR;
+  if(n._depth===1) return n._color;
+  return n._color;
+}
+function textColor(n){ return (n._depth<=1) ? "#fff" : "#2c3e50"; }
+
+let layout = { nodes: [], maxX: 0, minY:0, maxY:0 };
+const V_GAP = 16; // 相邻节点纵向最小间距，避免重叠
+function computeLayout(){
+  const visible = [];
+  let cursorY = 0;
+  function walk(n, depth){
+    n._w = widthOf(n);
+    n._h = n.sub ? 44 : 30; // 高度随是否带副标题变化
+    visible.push(n);
+    const kids = collapsed.has(n._id) ? [] : (n.children||[]);
+    if(kids.length===0){
+      n._y = cursorY;                 // 叶子：按"自身高度+间距"顺序累加
+      cursorY += n._h + V_GAP;
+    } else {
+      kids.forEach(k=> walk(k, depth+1));
+      const first = kids[0], last = kids[kids.length-1];
+      // 父节点垂直居中于其所有子节点构成的区间
+      n._y = (first._y + last._y + last._h) / 2 - n._h / 2;
+    }
+  }
+  walk(data, 0);
+  // x by max width per depth
+  const maxW = {};
+  visible.forEach(n=>{ maxW[n._depth] = Math.max(maxW[n._depth]||0, n._w); });
+  let x = 0;
+  const dx = [];
+  for(let d=0; maxW[d]!==undefined; d++){ dx[d]=x; x += maxW[d] + GAP; }
+  visible.forEach(n=> n._x = dx[n._depth]);
+  layout.nodes = visible;
+  layout.maxX = x;
+  layout.minY = Math.min(...visible.map(n=>n._y));
+  layout.maxY = Math.max(...visible.map(n=>n._y + n._h));
+}
+
+// ---- 渲染 ----
+const SVGNS = "http://www.w3.org/2000/svg";
+const gNodes = document.getElementById("nodes");
+const gEdges = document.getElementById("edges");
+function render(){
+  computeLayout();
+  gNodes.innerHTML = ""; gEdges.innerHTML = "";
+  const byId = {};
+  layout.nodes.forEach(n=> byId[n._id]=n);
+  // edges
+  layout.nodes.forEach(n=>{
+    if(!n._parent) return;
+    const p = n._parent;
+    const x1 = p._x + p._w, y1 = p._y + p._h/2;
+    const x2 = n._x, y2 = n._y + n._h/2;
+    const mx = (x1+x2)/2;
+    const path = document.createElementNS(SVGNS,"path");
+    path.setAttribute("class","edge");
+    path.setAttribute("d",`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+    path.setAttribute("stroke", n._color);
+    gEdges.appendChild(path);
+  });
+  // nodes
+  layout.nodes.forEach(n=>{
+    const g = document.createElementNS(SVGNS,"g");
+    g.setAttribute("class","node");
+    const bg = nodeColorBg(n);
+    const rect = document.createElementNS(SVGNS,"rect");
+    rect.setAttribute("x",n._x); rect.setAttribute("y",n._y);
+    rect.setAttribute("width",n._w); rect.setAttribute("height",n._h);
+    rect.setAttribute("rx",8);
+    rect.setAttribute("fill", bg);
+    rect.setAttribute("stroke", n._depth<=1 ? "rgba(0,0,0,.08)" : n._color);
+    rect.setAttribute("stroke-width", n._depth<=1?1:1.5);
+    g.appendChild(rect);
+
+    const tx = document.createElementNS(SVGNS,"text");
+    tx.setAttribute("x", n._x + 12);
+    tx.setAttribute("y", n._y + (n.sub?17:19));
+    tx.setAttribute("font-size", n._depth===0?15:(n._depth===1?13.5:13));
+    tx.setAttribute("fill", textColor(n));
+    tx.textContent = fitText(n.text, n._w - 24, n._depth===0?15:(n._depth===1?13.5:13), 600);
+    g.appendChild(tx);
+
+    if(n.sub){
+      const st = document.createElementNS(SVGNS,"text");
+      st.setAttribute("class","sub");
+      st.setAttribute("x", n._x + 12);
+      st.setAttribute("y", n._y + 33);
+      st.setAttribute("font-size", 11);
+      st.setAttribute("fill", textColor(n));
+      st.textContent = fitText(n.sub, n._w - 24, 11, 400);
+      g.appendChild(st);
+    }
+
+    // toggle button
+    if(n.children && n.children.length){
+      const tg = document.createElementNS(SVGNS,"g");
+      tg.setAttribute("class","toggle");
+      const c = document.createElementNS(SVGNS,"circle");
+      c.setAttribute("cx", n._x + n._w + 9);
+      c.setAttribute("cy", n._y + n._h/2);
+      c.setAttribute("r", 9);
+      c.setAttribute("fill", collapsed.has(n._id) ? "#95a5a6" : n._color);
+      tg.appendChild(c);
+      const tt = document.createElementNS(SVGNS,"text");
+      tt.setAttribute("x", n._x + n._w + 9);
+      tt.setAttribute("y", n._y + n._h/2 + 4);
+      tt.setAttribute("text-anchor","middle");
+      tt.setAttribute("font-size", 13);
+      tt.textContent = collapsed.has(n._id) ? "+" : "−";
+      tg.appendChild(tt);
+      tg.addEventListener("click",(e)=>{ e.stopPropagation(); toggle(n._id); });
+      g.appendChild(tg);
+      rect.addEventListener("click",()=> toggle(n._id));
+    }
+    gNodes.appendChild(g);
+  });
+  fitIfFirst();
+}
+function toggle(id){ if(collapsed.has(id)) collapsed.delete(id); else collapsed.add(id); render(); }
+
+// ---- 视图变换 ----
+let scale = 1, panX = 0, panY = 0;
+const viewport = document.getElementById("viewport");
+const canvas = document.getElementById("canvas");
+const svg = document.getElementById("svg");
+let firstFit = true;
+function applyTransform(){
+  viewport.setAttribute("transform", `translate(${panX},${panY}) scale(${scale})`);
+}
+function fitIfFirst(){
+  if(!firstFit) return;
+  firstFit = false;
+  resetView();
+}
+function resetView(){
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const contentW = layout.maxX || 1000;
+  const contentH = (layout.maxY - layout.minY) || 800;
+  scale = Math.min(cw/(contentW+80), ch/(contentH+80), 1);
+  if(scale < 0.2) scale = 0.2;
+  panX = 30 - 0; panY = (ch - contentH*scale)/2 - layout.minY*scale;
+  applyTransform();
+}
+function exportImage(){
+  // 临时展开全部，导出完成后再还原用户当前视图
+  const saved = new Set(collapsed);
+  collapsed.clear(); render();
+
+  const PAD = 24;
+  const W = Math.ceil(layout.maxX) + PAD*2;
+  const H = Math.ceil(layout.maxY - layout.minY) + PAD*2;
+  const clone = document.getElementById("svg").cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", W);
+  clone.setAttribute("height", H);
+  clone.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const vp = clone.querySelector("#viewport");
+  if(vp) vp.setAttribute("transform", `translate(${PAD}, ${PAD - layout.minY})`);
+
+  // 注入 SVG 必需的样式（HTML <head> 中的 <style> 不会被序列化带出）
+  const styleCss = `
+    text { font-family: "Microsoft YaHei","PingFang SC",sans-serif; }
+    .node text { font-weight: 600; }
+    .node .sub { font-weight: 400; opacity: .8; }
+    .edge { fill: none; stroke-width: 2; opacity: .55; }
+    .toggle circle { stroke: #fff; stroke-width: 1.5; }
+    .toggle text { fill: #fff; font-weight: 700; }
+  `;
+  const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  styleEl.textContent = styleCss;
+  clone.insertBefore(styleEl, clone.firstChild);
+
+  const svgStr = new XMLSerializer().serializeToString(clone);
+  const svgUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
+
+  const restore = () => { collapsed.clear(); saved.forEach(x => collapsed.add(x)); render(); };
+  const img = new Image();
+  img.onload = function(){
+    const scale = Math.max(1, Math.min(2, Math.floor(8000 / Math.max(W, H))));
+    const canvas = document.createElement("canvas");
+    canvas.width = W * scale; canvas.height = H * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob(function(blob){
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (data.text || "mindmap") + "_思维导图.png";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+    restore();
+  };
+  img.onerror = function(){ alert("导出图片失败，请重试"); restore(); };
+  img.src = svgUrl;
+}
+function zoomBy(f){
+  const cw = canvas.clientWidth/2, ch = canvas.clientHeight/2;
+  const ns = Math.min(2.5, Math.max(0.15, scale*f));
+  panX = cw - (cw - panX)*(ns/scale);
+  panY = ch - (ch - panY)*(ns/scale);
+  scale = ns; applyTransform();
+}
+// wheel
+canvas.addEventListener("wheel",(e)=>{
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+  const f = e.deltaY < 0 ? 1.12 : 0.89;
+  const ns = Math.min(2.5, Math.max(0.15, scale*f));
+  panX = mx - (mx - panX)*(ns/scale);
+  panY = my - (my - panY)*(ns/scale);
+  scale = ns; applyTransform();
+},{passive:false});
+// drag
+let dragging=false, sx=0, sy=0, spx=0, spy=0;
+canvas.addEventListener("mousedown",(e)=>{
+  dragging=true; canvas.classList.add("grabbing");
+  sx=e.clientX; sy=e.clientY; spx=panX; spy=panY;
+});
+window.addEventListener("mousemove",(e)=>{
+  if(!dragging) return;
+  panX = spx + (e.clientX-sx); panY = spy + (e.clientY-sy); applyTransform();
+});
+window.addEventListener("mouseup",()=>{ dragging=false; canvas.classList.remove("grabbing"); });
+
+function expandAll(){ collapsed.clear(); render(); }
+function collapseAll(){
+  layout.nodes.forEach(n=>{ if(n._depth>=1 && n.children) collapsed.add(n._id); });
+  render();
+}
+
+render();
+</script>
+</body>
+</html>

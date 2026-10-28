@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Download, Maximize2, Minimize2, X } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { BookOpen, CheckCircle2, Clock3, Download, Lightbulb, Maximize2, Minimize2, Quote, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface NotesSource {
@@ -24,6 +24,26 @@ function asList(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+/** Parse MM:SS or HH:MM:SS (optional surrounding punctuation) into seconds. */
+export function parseClockToSeconds(raw: string | undefined | null): number | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().replace(/^[\[【(（`]+|[\]】)）`]+$/g, "");
+  const m = /^(\d{1,2}):([0-5]?\d)(?::([0-5]?\d))?$/.exec(cleaned);
+  if (!m) return null;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  const c = m[3] != null ? Number(m[3]) : null;
+  if ([a, b, c].some((n) => n != null && Number.isNaN(n))) return null;
+  if (c != null) return a * 3600 + b * 60 + c;
+  return a * 60 + b;
+}
+
+function extractLeadingTime(text: string): { time?: string; text: string } {
+  const m = /^`?(\d{1,2}:\d{2}(?::\d{2})?)`?\s*[\]】)）:]?\s*(.+)$/s.exec(text.trim());
+  if (m && parseClockToSeconds(m[1]) != null) return { time: m[1], text: m[2].trim() };
+  return { text: text.trim() };
+}
+
 function parseNotes(text: string | null): StructuredNotesData | null {
   if (!text || !text.trim()) return null;
   const trimmed = text.trim();
@@ -44,8 +64,13 @@ function parseNotes(text: string | null): StructuredNotesData | null {
         const row = item as Record<string, unknown>;
         const textValue = typeof row.text === "string" ? row.text.trim() : "";
         if (!textValue) continue;
-        const time = typeof row.time === "string" ? row.time.trim() : undefined;
-        points.push(time ? { time, text: textValue } : { text: textValue });
+        const explicit = typeof row.time === "string" ? row.time.trim() : "";
+        if (explicit && parseClockToSeconds(explicit) != null) {
+          points.push({ time: explicit, text: textValue });
+        } else {
+          const extracted = extractLeadingTime(textValue);
+          points.push(extracted.time ? extracted : { text: textValue });
+        }
       }
       const evidence: Evidence[] = [];
       for (const item of asList(data.evidence)) {
@@ -107,9 +132,8 @@ function parseMarkdownNotes(text: string): StructuredNotesData {
   const points: Point[] = [];
   for (const line of sections.points ?? []) {
     const cleaned = line.replace(/^[-*]\s*/, "");
-    const m = /^`?(\d{1,2}:\d{2}(?::\d{2})?)`?\s+(.+)$/.exec(cleaned);
-    if (m) points.push({ time: m[1], text: m[2].trim() });
-    else if (cleaned) points.push({ text: cleaned });
+    const extracted = extractLeadingTime(cleaned);
+    if (extracted.text) points.push(extracted);
   }
 
   const evidence = (sections.evidence ?? [])
@@ -132,6 +156,31 @@ function parseMarkdownNotes(text: string): StructuredNotesData {
   };
 }
 
+function Section({
+  icon,
+  title,
+  count,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  count?: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mb-6">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-soft">
+          {icon}
+        </span>
+        <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+        {count != null && count > 0 ? <span className="panel-count">{count}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export function StudioNotes({
   title,
   crumb,
@@ -145,6 +194,7 @@ export function StudioNotes({
   onToggleExpanded,
   onOpenVideo,
   onOpenNote,
+  onSeekVideo,
 }: {
   title: string;
   crumb: string;
@@ -158,11 +208,13 @@ export function StudioNotes({
   onToggleExpanded: () => void;
   onOpenVideo: (videoId: number) => void;
   onOpenNote: (noteId: number) => void;
+  onSeekVideo?: (videoId: number, timeSec: number) => void;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const parsed = useMemo(() => parseNotes(text), [text]);
   const sourceCount = videos.length + notes.length;
   const primaryVideoId = videos[0]?.id;
+  const timedCount = parsed?.points.filter((p) => p.time && parseClockToSeconds(p.time) != null).length ?? 0;
 
   function download() {
     if (!text) return;
@@ -180,8 +232,19 @@ export function StudioNotes({
     URL.revokeObjectURL(url);
   }
 
+  function handleTimeClick(time: string) {
+    if (primaryVideoId == null) return;
+    const sec = parseClockToSeconds(time);
+    if (sec == null) {
+      onOpenVideo(primaryVideoId);
+      return;
+    }
+    if (onSeekVideo) onSeekVideo(primaryVideoId, sec);
+    else onOpenVideo(primaryVideoId);
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
+    <div className="flex h-full min-h-0 flex-col bg-gradient-to-b from-card via-card to-accent/20">
       <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5">
         <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onBack}>
           Studio
@@ -212,45 +275,59 @@ export function StudioNotes({
         </div>
       </div>
 
-      <div className="px-5 pb-2 pt-4">
-        <h2 className={expanded ? "text-2xl font-semibold tracking-tight" : "text-lg font-semibold tracking-tight"}>
-          {title}
-        </h2>
-        {sourceCount > 0 ? (
-          <div className="relative mt-3">
-            <button
-              type="button"
-              className="rounded-full border px-3 py-1 text-sm hover:bg-muted"
-              onClick={() => setSourcesOpen((open) => !open)}
-            >
-              {sourceCount === 1 ? "1 个来源" : `${sourceCount} 个来源`}
-            </button>
-            {sourcesOpen ? (
-              <div className="absolute left-0 top-full z-10 mt-2 w-64 overflow-hidden rounded-xl border bg-popover py-1 text-popover-foreground shadow-lg">
-                {videos.map((video) => (
-                  <button
-                    key={`video-${video.id}`}
-                    type="button"
-                    className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
-                    onClick={() => onOpenVideo(video.id)}
-                  >
-                    {video.title}
-                  </button>
-                ))}
-                {notes.map((note) => (
-                  <button
-                    key={`note-${note.id}`}
-                    type="button"
-                    className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
-                    onClick={() => onOpenNote(note.id)}
-                  >
-                    {note.title}
-                  </button>
-                ))}
+      <div className="px-5 pb-3 pt-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-soft">
+            <BookOpen className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className={expanded ? "text-2xl font-semibold tracking-tight" : "text-lg font-semibold tracking-tight"}>
+              {title}
+            </h2>
+            {sourceCount > 0 ? (
+              <div className="relative mt-2.5">
+                <button
+                  type="button"
+                  className="rounded-full border border-border/70 bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-soft transition hover:border-primary/30 hover:text-foreground"
+                  onClick={() => setSourcesOpen((open) => !open)}
+                >
+                  {sourceCount === 1 ? "1 个来源" : `${sourceCount} 个来源`}
+                  {timedCount > 0 ? ` · ${timedCount} 处可跳转` : ""}
+                </button>
+                {sourcesOpen ? (
+                  <div className="absolute left-0 top-full z-10 mt-2 w-64 overflow-hidden rounded-xl border bg-popover py-1 text-popover-foreground shadow-lg">
+                    {videos.map((video) => (
+                      <button
+                        key={`video-${video.id}`}
+                        type="button"
+                        className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
+                        onClick={() => {
+                          setSourcesOpen(false);
+                          onOpenVideo(video.id);
+                        }}
+                      >
+                        {video.title}
+                      </button>
+                    ))}
+                    {notes.map((note) => (
+                      <button
+                        key={`note-${note.id}`}
+                        type="button"
+                        className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
+                        onClick={() => {
+                          setSourcesOpen(false);
+                          onOpenNote(note.id);
+                        }}
+                      >
+                        {note.title}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
 
       {notice ? (
@@ -258,87 +335,112 @@ export function StudioNotes({
       ) : !parsed ? (
         <p className="px-5 py-4 text-sm text-muted-foreground">暂无内容</p>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-10">
           {parsed.theme ? (
-            <section className="mb-5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">主题</p>
-              <p className="mt-1.5 text-sm leading-relaxed text-foreground">{parsed.theme}</p>
-            </section>
+            <div className="mb-6 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-accent/40 p-4 shadow-soft">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-primary">
+                <Sparkles className="h-3.5 w-3.5" />
+                主题
+              </div>
+              <p className="text-sm font-medium leading-relaxed text-foreground">{parsed.theme}</p>
+            </div>
           ) : null}
 
           {parsed.concepts.length > 0 ? (
-            <section className="mb-5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">关键概念</p>
-              <div className="mt-2 flex flex-wrap gap-2">
+            <Section icon={<Lightbulb className="h-3.5 w-3.5" />} title="关键概念" count={parsed.concepts.length}>
+              <div className={`grid gap-2 ${expanded ? "sm:grid-cols-2" : "grid-cols-1"}`}>
                 {parsed.concepts.map((concept, index) => (
                   <div
                     key={`${concept.term}-${index}`}
-                    className="max-w-full rounded-2xl border border-border/70 bg-muted/40 px-3 py-2"
+                    className="rounded-2xl border border-border/60 bg-card/90 p-3 shadow-soft transition hover:border-primary/25"
                   >
                     <div className="text-sm font-semibold text-foreground">{concept.term}</div>
                     {concept.definition ? (
-                      <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{concept.definition}</div>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{concept.definition}</p>
                     ) : null}
                   </div>
                 ))}
               </div>
-            </section>
+            </Section>
           ) : null}
 
           {parsed.points.length > 0 ? (
-            <section className="mb-5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">要点</p>
-              <ul className="mt-2 space-y-2">
-                {parsed.points.map((point, index) => (
-                  <li
-                    key={`${point.time ?? ""}-${index}`}
-                    className="flex gap-3 rounded-xl border border-border/60 bg-background/60 px-3 py-2.5"
-                  >
-                    {point.time ? (
-                      <button
-                        type="button"
-                        className="mt-0.5 shrink-0 rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary hover:bg-primary/15 disabled:opacity-60"
-                        disabled={primaryVideoId == null}
-                        title={primaryVideoId == null ? point.time : "打开来源（精确跳转时间轴后续支持）"}
-                        onClick={() => {
-                          if (primaryVideoId != null) onOpenVideo(primaryVideoId);
-                        }}
-                      >
-                        {point.time}
-                      </button>
-                    ) : null}
-                    <p className="min-w-0 flex-1 text-sm leading-relaxed text-foreground">{point.text}</p>
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <Section icon={<Clock3 className="h-3.5 w-3.5" />} title="要点" count={parsed.points.length}>
+              <ol className="space-y-2">
+                {parsed.points.map((point, index) => {
+                  const seekable = point.time != null && parseClockToSeconds(point.time) != null && primaryVideoId != null;
+                  return (
+                    <li
+                      key={`${point.time ?? ""}-${index}`}
+                      className="flex gap-3 rounded-2xl border border-border/60 bg-card/90 px-3 py-2.5 shadow-soft"
+                    >
+                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        {point.time ? (
+                          <button
+                            type="button"
+                            className="mb-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={!seekable && primaryVideoId == null}
+                            title={
+                              seekable
+                                ? "跳转到视频对应时间"
+                                : primaryVideoId == null
+                                  ? "没有可播放的来源视频"
+                                  : "打开来源视频"
+                            }
+                            onClick={() => handleTimeClick(point.time!)}
+                          >
+                            <Clock3 className="h-3 w-3" />
+                            {point.time}
+                          </button>
+                        ) : null}
+                        <p className="text-sm leading-relaxed text-foreground">{point.text}</p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              {timedCount === 0 && primaryVideoId != null ? (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  本篇要点未标注时间戳，可点上方来源打开视频；重新生成时尽量保留字幕时间。
+                </p>
+              ) : null}
+            </Section>
           ) : null}
 
           {parsed.evidence.length > 0 ? (
-            <section className="mb-5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">论据 / 原文要点</p>
-              <ul className="mt-2 space-y-2">
+            <Section icon={<Quote className="h-3.5 w-3.5" />} title="论据 / 原文要点" count={parsed.evidence.length}>
+              <ul className="space-y-2">
                 {parsed.evidence.map((item, index) => (
                   <li
                     key={index}
-                    className="rounded-xl border-l-2 border-primary/30 bg-muted/30 px-3 py-2 text-sm leading-relaxed text-muted-foreground"
+                    className="rounded-2xl border border-border/50 border-l-[3px] border-l-primary/40 bg-muted/30 px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground"
                   >
                     {item.text}
                   </li>
                 ))}
               </ul>
-            </section>
+            </Section>
           ) : null}
 
           {parsed.takeaways.length > 0 ? (
-            <section className="mb-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">可执行结论</p>
-              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-foreground">
+            <Section icon={<CheckCircle2 className="h-3.5 w-3.5" />} title="可执行结论" count={parsed.takeaways.length}>
+              <ol className="space-y-2">
                 {parsed.takeaways.map((item, index) => (
-                  <li key={index}>{item}</li>
+                  <li
+                    key={index}
+                    className="flex gap-3 rounded-2xl border border-border/60 bg-gradient-to-br from-card to-[hsl(var(--success)/0.06)] px-3 py-2.5 shadow-soft"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--success)/0.15)] text-[11px] font-semibold text-[hsl(var(--success))]">
+                      {index + 1}
+                    </span>
+                    <p className="min-w-0 flex-1 text-sm leading-relaxed text-foreground">{item}</p>
+                  </li>
                 ))}
               </ol>
-            </section>
+            </Section>
           ) : null}
 
           {!parsed.theme &&
@@ -347,7 +449,7 @@ export function StudioNotes({
           parsed.evidence.length === 0 &&
           parsed.takeaways.length === 0 &&
           parsed.rawMarkdown ? (
-            <pre className="whitespace-pre-wrap rounded-xl bg-muted/40 p-3 text-xs leading-5 text-foreground">
+            <pre className="whitespace-pre-wrap rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs leading-5 text-foreground shadow-soft">
               {parsed.rawMarkdown}
             </pre>
           ) : null}

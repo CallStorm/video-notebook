@@ -98,7 +98,7 @@ class StudioTask(Base, TimestampMixin):
     capability_id: Mapped[int] = mapped_column(
         ForeignKey("studio_capabilities.id"), nullable=False, index=True
     )
-    agent_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    agent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     format_key: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)

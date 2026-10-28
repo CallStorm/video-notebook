@@ -202,3 +202,22 @@ def test_structured_notes_instructions_cover_schema():
     assert "concepts" in instructions
     assert "takeaways" in instructions
     assert "focus" in instructions
+
+def test_empty_pptx_zip_is_format_mismatch(tmp_path: Path):
+    import io
+    import zipfile
+
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    buf = io.BytesIO()
+    xml = (
+        "<?xml version='1.0'?>"
+        "<p:presentation xmlns:p='http://schemas.openxmlformats.org/presentationml/2006/main'>"
+        "<p:sldIdLst />"
+        "</p:presentation>"
+    )
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("ppt/presentation.xml", xml)
+    _write(outputs, "deck.pptx", buf.getvalue())
+    with pytest.raises(FormatMismatch):
+        accept_outputs(get_format("slides"), outputs)

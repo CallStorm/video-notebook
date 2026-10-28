@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import Note, NotebookSource
-from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
+from app.models.studio import StudioArtifact, StudioCapability, StudioTask
 from app.schemas.studio import TaskCreate, TaskDetail, TaskRead, TaskRename
 from app.services.notebooks import get_notebook
 from app.storage import get_storage
@@ -120,11 +120,13 @@ async def create_task(
     cap = await session.get(StudioCapability, body.capability_id)
     if cap is None or cap.deleted_at is not None or not cap.enabled:
         raise BadRequestError("能力未启用")
-    if cap.agent_id is None:
-        raise BadRequestError("智能体未启用")
-    agent = await session.get(Agent, cap.agent_id)
-    if agent is None or agent.deleted_at is not None or not agent.is_active:
-        raise BadRequestError("智能体未启用")
+    # Plugins are self-contained (skill + system on disk); no agent binding required.
+    try:
+        from app.studio.plugins.registry import get_plugin
+
+        get_plugin(cap.format_key)
+    except KeyError as exc:
+        raise BadRequestError("能力插件不存在") from exc
 
     form = cap.form_json or []
     has_sources = any(field.get("type") == "sources" for field in form)
@@ -176,7 +178,7 @@ async def create_task(
         notebook_id=notebook_id,
         owner_id=owner_id,
         capability_id=cap.id,
-        agent_id=agent.id,
+        agent_id=None,
         format_key=cap.format_key,
         title=cap.name,
         status="queued",

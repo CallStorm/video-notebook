@@ -37,6 +37,7 @@ interface SearchResultItem {
   uploader: string | null;
   uploader_url: string | null;
   view_count: number | null;
+  comment_count: number | null;
   description: string | null;
 }
 
@@ -325,6 +326,7 @@ function SearchPageInner() {
                   const badge = PLATFORM_BADGE[item.platform];
                   const duration = formatDuration(item.duration);
                   const views = formatViews(item.view_count);
+                  const comments = formatViews(item.comment_count);
                   return (
                     <article
                       key={`${item.platform}-${item.id}`}
@@ -375,7 +377,11 @@ function SearchPageInner() {
                           {item.title}
                         </h3>
                         <p className="truncate text-xs text-muted-foreground">
-                          {[item.uploader, views ? `${views} 次观看` : null]
+                          {[
+                            item.uploader,
+                            views ? `${views} 播放` : null,
+                            comments ? `${comments} 评论` : null,
+                          ]
                             .filter(Boolean)
                             .join(" · ") || "—"}
                         </p>
@@ -504,59 +510,24 @@ function SearchPageInner() {
                       <p className="max-w-sm text-white/85">
                         {previewError || "该平台暂不支持页内预览"}
                       </p>
-                      <div className="flex flex-wrap justify-center gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="rounded-full"
-                          onClick={() => resolvePreview.mutate(preview)}
-                        >
-                          重试
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                          onClick={() =>
-                            window.open(preview.url, "_blank", "noopener,noreferrer")
-                          }
-                        >
-                          打开原站
-                        </Button>
-                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="rounded-full"
+                        onClick={() => resolvePreview.mutate(preview)}
+                      >
+                        重试
+                      </Button>
                     </>
                   )}
                 </div>
               )}
             </div>
 
-            <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 bg-card px-4 py-3">
+            <footer className="border-t border-border/50 bg-card px-4 py-3">
               <p className="text-xs text-muted-foreground">
-                预览走本地代理，不影响原站播放
+                在结果卡片中可加入笔记本或打开原站
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full"
-                  onClick={() =>
-                    window.open(preview.url, "_blank", "noopener,noreferrer")
-                  }
-                >
-                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                  原站
-                </Button>
-                <Button
-                  type="button"
-                  className="h-9 rounded-full"
-                  onClick={() => {
-                    setAddVideo({ title: preview.title, url: preview.url });
-                  }}
-                >
-                  <NotebookPen className="mr-1.5 h-3.5 w-3.5" />
-                  加入笔记本
-                </Button>
-              </div>
             </footer>
           </div>
         </div>

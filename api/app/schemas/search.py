@@ -35,6 +35,7 @@ class SearchResultItem(BaseModel):
     uploader: str | None = None
     uploader_url: str | None = None
     view_count: int | None = None
+    comment_count: int | None = None
     description: str | None = None
 
 

@@ -1,0 +1,17 @@
+- 主文件是 markmap 用的 Markdown：`#` 为中心主题，子节点为缩进的无序列表。
+- 路径 `outputs/mindmap.md`。
+- `outputs/MANIFEST.json` 必须是这一份，字段名不能改：
+  {"status":"success","title":"导图名称","artifacts":[{"role":"main","path":"outputs/mindmap.md","mime":"text/markdown"}]}
+- 表单字段（`inputs.json` → `fields`）：
+  - `topic`：主题（聚焦轴）
+  - `focus_mode`：`action`（聚焦应对/行动，默认）或 `outline`（完整大纲）
+  - `extra_constraints`：用户额外约束（若有，必须遵守）
+- 若 prompt 中出现「本次主题硬约束」区块，其优先级高于本说明与技能里的全书大纲流程。
+- 当 `focus_mode=action`（或未给 focus_mode 但 topic 非空）：
+  - 根节点 `#` 必须用 topic（可轻微润色措辞，禁止扩写成视频全标题或章节总名）。
+  - 一级分支只保留直接回答该主题的行动/原则/步骤/注意点。
+  - 来源里与主题无关的块默认不进图：纯背景、征兆/症状清单、宏观叙事、历史铺垫、人物介绍等。
+  - 若缺一点背景就无法理解主题，最多保留一个短「必要前提」节点，勿展开成大章。
+  - 禁止按视频/文档章节目录做全覆盖式导图。
+- 当 `focus_mode=outline`，或 topic 为空：可按来源全文做结构导图；根节点可用材料标题，topic 仅作参考。
+- MANIFEST 的 title：action 模式优先用 topic；outline 模式可用材料标题。

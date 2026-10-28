@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { init } from "pptx-preview";
+import JSZip from "jszip";
 import { Download, Maximize2, Minimize2, Play, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -76,34 +77,45 @@ export function StudioSlides({
     const url = pptx.data?.url;
     if (!host || !url) return;
     let cancelled = false;
+    let previewer: ReturnType<typeof init> | null = null;
     setFailed(false);
     setIndex(0);
     setCount(0);
-    const previewer = init(host, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, mode: "list" });
     void (async () => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("load failed");
-      const buffer = await response.arrayBuffer();
-      if (cancelled) return;
-      await previewer.preview(buffer);
-      if (cancelled) return;
-      const wrapper = host.querySelector(".pptx-preview-wrapper");
-      if (wrapper instanceof HTMLElement) {
-        wrapper.style.overflow = "visible";
-        wrapper.style.background = "transparent";
-        wrapper.style.margin = "0";
-        wrapper.style.width = `${SLIDE_WIDTH}px`;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("load failed");
+        const raw = await response.arrayBuffer();
+        if (cancelled) return;
+        const buffer = await preparePptxBuffer(raw);
+        if (cancelled) return;
+        previewer = init(host, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, mode: "list" });
+        await previewer.preview(buffer);
+        if (cancelled) return;
+        const wrapper = host.querySelector(".pptx-preview-wrapper");
+        if (wrapper instanceof HTMLElement) {
+          wrapper.style.overflow = "visible";
+          wrapper.style.background = "transparent";
+          wrapper.style.margin = "0";
+          wrapper.style.width = `${SLIDE_WIDTH}px`;
+        }
+        host.querySelectorAll(".pptx-preview-wrapper-pagination, .pptx-preview-wrapper-next").forEach((node) => {
+          if (node instanceof HTMLElement) node.style.display = "none";
+        });
+        const slides = slideNodes(host).length;
+        if (slides < 1) throw new Error("pptx has no slides");
+        setCount(slides);
+      } catch {
+        if (!cancelled) {
+          setFailed(true);
+          setCount(0);
+          host.replaceChildren();
+        }
       }
-      host.querySelectorAll(".pptx-preview-wrapper-pagination, .pptx-preview-wrapper-next").forEach((node) => {
-        if (node instanceof HTMLElement) node.style.display = "none";
-      });
-      setCount(slideNodes(host).length);
-    })().catch(() => {
-      if (!cancelled) setFailed(true);
-    });
+    })();
     return () => {
       cancelled = true;
-      previewer.destroy();
+      previewer?.destroy();
       host.replaceChildren();
       railRef.current?.replaceChildren();
     };
@@ -290,7 +302,9 @@ export function StudioSlides({
       ) : pending || (pptx.isLoading && main) ? (
         <p className="px-5 py-4 text-sm text-muted-foreground">加载预览…</p>
       ) : failed || !main ? (
-        <p className="px-5 py-4 text-sm text-muted-foreground">预览不可用</p>
+        <p className="px-5 py-4 text-sm text-muted-foreground">
+          {!main ? "还没有幻灯片文件" : "预览不可用（文件可能为空或损坏，请重新生成）"}
+        </p>
       ) : (
         <div className="flex min-h-0 flex-1">
           <div
@@ -330,6 +344,29 @@ export function StudioSlides({
       )}
     </div>
   );
+}
+
+async function preparePptxBuffer(buffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+    throw new Error("not a pptx zip");
+  }
+  const zip = await JSZip.loadAsync(buffer);
+  const presentation = zip.file("ppt/presentation.xml");
+  if (!presentation) throw new Error("missing presentation.xml");
+  let xml = await presentation.async("string");
+  const hasSlideRef =
+    /<p:sldId[\s>]/i.test(xml) ||
+    [...zip.file(/ppt\/slides\/slide\d+\.xml$/i)].length > 0;
+  if (!hasSlideRef) throw new Error("pptx has no slides");
+  if (!/defaultTextStyle/i.test(xml)) {
+    if (!xml.includes("</p:presentation>")) throw new Error("bad presentation.xml");
+    // pptx-preview calls Object.keys(defaultTextStyleSource) with no null guard.
+    xml = xml.replace("</p:presentation>", "<p:defaultTextStyle></p:defaultTextStyle></p:presentation>");
+    zip.file("ppt/presentation.xml", xml);
+    return zip.generateAsync({ type: "arraybuffer" });
+  }
+  return buffer;
 }
 
 function slideNodes(host: HTMLElement): HTMLElement[] {

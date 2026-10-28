@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.context import (
@@ -91,6 +91,101 @@ async def list_messages(
 
     saved = await note_ids_for_messages(session, [row.id for row in rows])
     return [message_dict(row, note_id=saved.get(row.id)) for row in rows]
+
+
+def expand_ids_to_turn_message_ids(rows: list, selected_ids: set[int]) -> set[int]:
+    """把选中的任意消息 id 扩成整轮（user + 紧跟的 assistant）。"""
+    turns: list[list] = []
+    i = 0
+    n = len(rows)
+    while i < n:
+        msg = rows[i]
+        if getattr(msg, "role", None) == "user":
+            turn = [msg]
+            if i + 1 < n and getattr(rows[i + 1], "role", None) == "assistant":
+                turn.append(rows[i + 1])
+                i += 2
+            else:
+                i += 1
+            turns.append(turn)
+        else:
+            turns.append([msg])
+            i += 1
+    out: set[int] = set()
+    for turn in turns:
+        if any(getattr(m, "id") in selected_ids for m in turn):
+            out.update(getattr(m, "id") for m in turn)
+    return out
+
+
+async def delete_chat(
+    session: AsyncSession, *, owner_id: int, notebook_id: int
+) -> None:
+    """删除本笔记本唯一对话线程及其消息。已保存笔记保留（message_id 置空）。"""
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    thread = await _find_thread(session, notebook_id)
+    if thread is None:
+        return
+    message_ids = (
+        await session.execute(
+            select(ChatMessage.id).where(ChatMessage.thread_id == thread.id)
+        )
+    ).scalars().all()
+    if message_ids:
+        # Explicit unlink: SQLite tests may not enforce FK ON DELETE SET NULL.
+        await session.execute(
+            update(Note)
+            .where(Note.message_id.in_(message_ids))
+            .values(message_id=None)
+        )
+        await session.execute(
+            delete(ChatMessage).where(ChatMessage.thread_id == thread.id)
+        )
+    await session.delete(thread)
+    await session.commit()
+
+
+async def delete_messages(
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    notebook_id: int,
+    message_ids: list[int],
+) -> list[int]:
+    """按轮删除选中消息：任一 id 扩成整轮后硬删；笔记保留并清空 message_id。"""
+    if not message_ids:
+        raise BadRequestError("请选择要删除的消息")
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    thread = await _find_thread(session, notebook_id)
+    if thread is None:
+        raise BadRequestError("没有可删除的对话")
+    rows = (
+        await session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.thread_id == thread.id)
+            .order_by(ChatMessage.id)
+        )
+    ).scalars().all()
+    selected = set(message_ids)
+    unknown = selected - {row.id for row in rows}
+    if unknown:
+        raise BadRequestError("部分消息不属于该对话")
+    to_delete = expand_ids_to_turn_message_ids(rows, selected)
+    if not to_delete:
+        return []
+    await session.execute(
+        update(Note).where(Note.message_id.in_(to_delete)).values(message_id=None)
+    )
+    await session.execute(delete(ChatMessage).where(ChatMessage.id.in_(to_delete)))
+    remaining = (
+        await session.execute(
+            select(ChatMessage.id).where(ChatMessage.thread_id == thread.id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if remaining is None:
+        await session.delete(thread)
+    await session.commit()
+    return sorted(to_delete)
 
 
 async def set_selected(

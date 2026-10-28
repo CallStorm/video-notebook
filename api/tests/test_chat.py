@@ -571,3 +571,196 @@ async def test_chat_system_prompt_allows_notes_only_when_note_ids_present(
     )
     assert response.status_code == 200, response.text
     assert with_notes.systems == [_NOTES_SYSTEM]
+
+@pytest.mark.asyncio
+async def test_delete_chat_clears_messages_keeps_notes(client: AsyncClient, db_session, monkeypatch):
+    user, token = await _user(db_session, "13800000988")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    _patch_llm(monkeypatch, _Provider())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=headers,
+        json={"message": "在说什么？", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    messages = history.json()["messages"]
+    assert len(messages) == 2
+    answer = next(item for item in messages if item["role"] == "assistant")
+    saved = await client.post(f"/api/messages/{answer['id']}/save_as_note", headers=headers)
+    assert saved.status_code == 200
+    note_id = saved.json()["id"]
+
+    cleared = await client.delete(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    assert cleared.status_code == 204
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    assert history.json()["messages"] == []
+
+    # 幂等：再删一次仍 204
+    again = await client.delete(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    assert again.status_code == 204
+
+    # 已保存笔记仍在
+    from app.models.notebook import Note
+
+    db_session.expire_all()
+    note = await db_session.get(Note, note_id)
+    assert note is not None and note.deleted_at is None
+    assert note.message_id is None
+
+@pytest.mark.asyncio
+async def test_delete_chat_rejects_non_owner(client: AsyncClient, db_session, monkeypatch):
+    owner, _token = await _user(db_session, "13800000989")
+    other, other_token = await _user(db_session, "13800000990")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, owner)
+    _patch_llm(monkeypatch, _Provider())
+    owner_headers = {"Authorization": f"Bearer {_token}"}
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=owner_headers,
+        json={"message": "hi", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    response = await client.delete(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert response.status_code == 404
+
+def test_expand_ids_to_turn_message_ids_pairs_user_assistant():
+    from types import SimpleNamespace
+    from app.chat.service import expand_ids_to_turn_message_ids
+
+    rows = [
+        SimpleNamespace(id=1, role="user"),
+        SimpleNamespace(id=2, role="assistant"),
+        SimpleNamespace(id=3, role="user"),
+        SimpleNamespace(id=4, role="assistant"),
+    ]
+    # selecting only assistant expands to whole turn
+    assert expand_ids_to_turn_message_ids(rows, {2}) == {1, 2}
+    # selecting only user expands to whole turn
+    assert expand_ids_to_turn_message_ids(rows, {3}) == {3, 4}
+    # multi turns
+    assert expand_ids_to_turn_message_ids(rows, {1, 4}) == {1, 2, 3, 4}
+
+
+def test_expand_ids_to_turn_message_ids_orphan_assistant():
+    from types import SimpleNamespace
+    from app.chat.service import expand_ids_to_turn_message_ids
+
+    rows = [
+        SimpleNamespace(id=10, role="assistant"),
+        SimpleNamespace(id=11, role="user"),
+    ]
+    assert expand_ids_to_turn_message_ids(rows, {10}) == {10}
+    assert expand_ids_to_turn_message_ids(rows, {11}) == {11}
+
+
+@pytest.mark.asyncio
+async def test_delete_selected_messages_expands_turn_keeps_notes(client: AsyncClient, db_session, monkeypatch):
+    user, token = await _user(db_session, "13800000991")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    _patch_llm(monkeypatch, _Provider())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for _ in range(2):
+        async with client.stream(
+            "POST",
+            f"/api/notebooks/{notebook_id}/chat",
+            headers=headers,
+            json={"message": "在说什么？", "source_ids": [selected_id]},
+        ) as response:
+            assert response.status_code == 200
+            await response.aread()
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    messages = history.json()["messages"]
+    assert len(messages) == 4
+    first_assistant = next(item for item in messages if item["role"] == "assistant")
+    saved = await client.post(f"/api/messages/{first_assistant['id']}/save_as_note", headers=headers)
+    assert saved.status_code == 200
+    note_id = saved.json()["id"]
+
+    # delete first turn by assistant id only — should expand to user+assistant
+    deleted = await client.post(
+        f"/api/notebooks/{notebook_id}/chat/messages/delete",
+        headers=headers,
+        json={"message_ids": [first_assistant["id"]]},
+    )
+    assert deleted.status_code == 200, deleted.text
+    deleted_ids = set(deleted.json()["deleted_ids"])
+    assert first_assistant["id"] in deleted_ids
+    assert len(deleted_ids) == 2
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    left = history.json()["messages"]
+    assert len(left) == 2
+    assert all(item["id"] not in deleted_ids for item in left)
+
+    from app.models.notebook import Note
+
+    db_session.expire_all()
+    note = await db_session.get(Note, note_id)
+    assert note is not None and note.deleted_at is None
+    assert note.message_id is None
+
+
+@pytest.mark.asyncio
+async def test_delete_selected_messages_rejects_non_owner(client: AsyncClient, db_session, monkeypatch):
+    owner, owner_token = await _user(db_session, "13800000992")
+    _other, other_token = await _user(db_session, "13800000993")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, owner)
+    _patch_llm(monkeypatch, _Provider())
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=owner_headers,
+        json={"message": "hi", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=owner_headers)
+    msg_id = history.json()["messages"][0]["id"]
+
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat/messages/delete",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={"message_ids": [msg_id]},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_selected_messages_rejects_foreign_ids(client: AsyncClient, db_session, monkeypatch):
+    user, token = await _user(db_session, "13800000994")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    _patch_llm(monkeypatch, _Provider())
+    headers = {"Authorization": f"Bearer {token}"}
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=headers,
+        json={"message": "hi", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat/messages/delete",
+        headers=headers,
+        json={"message_ids": [999999]},
+    )
+    assert response.status_code == 400
+

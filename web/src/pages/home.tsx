@@ -361,7 +361,6 @@ export default function HomePage() {
             isLoading={list.isLoading}
             view={view}
             onCreate={() => setShowNew(true)}
-            onSearch={() => navigate("/search")}
             onEdit={(id) => {
               const nb = items.find((n) => n.id === id);
               if (nb) setEditing(nb);
@@ -462,7 +461,6 @@ function MyNotebooksSection({
   onDelete,
   onReindex,
   onCreate,
-  onSearch,
   onEdit,
   onAddToCollection,
 }: {
@@ -475,7 +473,6 @@ function MyNotebooksSection({
   onReindex: (id: number) => void;
   onEdit: (id: number) => void;
   onCreate: () => void;
-  onSearch: () => void;
   onAddToCollection: (id: number) => void;
 }) {
   return (
@@ -506,20 +503,12 @@ function MyNotebooksSection({
             还没有笔记本
           </p>
           <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
-            先新建一本，或去聚合搜索找视频再加进来。
+            先新建一本，再在笔记本里用「网页搜索」找视频加进来。
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2.5">
             <Button onClick={onCreate} className="rounded-full px-5">
               <Plus className="h-4 w-4" />
               <span className="ml-1">新建笔记本</span>
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-full border-border/70 px-5"
-              onClick={onSearch}
-            >
-              <Search className="h-4 w-4" />
-              <span className="ml-1">去聚合搜索</span>
             </Button>
           </div>
         </div>

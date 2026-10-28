@@ -1,0 +1,31 @@
+{
+  "id": "slides",
+  "name": "PPT",
+  "icon": "📊",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "timeout_seconds": 900,
+  "skill": "officecli-pptx",
+  "extensions": [
+    ".pptx"
+  ],
+  "preferred_names": [
+    "deck.pptx"
+  ],
+  "form": [
+    {
+      "type": "language"
+    },
+    {
+      "type": "sources"
+    },
+    {
+      "type": "text",
+      "key": "brief",
+      "label": "描述",
+      "placeholder": "写明受众、结构和期望页数",
+      "required": true,
+      "multiline": true
+    }
+  ]
+}

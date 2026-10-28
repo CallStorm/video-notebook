@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SourceRenameDialog } from "@/components/source-row-menu";
+import { isStudioOpenableFormat, isTextStudioFormat } from "@/studio/plugins/registry";
 
 const ERROR_LABELS: Record<string, string> = {
   timeout: "超时",
@@ -124,19 +125,6 @@ function capabilityIcon(capabilities: Capability[] | undefined, task: StudioTask
 function sourceLabel(task: StudioTask): string {
   const count = idCount(task.params_json?.video_ids) + idCount(task.params_json?.note_ids);
   return count === 1 ? "1 个来源" : `${count} 个来源`;
-}
-
-function isTextStudioFormat(formatKey: string): boolean {
-  return formatKey === "mind_map" || formatKey === "structured_notes";
-}
-
-function isStudioOpenableFormat(formatKey: string): boolean {
-  return (
-    formatKey === "mind_map" ||
-    formatKey === "structured_notes" ||
-    formatKey === "slides" ||
-    formatKey === "file"
-  );
 }
 
 function formatShortLabel(formatKey: string): string {

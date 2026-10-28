@@ -28,8 +28,6 @@ import { AdminOverviewPage } from "@/pages/admin-overview";
 import { AdminCoverPage } from "@/pages/admin-cover";
 import { AdminChatPage } from "@/pages/admin-chat";
 import { AdminVectorPage } from "@/pages/admin-vector";
-import { AdminSkillsPanel } from "@/pages/admin-skills";
-import { AdminAgentsPanel } from "@/pages/admin-agents";
 import { AdminStudioPanel } from "@/pages/admin-studio";
 import { AdminDashboard } from "@/pages/admin-dashboard";
 import { cn } from "@/lib/utils";
@@ -52,8 +50,6 @@ type PipelineStep =
   | "vector"
   | "chat";
 
-type StudioTab = "skills" | "agents" | "studio";
-
 const PIPELINE_STEPS: { id: PipelineStep; label: string; hint: string }[] = [
   { id: "models", label: "模型", hint: "模型与 Claude Code" },
   { id: "fetch-network", label: "网络", hint: "Cookie 与代理" },
@@ -63,12 +59,6 @@ const PIPELINE_STEPS: { id: PipelineStep; label: string; hint: string }[] = [
   { id: "cover", label: "封面", hint: "SVG 封面提示词" },
   { id: "vector", label: "向量", hint: "语义索引" },
   { id: "chat", label: "对话", hint: "历史轮数" },
-];
-
-const STUDIO_TABS: { id: StudioTab; label: string; hint: string }[] = [
-  { id: "skills", label: "Skills", hint: "技能包上传" },
-  { id: "agents", label: "Agents", hint: "提示与超时" },
-  { id: "studio", label: "Studio 工作台", hint: "产物与表单" },
 ];
 
 const SIDE_NAV: {
@@ -100,9 +90,9 @@ const OLD_TAB_MAP: Record<
   cover: { section: "pipeline", step: "cover" },
   vector: { section: "pipeline", step: "vector" },
   chat: { section: "pipeline", step: "chat" },
-  skills: { section: "studio", tab: "skills" },
-  agents: { section: "studio", tab: "agents" },
-  studio: { section: "studio", tab: "studio" },
+  skills: { section: "studio" },
+  agents: { section: "studio" },
+  studio: { section: "studio" },
   accounts: { section: "accounts" },
   "pipeline-logs": { section: "pipeline-logs" },
   "llm-traces": { section: "llm-traces" },
@@ -124,10 +114,6 @@ function isPipelineStep(v: string | null): v is PipelineStep {
   return PIPELINE_STEPS.some((s) => s.id === v);
 }
 
-function isStudioTab(v: string | null): v is StudioTab {
-  return v === "skills" || v === "agents" || v === "studio";
-}
-
 function paramsFor(
   section: AdminSection,
   opts?: { step?: PipelineStep; tab?: string },
@@ -136,7 +122,7 @@ function paramsFor(
     return { section, step: opts?.step ?? "models" };
   }
   if (section === "studio") {
-    return { section, tab: opts?.tab ?? "skills" };
+    return { section };
   }
   return { section };
 }
@@ -192,10 +178,6 @@ export default function AdminPage() {
     ? (searchParams.get("step") as PipelineStep)
     : "models";
 
-  const studioTab: StudioTab = isStudioTab(searchParams.get("tab"))
-    ? (searchParams.get("tab") as StudioTab)
-    : "skills";
-
   const stepIndex = useMemo(
     () => PIPELINE_STEPS.findIndex((s) => s.id === pipelineStep),
     [pipelineStep],
@@ -211,10 +193,6 @@ export default function AdminPage() {
 
   function goPipelineStep(step: PipelineStep) {
     setSearchParams(paramsFor("pipeline", { step }), { replace: true });
-  }
-
-  function goStudioTab(tab: StudioTab) {
-    setSearchParams(paramsFor("studio", { tab }), { replace: true });
   }
 
   function goPrevStep() {
@@ -355,33 +333,7 @@ export default function AdminPage() {
                 </div>
               ) : null}
 
-              {section === "studio" ? (
-                <div className="space-y-5">
-                  <nav className="admin-tab-nav w-fit" aria-label="Studio 模块">
-                    {STUDIO_TABS.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        title={item.hint}
-                        onClick={() => goStudioTab(item.id)}
-                        className={cn(
-                          "admin-tab-item",
-                          studioTab === item.id
-                            ? "admin-tab-item-active"
-                            : "admin-tab-item-idle",
-                        )}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </nav>
-                  <div className="space-y-6">
-                    {studioTab === "skills" ? <AdminSkillsPanel /> : null}
-                    {studioTab === "agents" ? <AdminAgentsPanel /> : null}
-                    {studioTab === "studio" ? <AdminStudioPanel /> : null}
-                  </div>
-                </div>
-              ) : null}
+              {section === "studio" ? <AdminStudioPanel /> : null}
 
               {section === "pipeline-logs" ? <AdminPipelineLogsPage /> : null}
               {section === "llm-traces" ? <AdminLlmTracesPage /> : null}

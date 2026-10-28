@@ -19,15 +19,14 @@ from sqlalchemy import select, update
 from app.db.session import get_sessionmaker
 from app.models.notebook import Note, Video
 from app.models.studio import (
-    Agent,
     ClaudeCodeConfig,
-    Skill,
     StudioArtifact,
     StudioCapability,
     StudioTask,
 )
 from app.storage import get_storage
 from app.studio.formats import FormatMismatch, NoOutput, accept_outputs, get_format
+from app.studio.plugins.registry import get_plugin
 from app.subtitles.store import load_subtitle
 from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
 
@@ -285,37 +284,35 @@ async def _sources(session, params: dict) -> list[dict]:
 
 
 async def _prepare(session, task: StudioTask) -> _Prepared:
-    agent = await session.get(Agent, task.agent_id)
-    if agent is None:
-        raise RuntimeError("agent missing")
+    """Load Claude config + plugin skill/system (no Agent row required)."""
+    try:
+        plugin = get_plugin(task.format_key)
+    except KeyError as exc:
+        raise RuntimeError(f"studio plugin missing: {task.format_key}") from exc
     cap = await session.get(StudioCapability, task.capability_id)
     params = task.params_json or {}
-    skill_src: Path | None = None
-    skill_dirname: str | None = None
-    skill_missing = False
-    if agent.skill_id is not None:
-        skill = await session.get(Skill, agent.skill_id)
-        path = Path(skill.storage_path) if skill is not None else None
-        if skill is None or path is None or not path.is_dir():
-            skill_missing = True
-        else:
-            skill_src = path
-            skill_dirname = _safe_skill_name(skill.name)
+    skill_src: Path | None = plugin.skill_dir
+    skill_dirname: str | None = (
+        _safe_skill_name(plugin.skill_name) if plugin.skill_name else None
+    )
+    skill_missing = bool(plugin.skill_name) and (
+        skill_src is None or not skill_src.is_dir()
+    )
     config = await session.get(ClaudeCodeConfig, 1)
     return _Prepared(
         model_name=(config.model_name if config is not None else "").strip(),
         api_key=config.get_api_key().strip() if config is not None else "",
         base_url=(config.base_url or "").strip() or None if config is not None else None,
-        system_prompt=agent.system_prompt or "",
+        system_prompt=plugin.system_prompt or "",
         format_key=task.format_key,
         language=params.get("language"),
         fields=list(params.get("fields") or []),
         sources=await _sources(session, params),
-        capability_name=cap.name if cap is not None else task.title,
+        capability_name=(cap.name if cap is not None else None) or plugin.name or task.title,
         skill_src=skill_src,
         skill_dirname=skill_dirname,
         skill_missing=skill_missing,
-        agent_timeout=agent.timeout_seconds,
+        agent_timeout=plugin.timeout_seconds,
     )
 
 
@@ -1041,7 +1038,7 @@ async def execute_studio_task(
             stored_keys=stored_keys,
         )
     except Exception as exc:  # noqa: BLE001
-        detail = str(exc).strip() or f"{exc.__class__.__name__}: studio runner crashed"
+        detail = f"{exc.__class__.__name__}: {exc}".strip() or f"{exc.__class__.__name__}: studio runner crashed"
         if work is not None:
             try:
                 (work / "runner_exception.txt").write_text(

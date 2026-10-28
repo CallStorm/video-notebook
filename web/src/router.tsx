@@ -7,11 +7,8 @@ import {
 import HomePage from "@/pages/home";
 import LoginPage from "@/pages/login";
 import AdminPage from "@/pages/admin";
-import AdminSkillsPage from "@/pages/admin-skills";
-import AdminAgentsPage from "@/pages/admin-agents";
 import AdminStudioPage from "@/pages/admin-studio";
 import DiscoverPage from "@/pages/discover";
-import SearchPage from "@/pages/search";
 import NotebookPage from "@/pages/notebook";
 import CollectionPage from "@/pages/collection";
 import { RequireAuth } from "@/components/require-auth";
@@ -50,14 +47,6 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: "/search",
-        element: (
-          <RequireAuth>
-            <SearchPage />
-          </RequireAuth>
-        ),
-      },
-      {
         path: "/notebooks/:id",
         element: (
           <RequireAuth>
@@ -83,19 +72,11 @@ const router = createBrowserRouter([
       },
       {
         path: "/admin/skills",
-        element: (
-          <RequireAuth admin>
-            <AdminSkillsPage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/admin?section=studio" replace />,
       },
       {
         path: "/admin/agents",
-        element: (
-          <RequireAuth admin>
-            <AdminAgentsPage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/admin?section=studio" replace />,
       },
       {
         path: "/admin/studio",

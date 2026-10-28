@@ -1,0 +1,58 @@
+{
+  "id": "mind_map",
+  "name": "思维导图",
+  "icon": "🧠",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "timeout_seconds": 600,
+  "skill": "mindmap-generator",
+  "extensions": [
+    ".md",
+    ".markdown"
+  ],
+  "preferred_names": [
+    "mindmap.md",
+    "mindmap.markdown"
+  ],
+  "form": [
+    {
+      "type": "language"
+    },
+    {
+      "type": "sources"
+    },
+    {
+      "type": "text",
+      "key": "topic",
+      "label": "主题",
+      "placeholder": "聚焦问题，如：年轻人如何应对（决定导图形态）",
+      "required": true,
+      "multiline": false
+    },
+    {
+      "type": "select",
+      "key": "focus_mode",
+      "label": "导图模式",
+      "required": true,
+      "default": "action",
+      "options": [
+        {
+          "value": "action",
+          "label": "聚焦应对/行动（按主题裁剪）"
+        },
+        {
+          "value": "outline",
+          "label": "完整大纲（全片/全书结构）"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "key": "extra_constraints",
+      "label": "额外约束",
+      "placeholder": "可选：例如禁止扩写根标题、一级仅行动建议、最多一个必要前提…",
+      "required": false,
+      "multiline": true
+    }
+  ]
+}

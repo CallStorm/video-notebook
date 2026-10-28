@@ -5,7 +5,7 @@ import pytest_asyncio
 
 from app.core.security import create_access_token
 from app.models.notebook import Note, Notebook, NotebookSource, Video
-from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
+from app.models.studio import StudioArtifact, StudioCapability, StudioTask
 from app.models.user import User
 from app.storage import get_storage
 
@@ -66,19 +66,11 @@ async def notebook_id(db_session, owner) -> int:
 
 @pytest_asyncio.fixture
 async def capability_id(db_session, owner) -> int:
-    agent = Agent(
-        name="导图智能体",
-        system_prompt="写出导图",
-        is_active=True,
-        updated_by=owner.id,
-    )
-    db_session.add(agent)
-    await db_session.flush()
     cap = StudioCapability(
         name="思维导图",
         icon="🧠",
         format_key="mind_map",
-        agent_id=agent.id,
+        agent_id=None,
         enabled=True,
         is_builtin=True,
         form_json=_FORM,

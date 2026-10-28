@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Search as SearchIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePersistedBool } from "@/lib/use-persisted-bool";
@@ -21,6 +22,7 @@ import { api, ApiError } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AddSourceDialog } from "@/components/add-source-dialog";
+import { NotebookWebSearchDialog } from "@/components/notebook-web-search-dialog";
 import { SourceTranscript } from "@/components/source-transcript";
 import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu";
 import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type ChatRelay } from "@/components/notebook-chat";
@@ -255,8 +257,9 @@ export default function NotebookPage() {
   }, [notebookId]);
 
   const [showAddSource, setShowAddSource] = useState(false);
+  const [showWebSearch, setShowWebSearch] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState<number | null>(null);
-  const [focusCue, setFocusCue] = useState<{ videoId: number; lineNo: number } | null>(null);
+  const [focusCue, setFocusCue] = useState<{ videoId: number; lineNo?: number; timeSec?: number; nonce?: number } | null>(null);
   const [openNoteId, setOpenNoteId] = useState<number | null>(null);
   const [renameTarget, setRenameTarget] = useState<
     { kind: "source"; id: number; title: string } | { kind: "note"; id: number; title: string } | null
@@ -605,32 +608,46 @@ export default function NotebookPage() {
               overviewStatus={selected.video.overview_status}
               overviewText={selected.video.overview_text}
               overviewError={selected.video.overview_error}
-              focusLineNo={focusCue?.videoId === selected.video_id ? focusCue.lineNo : null}
+              focusLineNo={focusCue?.videoId === selected.video_id ? focusCue.lineNo ?? null : null}
+              seekTimeSec={focusCue?.videoId === selected.video_id ? focusCue.timeSec ?? null : null}
+              seekNonce={focusCue?.videoId === selected.video_id ? focusCue.nonce ?? null : null}
               onBack={() => setSelectedVideoId(null)}
             />
           ) : null}
 
-          {/* 两按钮：添加来源 / 新建笔记（仅主人） */}
+          {/* 三按钮：添加来源 / 网页搜索 / 新建笔记（仅主人） */}
           {isOwner ? (
-          <div className={browsingList ? "flex gap-2 border-b border-border/40 px-3 py-3" : "hidden"}>
+          <div className={browsingList ? "flex flex-wrap gap-2 border-b border-border/40 px-3 py-3" : "hidden"}>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
+              className="min-w-0 flex-1 rounded-full border-primary/25 bg-primary/5 px-2 text-primary hover:bg-primary/10 hover:text-primary"
               onClick={() => {
                 setShowAddSource(true);
               }}
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> 添加来源
+              <Plus className="mr-1 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">添加来源</span>
             </Button>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full border-border/70"
+              className="min-w-0 flex-1 rounded-full border-primary/25 bg-primary/5 px-2 text-primary hover:bg-primary/10 hover:text-primary"
+              onClick={() => setShowWebSearch(true)}
+              title="搜索网页视频并加入本笔记本"
+            >
+              <SearchIcon className="mr-1 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">网页搜索</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-w-0 flex-1 rounded-full border-border/70 px-2"
               onClick={() => alert("笔记功能即将上线")}
               title="即将上线"
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> 新建笔记
+              <Plus className="mr-1 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">新建笔记</span>
             </Button>
           </div>
           ) : browsingList ? (
@@ -672,6 +689,13 @@ export default function NotebookPage() {
             }}
           />
 
+          <NotebookWebSearchDialog
+            open={showWebSearch}
+            onOpenChange={setShowWebSearch}
+            adding={fetchUrl.isPending}
+            onAddUrl={(url) => fetchUrl.mutateAsync(url)}
+          />
+
           {browsingList && listRows.length === 0 ? (
             <div className="empty-panel">
               <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -679,7 +703,7 @@ export default function NotebookPage() {
               </span>
               <p className="text-sm font-medium text-foreground">还没有来源</p>
               <p className="mt-1.5 max-w-[14rem] text-xs leading-relaxed text-muted-foreground">
-                点上方「添加来源」，上传视频或粘贴链接。
+                点上方「添加来源」或「网页搜索」，上传、粘贴链接或搜视频加入。
               </p>
             </div>
           ) : null}
@@ -780,9 +804,13 @@ export default function NotebookPage() {
             onJump={(videoId, lineNo) => {
               setLeftCollapsed(false);
               setSelectedVideoId(videoId);
-              setFocusCue({ videoId, lineNo });
+              setFocusCue({ videoId, lineNo, nonce: Date.now() });
             }}
             relay={relay}
+            onCleared={() => {
+              setRelay(null);
+              discussing.current = false;
+            }}
           />
         </main>
 
@@ -907,6 +935,12 @@ export default function NotebookPage() {
                     setLeftCollapsed(false);
                     setFocusCue(null);
                     setSelectedVideoId(videoId);
+                  }}
+                  onSeekVideo={(videoId, timeSec) => {
+                    setPreviewExpanded(false);
+                    setLeftCollapsed(false);
+                    setSelectedVideoId(videoId);
+                    setFocusCue({ videoId, timeSec, nonce: Date.now() });
                   }}
                   onOpenNote={(noteId) => {
                     setPreviewExpanded(false);

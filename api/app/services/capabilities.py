@@ -1,4 +1,4 @@
-"""能力 CRUD、表单校验、预置种子。"""
+"""Studio capability sync from disk plugins + enable/disable."""
 from __future__ import annotations
 
 import re
@@ -8,95 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
-from app.models.studio import Agent, StudioCapability, StudioTask
-from app.studio.formats import get_format
+from app.models.studio import StudioCapability, StudioTask
+from app.studio.plugins.registry import get_plugin, list_plugins
 
 _TEXT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _FIELD_TYPES = frozenset({"sources", "language", "text", "select"})
-
-_MIND_MAP_FORM = [
-    {"type": "language"},
-    {"type": "sources"},
-    {
-        "type": "text",
-        "key": "topic",
-        "label": "主题",
-        "placeholder": "聚焦问题，如：年轻人如何应对（决定导图形态）",
-        "required": True,
-        "multiline": False,
-    },
-    {
-        "type": "select",
-        "key": "focus_mode",
-        "label": "导图模式",
-        "required": True,
-        "default": "action",
-        "options": [
-            {"value": "action", "label": "聚焦应对/行动（按主题裁剪）"},
-            {"value": "outline", "label": "完整大纲（全片/全书结构）"},
-        ],
-    },
-    {
-        "type": "text",
-        "key": "extra_constraints",
-        "label": "额外约束",
-        "placeholder": "可选：例如禁止扩写根标题、一级仅行动建议、最多一个必要前提…",
-        "required": False,
-        "multiline": True,
-    },
-]
-_STRUCTURED_NOTES_FORM = [
-    {"type": "language"},
-    {"type": "sources"},
-    {
-        "type": "text",
-        "key": "focus",
-        "label": "聚焦",
-        "placeholder": "可选：想吸收的问题，如：如何从零跑到十公里",
-        "required": False,
-        "multiline": False,
-    },
-    {
-        "type": "text",
-        "key": "extra_constraints",
-        "label": "额外约束",
-        "placeholder": "可选：例如只要概念卡、时间戳尽量密、不要行动清单…",
-        "required": False,
-        "multiline": True,
-    },
-]
-_SLIDES_FORM = [
-    {"type": "language"},
-    {"type": "sources"},
-    {
-        "type": "text",
-        "key": "brief",
-        "label": "描述",
-        "placeholder": "写明受众、结构和期望页数",
-        "required": True,
-        "multiline": True,
-    },
-]
-_BUILTINS = (
-    {
-        "name": "思维导图",
-        "icon": "🧠",
-        "format_key": "mind_map",
-        "form_json": _MIND_MAP_FORM,
-    },
-    {
-        "name": "结构化笔记",
-        "icon": "📝",
-        "format_key": "structured_notes",
-        "form_json": _STRUCTURED_NOTES_FORM,
-    },
-    {
-        "name": "PPT",
-        "icon": "📊",
-        "format_key": "slides",
-        "form_json": _SLIDES_FORM,
-    },
-)
 
 
 def validate_form(fields: list[dict]) -> list[dict]:
@@ -176,31 +92,53 @@ def validate_form(fields: list[dict]) -> list[dict]:
 
 
 async def seed_builtin_capabilities(session: AsyncSession) -> None:
-    """Create missing builtins; refresh form_json so code-owned fields stay current."""
-    for spec in _BUILTINS:
+    """Sync disk plugins into studio_capabilities (create / refresh form+name+icon)."""
+    plugin_ids = {p.id for p in list_plugins()}
+    for plugin in list_plugins():
+        form = validate_form(plugin.form)
         cap = await session.scalar(
             select(StudioCapability).where(
                 StudioCapability.is_builtin.is_(True),
-                StudioCapability.format_key == spec["format_key"],
+                StudioCapability.format_key == plugin.id,
                 StudioCapability.deleted_at.is_(None),
             )
         )
         if cap is None:
             session.add(
                 StudioCapability(
-                    name=spec["name"],
-                    icon=spec["icon"],
-                    format_key=spec["format_key"],
+                    name=plugin.name,
+                    icon=plugin.icon,
+                    format_key=plugin.id,
                     agent_id=None,
-                    enabled=False,
+                    enabled=bool(plugin.enabled_by_default),
                     is_builtin=True,
-                    form_json=spec["form_json"],
+                    form_json=form,
                 )
             )
             continue
-        # Builtin forms are owned by code (name/agent/enabled kept as admin set them).
-        cap.form_json = spec["form_json"]
+        # Plugin metadata owned by disk; enabled / agent_id kept as admin set them.
+        cap.name = plugin.name
+        cap.icon = plugin.icon
+        cap.form_json = form
+        # Plugins no longer need bound agents.
+        cap.agent_id = None
         session.add(cap)
+
+    # Soft-delete builtins whose plugin folder disappeared.
+    builtins = (
+        await session.execute(
+            select(StudioCapability).where(
+                StudioCapability.is_builtin.is_(True),
+                StudioCapability.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    for cap in builtins:
+        if cap.format_key not in plugin_ids:
+            cap.enabled = False
+            cap.deleted_at = now
+            session.add(cap)
     await session.commit()
 
 
@@ -209,29 +147,6 @@ async def _get_live(session: AsyncSession, capability_id: int) -> StudioCapabili
     if cap is None or cap.deleted_at is not None:
         raise NotFoundError("能力不存在")
     return cap
-
-
-def _ensure_format(format_key: str) -> None:
-    try:
-        get_format(format_key)
-    except KeyError as exc:
-        raise BadRequestError("产物格式不存在") from exc
-
-
-async def _require_existing_agent(session: AsyncSession, agent_id: int | None) -> Agent | None:
-    if agent_id is None:
-        return None
-    agent = await session.get(Agent, agent_id)
-    if agent is None or agent.deleted_at is not None:
-        raise BadRequestError("智能体不存在")
-    return agent
-
-
-def _require_usable_agent_if_enabled(*, enabled: bool, agent: Agent | None) -> None:
-    if not enabled:
-        return
-    if agent is None or not agent.is_active:
-        raise ConflictError("能力还没有可用的智能体")
 
 
 async def list_capabilities(session: AsyncSession) -> list[StudioCapability]:
@@ -249,73 +164,17 @@ async def get_capability(session: AsyncSession, capability_id: int) -> StudioCap
     return await _get_live(session, capability_id)
 
 
-async def create_capability(
-    session: AsyncSession,
-    *,
-    name: str,
-    icon: str | None,
-    format_key: str,
-    agent_id: int | None,
-    form: list[dict],
-) -> StudioCapability:
-    _ensure_format(format_key)
-    agent = await _require_existing_agent(session, agent_id)
-    _require_usable_agent_if_enabled(enabled=False, agent=agent)
-    cap = StudioCapability(
-        name=name,
-        icon=icon,
-        format_key=format_key,
-        agent_id=agent_id,
-        enabled=False,
-        is_builtin=False,
-        form_json=validate_form(form),
-    )
-    session.add(cap)
-    await session.commit()
-    await session.refresh(cap)
-    return cap
-
-
-async def update_capability(
-    session: AsyncSession,
-    capability_id: int,
-    *,
-    name: str | None,
-    icon: str | None,
-    agent_id: int | None,
-    form: list[dict] | None,
-    fields_set: set[str],
-) -> StudioCapability:
-    if "format_key" in fields_set:
-        raise BadRequestError("产物格式创建后不能改")
-    cap = await _get_live(session, capability_id)
-    next_agent_id = agent_id if "agent_id" in fields_set else cap.agent_id
-    agent = await _require_existing_agent(session, next_agent_id)
-    _require_usable_agent_if_enabled(enabled=cap.enabled, agent=agent)
-    if name is not None:
-        cap.name = name
-    if "icon" in fields_set:
-        cap.icon = icon
-    if "agent_id" in fields_set:
-        cap.agent_id = agent_id
-    if form is not None:
-        cap.form_json = validate_form(form)
-    session.add(cap)
-    await session.commit()
-    await session.refresh(cap)
-    return cap
-
-
 async def enable_capability(session: AsyncSession, capability_id: int) -> StudioCapability:
     cap = await _get_live(session, capability_id)
-    agent_ok = False
-    if cap.agent_id is not None:
-        agent = await session.get(Agent, cap.agent_id)
-        if agent is not None and agent.deleted_at is None and agent.is_active:
-            agent_ok = True
-    if not agent_ok:
-        raise ConflictError("能力还没有可用的智能体")
+    # Must correspond to a disk plugin (or legacy non-plugin for tests with is_builtin=False).
+    if cap.is_builtin:
+        try:
+            get_plugin(cap.format_key)
+        except KeyError as exc:
+            raise ConflictError("插件目录不存在，无法启用") from exc
     cap.enabled = True
+    # Clear legacy agent binding — plugins are self-contained.
+    cap.agent_id = None
     session.add(cap)
     await session.commit()
     await session.refresh(cap)
@@ -331,10 +190,38 @@ async def disable_capability(session: AsyncSession, capability_id: int) -> Studi
     return cap
 
 
+# --- Legacy CRUD kept for tests / API compatibility but admin UI no longer exposes them ---
+
+
+async def create_capability(
+    session: AsyncSession,
+    *,
+    name: str,
+    icon: str | None,
+    format_key: str,
+    agent_id: int | None,
+    form: list[dict],
+) -> StudioCapability:
+    raise BadRequestError("Studio 能力改为磁盘插件，请在 api/app/studio/plugins/ 新增，不在页面创建")
+
+
+async def update_capability(
+    session: AsyncSession,
+    capability_id: int,
+    *,
+    name: str | None,
+    icon: str | None,
+    agent_id: int | None,
+    form: list[dict] | None,
+    fields_set: set[str],
+) -> StudioCapability:
+    raise BadRequestError("Studio 能力由插件目录管理，页面仅支持启用/停用")
+
+
 async def delete_capability(session: AsyncSession, capability_id: int) -> None:
     cap = await _get_live(session, capability_id)
     if cap.is_builtin:
-        raise ConflictError("预置能力不能删除")
+        raise ConflictError("预置能力不能删除；请停用或移除插件目录")
     has_task = await session.scalar(
         select(StudioTask.id).where(StudioTask.capability_id == capability_id).limit(1)
     )

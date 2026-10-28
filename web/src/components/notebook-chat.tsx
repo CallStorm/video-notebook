@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, Copy, MessageSquare } from "lucide-react";
+import { ArrowUp, Check, Copy, MessageSquare, Trash2 } from "lucide-react";
 import { api, ApiError, recoverAccessAfter401 } from "@/lib/api";
 import { authedHeaders } from "@/lib/auth";
 import { MarkdownMessage } from "@/components/chat-markdown";
@@ -36,6 +36,33 @@ async function fetchHistory(access: string, notebookId: number): Promise<ChatMes
   return body.messages;
 }
 
+/** 一轮 = 一条 user + 紧跟的一条 assistant（若有）。 */
+export function groupChatTurns(messages: ChatMessage[]): ChatMessage[][] {
+  const turns: ChatMessage[][] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (msg.role === "user") {
+      const turn = [msg];
+      if (i + 1 < messages.length && messages[i + 1].role === "assistant") {
+        turn.push(messages[i + 1]);
+        i += 2;
+      } else {
+        i += 1;
+      }
+      turns.push(turn);
+    } else {
+      turns.push([msg]);
+      i += 1;
+    }
+  }
+  return turns;
+}
+
+function turnSelectable(turn: ChatMessage[]): boolean {
+  return turn.length > 0 && turn.every((m) => m.id > 0);
+}
+
 export interface ChatRelay {
   pending: ChatMessage | null;
   live: ChatMessage | null;
@@ -49,6 +76,7 @@ export function NotebookChat({
   onJump,
   relay,
   readOnly = false,
+  onCleared,
 }: {
   access: string;
   notebookId: number;
@@ -56,6 +84,8 @@ export function NotebookChat({
   onJump: (videoId: number, lineNo: number) => void;
   relay?: ChatRelay | null;
   readOnly?: boolean;
+  /** 清空会话后通知父组件（如清掉 Studio 接力中的气泡） */
+  onCleared?: () => void;
 }) {
   const qc = useQueryClient();
   const history = useQuery({
@@ -68,8 +98,12 @@ export function NotebookChat({
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
   const [live, setLive] = useState<ChatMessage | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [deletingSelected, setDeletingSelected] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const selectedIds = sources.filter((source) => source.selected).map((source) => source.videoId);
+  const selectedSourceIds = sources.filter((source) => source.selected).map((source) => source.videoId);
 
   const saved = history.data ?? [];
   const shown = [...saved];
@@ -83,13 +117,92 @@ export function NotebookChat({
     shown.push(relayLive);
   }
 
+  const turns = groupChatTurns(shown);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [shown.length, live?.content_text, relay?.live?.content_text, relay?.error]);
 
+  const streamBusy = sending || !!relay?.pending || !!relay?.live;
+  const canClear =
+    !readOnly &&
+    !clearing &&
+    !selecting &&
+    !streamBusy &&
+    (saved.length > 0 || !!pendingUser || !!live || !!relay?.pending || !!relay?.live);
+  const canEnterSelect = !readOnly && !clearing && !streamBusy && saved.some((m) => m.id > 0);
+
+  const selectedTurnCount = turns.filter(
+    (turn) => turnSelectable(turn) && turn.every((m) => selectedIds.has(m.id)),
+  ).length;
+
+  function exitSelectMode() {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  }
+
+  function toggleTurn(turn: ChatMessage[]) {
+    if (!turnSelectable(turn)) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const allOn = turn.every((m) => next.has(m.id));
+      for (const m of turn) {
+        if (allOn) next.delete(m.id);
+        else next.add(m.id);
+      }
+      return next;
+    });
+  }
+
+  async function clearChat() {
+    if (!canClear) return;
+    if (!window.confirm("删除整段对话？此操作不可恢复。已保存的笔记会保留。")) return;
+    setClearing(true);
+    setFormError(null);
+    try {
+      await api(`/notebooks/${notebookId}/chat`, { method: "DELETE", access });
+      setPendingUser(null);
+      setLive(null);
+      setDraft("");
+      exitSelectMode();
+      onCleared?.();
+      await qc.invalidateQueries({ queryKey: ["chat", notebookId] });
+      qc.setQueryData<ChatMessage[]>(["chat", notebookId], []);
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : "删除失败");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function deleteSelected() {
+    if (selectedTurnCount <= 0 || deletingSelected) return;
+    if (!window.confirm(`删除已选的 ${selectedTurnCount} 轮对话？`)) return;
+    setDeletingSelected(true);
+    setFormError(null);
+    const ids = Array.from(selectedIds);
+    try {
+      const result = await api<{ deleted_ids: number[] }>(
+        `/notebooks/${notebookId}/chat/messages/delete`,
+        { method: "POST", access, body: { message_ids: ids } },
+      );
+      const removed = new Set(result.deleted_ids ?? ids);
+      qc.setQueryData<ChatMessage[]>(["chat", notebookId], (prev) =>
+        (prev ?? []).filter((m) => !removed.has(m.id)),
+      );
+      exitSelectMode();
+      await qc.invalidateQueries({ queryKey: ["chat", notebookId] });
+      await qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : "删除失败");
+    } finally {
+      setDeletingSelected(false);
+    }
+  }
+
   async function send() {
     const message = draft.trim();
-    if (readOnly || !message || sending || selectedIds.length === 0) return;
+    if (readOnly || selecting || !message || sending || selectedSourceIds.length === 0) return;
     setDraft("");
     setFormError(null);
     setSending(true);
@@ -98,7 +211,7 @@ export function NotebookChat({
       role: "user",
       content_text: message,
       citations: [],
-      source_ids: selectedIds,
+      source_ids: selectedSourceIds,
       note_id: null,
       created_at: null,
     });
@@ -107,13 +220,13 @@ export function NotebookChat({
       role: "assistant",
       content_text: "",
       citations: [],
-      source_ids: selectedIds,
+      source_ids: selectedSourceIds,
       note_id: null,
       created_at: null,
     });
     let savedId: number | null = null;
     try {
-      await readChatStream(access, notebookId, message, selectedIds, {
+      await readChatStream(access, notebookId, message, selectedSourceIds, {
         onToken: (token) => {
           setLive((current) =>
             current ? { ...current, content_text: current.content_text + token } : current,
@@ -152,6 +265,59 @@ export function NotebookChat({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {!readOnly && saved.length > 0 ? (
+        <div className="flex items-center border-b border-border/20 px-6 py-2">
+          {selecting ? (
+            <>
+              <button
+                type="button"
+                className="rounded-full px-2.5 py-1 text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={exitSelectMode}
+              >
+                取消
+              </button>
+              <span className="flex-1 text-center text-[11px] text-muted-foreground">
+                已选 {selectedTurnCount} 轮
+              </span>
+              <button
+                type="button"
+                disabled={selectedTurnCount === 0 || deletingSelected}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] text-destructive transition hover:bg-destructive/10 disabled:opacity-40"
+                onClick={() => void deleteSelected()}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {deletingSelected ? "删除中…" : "删除"}
+              </button>
+            </>
+          ) : (
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                title="选择删除"
+                disabled={!canEnterSelect}
+                className="rounded-full px-2.5 py-1 text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-40"
+                onClick={() => {
+                  setSelecting(true);
+                  setSelectedIds(new Set());
+                  setFormError(null);
+                }}
+              >
+                选择删除
+              </button>
+              <button
+                type="button"
+                title="清空对话"
+                disabled={!canClear}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                onClick={() => void clearChat()}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {clearing ? "清空中…" : "清空对话"}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {history.isLoading ? (
           <p className="text-sm text-muted-foreground">加载对话…</p>
@@ -167,18 +333,60 @@ export function NotebookChat({
           </div>
         ) : (
           <div className="mx-auto flex max-w-2xl flex-col gap-5">
-            {shown.map((message) => (
-              <MessageBubble
-                key={`${message.role}-${message.id}-${message.created_at ?? "live"}`}
-                access={access}
-                message={message}
-                onJump={onJump}
-                onSaved={() => {
-                  qc.invalidateQueries({ queryKey: ["chat", notebookId] });
-                  qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
-                }}
-              />
-            ))}
+            {turns.map((turn, turnIndex) => {
+              const selectable = selecting && turnSelectable(turn);
+              const checked = selectable && turn.every((m) => selectedIds.has(m.id));
+              return (
+                <div
+                  key={`turn-${turnIndex}-${turn.map((m) => m.id).join("-")}`}
+                  className={
+                    selecting
+                      ? `flex gap-2 ${selectable ? "cursor-pointer rounded-2xl px-1 -mx-1 py-1 transition hover:bg-accent/40" : "opacity-60"} ${checked ? "bg-accent/50" : ""}`
+                      : undefined
+                  }
+                  onClick={
+                    selectable
+                      ? (event) => {
+                          event.preventDefault();
+                          toggleTurn(turn);
+                        }
+                      : undefined
+                  }
+                >
+                  {selecting ? (
+                    <div className="flex w-5 shrink-0 items-start pt-3">
+                      {selectable ? (
+                        <span
+                          className={`mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border ${
+                            checked
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-muted-foreground/40 bg-background"
+                          }`}
+                          aria-hidden
+                        >
+                          {checked ? <Check className="h-2.5 w-2.5" /> : null}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 flex-col gap-5">
+                    {turn.map((message) => (
+                      <MessageBubble
+                        key={`${message.role}-${message.id}-${message.created_at ?? "live"}`}
+                        access={access}
+                        message={message}
+                        hideActions={selecting}
+                        onJump={selecting ? () => {} : onJump}
+                        onSaved={() => {
+                          qc.invalidateQueries({ queryKey: ["chat", notebookId] });
+                          qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
             <div ref={bottomRef} />
           </div>
         )}
@@ -202,8 +410,14 @@ export function NotebookChat({
           <div className="chat-composer">
             <input
               value={draft}
-              placeholder={selectedIds.length === 0 ? "请先在左侧勾选来源…" : "向来源提问…"}
-              disabled={sending || selectedIds.length === 0}
+              placeholder={
+                selecting
+                  ? "选择模式下不可提问…"
+                  : selectedSourceIds.length === 0
+                    ? "请先在左侧勾选来源…"
+                    : "向来源提问…"
+              }
+              disabled={selecting || sending || selectedSourceIds.length === 0}
               className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -214,12 +428,12 @@ export function NotebookChat({
               }}
             />
             <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
-              {selectedIds.length} 个来源
+              {selectedSourceIds.length} 个来源
             </span>
             <button
               type="submit"
               title="发送"
-              disabled={sending || !draft.trim() || selectedIds.length === 0}
+              disabled={selecting || sending || !draft.trim() || selectedSourceIds.length === 0}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition enabled:bg-primary enabled:text-primary-foreground enabled:shadow-soft disabled:opacity-50"
             >
               <ArrowUp className="h-4 w-4" />
@@ -237,11 +451,13 @@ function MessageBubble({
   message,
   onJump,
   onSaved,
+  hideActions = false,
 }: {
   access: string;
   message: ChatMessage;
   onJump: (videoId: number, lineNo: number) => void;
   onSaved: () => void;
+  hideActions?: boolean;
 }) {
   const mine = message.role === "user";
   const finished = !mine && message.id > 0 && !!message.content_text;
@@ -262,7 +478,7 @@ function MessageBubble({
             <p className="text-[11px] text-muted-foreground">正在回答…</p>
           ) : null}
         </div>
-        {finished ? <AnswerActions access={access} message={message} onSaved={onSaved} /> : null}
+        {finished && !hideActions ? <AnswerActions access={access} message={message} onSaved={onSaved} /> : null}
       </div>
     </div>
   );
