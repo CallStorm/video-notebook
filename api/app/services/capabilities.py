@@ -139,6 +139,10 @@ async def seed_builtin_capabilities(session: AsyncSession) -> None:
             cap.enabled = False
             cap.deleted_at = now
             session.add(cap)
+        # structured_notes retired from Studio product — keep row, force off.
+        elif cap.format_key == "structured_notes" and cap.enabled:
+            cap.enabled = False
+            session.add(cap)
     await session.commit()
 
 
@@ -166,6 +170,8 @@ async def get_capability(session: AsyncSession, capability_id: int) -> StudioCap
 
 async def enable_capability(session: AsyncSession, capability_id: int) -> StudioCapability:
     cap = await _get_live(session, capability_id)
+    if cap.format_key == "structured_notes":
+        raise ConflictError("结构化笔记已下线，无法启用")
     # Must correspond to a disk plugin (or legacy non-plugin for tests with is_builtin=False).
     if cap.is_builtin:
         try:

@@ -14,6 +14,8 @@ from app.services.notebooks import get_notebook
 from app.storage import get_storage
 
 _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
+# Retired from product surface; keep plugin/code for potential restore but hide from Studio UI/API lists.
+_HIDDEN_FORMATS = frozenset({"structured_notes"})
 
 
 def enqueue_studio_task(task_id: int) -> None:
@@ -36,7 +38,7 @@ async def list_enabled_capabilities(
             .order_by(StudioCapability.id.asc())
         )
     ).scalars().all()
-    return list(rows)
+    return [row for row in rows if row.format_key not in _HIDDEN_FORMATS]
 
 
 async def list_tasks(
@@ -53,7 +55,7 @@ async def list_tasks(
             .order_by(StudioTask.id.desc())
         )
     ).scalars().all()
-    return list(rows)
+    return [row for row in rows if row.format_key not in _HIDDEN_FORMATS]
 
 
 async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> TaskDetail:
@@ -120,6 +122,8 @@ async def create_task(
     cap = await session.get(StudioCapability, body.capability_id)
     if cap is None or cap.deleted_at is not None or not cap.enabled:
         raise BadRequestError("能力未启用")
+    if cap.format_key in _HIDDEN_FORMATS:
+        raise BadRequestError("该能力已下线")
     # Plugins are self-contained (skill + system on disk); no agent binding required.
     try:
         from app.studio.plugins.registry import get_plugin

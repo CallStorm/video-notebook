@@ -4,8 +4,10 @@ import {
   BookOpen,
   Check,
   Loader2,
+  Network,
   PanelRightClose,
   Plus,
+  Presentation,
   RefreshCw,
   Sparkles,
   Trash2,
@@ -136,6 +138,108 @@ function normalizeConclusions(draft: KnowledgeDraft | null | undefined): string[
   return legacy ? [legacy] : [];
 }
 
+
+interface StudioCapability {
+  id: number;
+  name: string;
+  icon: string | null;
+  format_key: string;
+}
+
+interface StudioTaskCreated {
+  id: number;
+  format_key: string;
+  status: string;
+}
+
+const TOPIC_MAX = 80;
+
+function truncateText(value: string, max: number): string {
+  const t = value.trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max - 1) + "…";
+}
+
+function draftLanguage(draft: KnowledgeDraft): Language {
+  return draft.language === "English" ? "English" : "中文";
+}
+
+function pointsForExport(draft: KnowledgeDraft): { points: DraftPoint[]; usedAll: boolean } {
+  const checked = draft.content.points.filter((p) => p.checked);
+  if (checked.length > 0) return { points: checked, usedAll: false };
+  return { points: draft.content.points, usedAll: true };
+}
+
+function formatPointBlock(point: DraftPoint, index: number): string {
+  const lines = [`${index}. ${point.text.trim()}`];
+  const evidence = pointEvidence(point);
+  const example = pointExample(point);
+  if (evidence) lines.push(`   原句：${evidence}`);
+  if (example) lines.push(`   例：${example}`);
+  return lines.join("\n");
+}
+
+function buildMindMapFields(draft: KnowledgeDraft, points: DraftPoint[]): Record<string, string> {
+  const theme = (draft.content.theme || "").trim();
+  const topic = truncateText(theme || "知识要点导图", TOPIC_MAX);
+  const parts: string[] = [
+    "请严格围绕下列要点组织导图，不要扩写成全片大纲。",
+    "",
+    "要点：",
+  ];
+  points.forEach((p, i) => parts.push(formatPointBlock(p, i + 1)));
+  const conclusions = normalizeConclusions(draft);
+  if (conclusions.length) {
+    parts.push("", "结论：");
+    conclusions.forEach((c, i) => parts.push(`${i + 1}. ${c}`));
+  }
+  return {
+    topic,
+    focus_mode: "action",
+    extra_constraints: parts.join("\n"),
+  };
+}
+
+function buildSlidesBrief(draft: KnowledgeDraft, points: DraftPoint[]): string {
+  const theme = (draft.content.theme || "").trim() || "知识要点";
+  const n = points.length;
+  const parts: string[] = [
+    "受众：自学复盘",
+    "结构建议：封面 → 要点展开 → 结论/行动",
+    `页数：约 ${n + 2} 页（封面 1 + 要点 ${n} + 结论/行动 1）`,
+    `主题：${theme}`,
+    "",
+    "要点：",
+  ];
+  points.forEach((p, i) => {
+    parts.push(`${i + 1}. ${p.text.trim()}`);
+    const evidence = pointEvidence(p);
+    const example = pointExample(p);
+    if (evidence) parts.push(`   原句摘要：${truncateText(evidence, 120)}`);
+    if (example) parts.push(`   例：${truncateText(example, 120)}`);
+  });
+  const conclusions = normalizeConclusions(draft);
+  if (conclusions.length) {
+    parts.push("", "结论：");
+    conclusions.forEach((c, i) => parts.push(`${i + 1}. ${c}`));
+  }
+  return parts.join("\n");
+}
+
+function resolveSourceIds(
+  draft: KnowledgeDraft,
+  sources: KnowledgeSource[],
+  notes: KnowledgeNote[],
+): { video_ids: number[]; note_ids: number[] } {
+  let video_ids = [...(draft.source_video_ids || [])];
+  let note_ids = [...(draft.source_note_ids || [])];
+  if (video_ids.length === 0 && note_ids.length === 0) {
+    video_ids = sources.filter((s) => s.selected_for_chat).map((s) => s.video_id);
+    note_ids = notes.filter((n) => n.selected_for_chat).map((n) => n.id);
+  }
+  return { video_ids, note_ids };
+}
+
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide text-primary/80">
@@ -154,14 +258,19 @@ export function KnowledgePanel({
   onCollapse,
   onSeekVideo,
   onOpenStudio,
+  onStudioTaskCreated,
+  embedded = false,
 }: {
   access: string;
   notebookId: number;
   sources: KnowledgeSource[];
   notes: KnowledgeNote[];
-  onCollapse: () => void;
+  onCollapse?: () => void;
   onSeekVideo?: (videoId: number, timeSec: number) => void;
   onOpenStudio?: () => void;
+  onStudioTaskCreated?: (taskId: number, formatKey: string) => void;
+  /** Parent right-rail tabs own mode switch + collapse */
+  embedded?: boolean;
 }) {
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
@@ -204,6 +313,82 @@ export function KnowledgePanel({
   });
 
   const draft = draftQ.data ?? null;
+
+  const [studioAction, setStudioAction] = useState<"mind_map" | "slides" | null>(null);
+  const [studioError, setStudioError] = useState<string | null>(null);
+
+  const capabilitiesQ = useQuery({
+    queryKey: ["studio-capabilities", notebookId],
+    queryFn: () =>
+      api<StudioCapability[]>(`/notebooks/${notebookId}/studio/capabilities`, { access }),
+    enabled: !!access && !!notebookId,
+  });
+
+  const createStudioTask = useMutation({
+    mutationFn: (body: {
+      capability_id: number;
+      language?: string;
+      video_ids: number[];
+      note_ids: number[];
+      fields: Record<string, string>;
+    }) =>
+      api<StudioTaskCreated>(`/notebooks/${notebookId}/studio/tasks`, {
+        method: "POST",
+        access,
+        body,
+      }),
+    onSuccess: (task) => {
+      setStudioError(null);
+      setStudioAction(null);
+      void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
+      onStudioTaskCreated?.(task.id, task.format_key);
+    },
+    onError: (err) => {
+      setStudioAction(null);
+      setStudioError(err instanceof ApiError ? err.message : "创建失败");
+    },
+  });
+
+  function capabilityByFormat(formatKey: "mind_map" | "slides"): StudioCapability | null {
+    return (capabilitiesQ.data ?? []).find((c) => c.format_key === formatKey) ?? null;
+  }
+
+  function startStudioExport(formatKey: "mind_map" | "slides") {
+    if (!draft || createStudioTask.isPending) return;
+    setStudioError(null);
+    const cap = capabilityByFormat(formatKey);
+    if (!cap) {
+      setStudioError(
+        formatKey === "mind_map"
+          ? "请先在 Studio 启用思维导图能力"
+          : "请先在 Studio 启用 PPT 能力",
+      );
+      return;
+    }
+    const { points } = pointsForExport(draft);
+    if (points.length === 0) {
+      setStudioError("暂无要点可生成");
+      return;
+    }
+    const { video_ids, note_ids } = resolveSourceIds(draft, sources, notes);
+    if (video_ids.length === 0 && note_ids.length === 0) {
+      setStudioError("请先选择来源");
+      return;
+    }
+    const fields =
+      formatKey === "mind_map"
+        ? buildMindMapFields(draft, points)
+        : { brief: buildSlidesBrief(draft, points) };
+    setStudioAction(formatKey);
+    createStudioTask.mutate({
+      capability_id: cap.id,
+      language: draftLanguage(draft),
+      video_ids,
+      note_ids,
+      fields,
+    });
+  }
+
 
   const conclusionsKey = (draft?.conclusions ?? []).join("\u0001") + "\u0002" + (draft?.conclusion ?? "");
   useEffect(() => {
@@ -475,55 +660,56 @@ export function KnowledgePanel({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <header className="panel-header">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <BookOpen className="h-3.5 w-3.5" />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold tracking-tight">知识</h2>
-            {draft ? (
-              <p className="truncate text-[10px] text-muted-foreground">
-                已勾 {checkedCount}
-                {draft.strategy_title ? ` · ${draft.strategy_title}` : ""}
-              </p>
+      {embedded ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-3.5 py-1.5">
+          <p className="min-w-0 truncate text-[10px] text-muted-foreground">
+            {draft
+              ? `已勾 ${checkedCount}${draft.strategy_title ? ` · ${draft.strategy_title}` : ""}`
+              : "从字幕提炼可勾选的要点与行动"}
+          </p>
+        </div>
+      ) : (
+        <header className="panel-header">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <BookOpen className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight">知识</h2>
+              {draft ? (
+                <p className="truncate text-[10px] text-muted-foreground">
+                  已勾 {checkedCount}
+                  {draft.strategy_title ? ` · ${draft.strategy_title}` : ""}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {onOpenStudio ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 rounded-full px-2 text-xs text-muted-foreground"
+                onClick={onOpenStudio}
+              >
+                Studio
+              </Button>
+            ) : null}
+            {onCollapse ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
+                title="折叠"
+                aria-label="折叠知识面板"
+                onClick={onCollapse}
+              >
+                <PanelRightClose className="h-4 w-4" />
+              </Button>
             ) : null}
           </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {onOpenStudio ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 rounded-full px-2 text-xs text-muted-foreground"
-              onClick={onOpenStudio}
-            >
-              Studio
-            </Button>
-          ) : null}
-          {draft ? (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 rounded-full"
-              title="重新生成"
-              onClick={openGenerate}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
-            title="折叠"
-            aria-label="折叠知识面板"
-            onClick={onCollapse}
-          >
-            <PanelRightClose className="h-4 w-4" />
-          </Button>
-        </div>
-      </header>
+        </header>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col">
         {draftQ.isLoading ? (
@@ -539,7 +725,7 @@ export function KnowledgePanel({
             <div className="space-y-1">
               <p className="text-sm font-medium">字幕就绪后生成知识底稿</p>
               <p className="max-w-[16rem] text-xs text-muted-foreground">
-                按策略抽出可勾选、可跳播的要点与收获，导图/幻灯片以后从底稿导出。
+                按策略抽出可勾选、可跳播的要点与收获；勾选后可一键生成导图或幻灯片。
               </p>
             </div>
             <Button className="rounded-full" onClick={openGenerate}>
@@ -940,26 +1126,77 @@ export function KnowledgePanel({
               </section>
             </div>
 
-            <div className="shrink-0 border-t border-border/60 bg-card/95 px-3 py-2 backdrop-blur">
-              <div className="flex flex-wrap gap-1.5">
-                <Button size="sm" variant="outline" className="h-8 rounded-full text-xs" disabled title="即将支持">
-                  生成导图
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 rounded-full text-xs" disabled title="即将支持">
-                  生成幻灯片
+            <div className="shrink-0 border-t border-border/60 bg-card/95 px-3 py-2.5 backdrop-blur">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="min-w-0 truncate text-[11px] text-muted-foreground">
+                  已勾选{" "}
+                  <span className="font-medium text-foreground">
+                    {draft.content.points.filter((p) => p.checked).length}
+                  </span>{" "}
+                  条要点
+                </p>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                  title="重做知识底稿"
+                  onClick={openGenerate}
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  重做底稿
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-10 flex-1 gap-1.5 rounded-xl border-primary/25 bg-primary/[0.04] text-xs font-medium text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                  disabled={createStudioTask.isPending || draft.content.points.length === 0}
+                  title="基于已勾选要点生成思维导图"
+                  onClick={() => startStudioExport("mind_map")}
+                >
+                  {studioAction === "mind_map" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      创建中…
+                    </>
+                  ) : (
+                    <>
+                      <Network className="h-4 w-4 text-primary" />
+                      生成导图
+                    </>
+                  )}
                 </Button>
                 <Button
                   size="sm"
-                  variant="secondary"
-                  className="ml-auto h-8 rounded-full text-xs"
-                  onClick={openGenerate}
+                  variant="outline"
+                  className="h-10 flex-1 gap-1.5 rounded-xl border-primary/25 bg-primary/[0.04] text-xs font-medium text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                  disabled={createStudioTask.isPending || draft.content.points.length === 0}
+                  title="基于已勾选要点生成幻灯片"
+                  onClick={() => startStudioExport("slides")}
                 >
-                  重新生成
+                  {studioAction === "slides" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      创建中…
+                    </>
+                  ) : (
+                    <>
+                      <Presentation className="h-4 w-4 text-primary" />
+                      生成幻灯片
+                    </>
+                  )}
                 </Button>
               </div>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                导图/幻灯片将基于已勾选要点（下一期接通）
-              </p>
+              {studioError ? (
+                <p className="mt-1.5 text-[10px] text-destructive">{studioError}</p>
+              ) : (
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  基于已勾选要点生成
+                  {draft.content.points.some((p) => p.checked)
+                    ? `（已勾 ${draft.content.points.filter((p) => p.checked).length} 条）`
+                    : "；未勾选则用全部要点"}
+                </p>
+              )}
             </div>
           </>
         )}

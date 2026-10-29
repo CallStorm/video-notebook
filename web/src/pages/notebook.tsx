@@ -8,7 +8,6 @@ import {
   Link2,
   Loader2,
   Library,
-  Sparkles,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -31,8 +30,8 @@ import { NoteRichEditor, getMarkdown } from "@/components/note-editor";
 import type { Editor } from "@tiptap/react";
 import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
 import { KnowledgePanel } from "@/components/knowledge-panel";
+import { RightPanelTabs } from "@/components/right-panel-tabs";
 import { StudioMindmap } from "@/components/studio-mindmap";
-import { StudioNotes } from "@/components/studio-notes";
 import { StudioSlides } from "@/components/studio-slides";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
@@ -270,6 +269,20 @@ export default function NotebookPage() {
   const [pendingCapabilityId, setPendingCapabilityId] = useState<number | null>(null);
   const [rightMode, setRightMode] = useState<"knowledge" | "studio">("knowledge");
 
+  const studioTasksQ = useQuery({
+    queryKey: ["studio-tasks", notebookId],
+    queryFn: () =>
+      api<{ id: number; status: string }[]>(`/notebooks/${notebookId}/studio/tasks`, { access: token }),
+    enabled: !!token && !!notebookId && !!detail.data && detail.data.is_owner !== false,
+    refetchInterval: (query) => {
+      const rows = query.state.data ?? [];
+      return rows.some((task) => task.status === "queued" || task.status === "running") ? 2000 : false;
+    },
+  });
+  const studioBusyCount = (studioTasksQ.data ?? []).filter(
+    (task) => task.status === "queued" || task.status === "running",
+  ).length;
+
   const upload = useMutation({
     mutationFn: (file: File) => uploadSource(token, notebookId, file),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notebook", notebookId] }),
@@ -437,6 +450,7 @@ export default function NotebookPage() {
 
   const nb = detail.data;
   const isOwner = nb.is_owner !== false; // 缺省按主人处理，兼容旧响应
+
   const notes = nb.notes ?? [];
   const selected = nb.sources.find((source) => source.video_id === selectedVideoId) ?? null;
   const openNote = notes.find((note) => note.id === openNoteId) ?? null;
@@ -917,40 +931,6 @@ export default function NotebookPage() {
                     setPreviewExpanded(false);
                   }}
                 />
-              ) : previewTaskId != null && previewFormat === "structured_notes" ? (
-                <StudioNotes
-                  title={preview.data?.title || "结构化笔记"}
-                  crumb={nb.title}
-                  text={previewMessage ? null : (preview.data?.text_content ?? null)}
-                  notice={previewMessage}
-                  noticeError={preview.isError}
-                  videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
-                  notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
-                  expanded={previewExpanded}
-                  onBack={() => {
-                    setPreviewTaskId(null);
-                    setPreviewFormat(null);
-                    setPreviewExpanded(false);
-                  }}
-                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
-                  onOpenVideo={(videoId) => {
-                    setPreviewExpanded(false);
-                    setLeftCollapsed(false);
-                    setFocusCue(null);
-                    setSelectedVideoId(videoId);
-                  }}
-                  onSeekVideo={(videoId, timeSec) => {
-                    setPreviewExpanded(false);
-                    setLeftCollapsed(false);
-                    setSelectedVideoId(videoId);
-                    setFocusCue({ videoId, timeSec, nonce: Date.now() });
-                  }}
-                  onOpenNote={(noteId) => {
-                    setPreviewExpanded(false);
-                    setRightCollapsed(false);
-                    setOpenNoteId(noteId);
-                  }}
-                />
               ) : previewTaskId != null ? (
                 <StudioMindmap
                   title={preview.data?.title || "导图"}
@@ -989,38 +969,66 @@ export default function NotebookPage() {
                       公开分享模式下可查看来源与字幕，生成产出请使用自己的笔记本。
                     </p>
                   </div>
-                ) : rightMode === "studio" ? (
-                <StudioHome
-                  access={token}
-                  notebookId={notebookId}
-                  sources={nb.sources}
-                  notes={notes}
-                  pendingCapabilityId={pendingCapabilityId}
-                  onPendingCapabilityHandled={() => setPendingCapabilityId(null)}
-                  onCollapse={() => setRightCollapsed(true)}
-                  onOpenTask={(taskId, formatKey) => {
-                    setRightCollapsed(false);
-                    setPreviewExpanded(false);
-                    setPreviewFormat(formatKey);
-                    setPreviewTaskId(taskId);
-                  }}
-                
-                  onBackToKnowledge={() => setRightMode("knowledge")}
-                />
                 ) : (
-                <KnowledgePanel
-                  access={token}
-                  notebookId={notebookId}
-                  sources={nb.sources}
-                  notes={notes}
-                  onCollapse={() => setRightCollapsed(true)}
-                  onOpenStudio={() => setRightMode("studio")}
-                  onSeekVideo={(videoId, timeSec) => {
-                    setLeftCollapsed(false);
-                    setSelectedVideoId(videoId);
-                    setFocusCue({ videoId, timeSec, nonce: Date.now() });
-                  }}
-                />
+                <>
+                  <header className="panel-header py-2">
+                    <div className="min-w-0 flex-1">
+                      <RightPanelTabs
+                        mode={rightMode}
+                        onChange={setRightMode}
+                        studioBusyCount={studioBusyCount}
+                      />
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary"
+                      title="折叠"
+                      aria-label="折叠右侧面板"
+                      onClick={() => setRightCollapsed(true)}
+                    >
+                      <PanelRightClose className="h-4 w-4" />
+                    </Button>
+                  </header>
+                  {rightMode === "studio" ? (
+                    <StudioHome
+                      access={token}
+                      notebookId={notebookId}
+                      sources={nb.sources}
+                      notes={notes}
+                      pendingCapabilityId={pendingCapabilityId}
+                      onPendingCapabilityHandled={() => setPendingCapabilityId(null)}
+                      onOpenTask={(taskId, formatKey) => {
+                        setRightCollapsed(false);
+                        setPreviewExpanded(false);
+                        setPreviewFormat(formatKey);
+                        setPreviewTaskId(taskId);
+                      }}
+                    />
+                  ) : (
+                    <KnowledgePanel
+                      access={token}
+                      notebookId={notebookId}
+                      sources={nb.sources}
+                      notes={notes}
+                      embedded
+                      onStudioTaskCreated={(_taskId, _formatKey) => {
+                        setRightCollapsed(false);
+                        setPendingCapabilityId(null);
+                        setPreviewExpanded(false);
+                        // New task is queued/running: switch to Studio list for progress.
+                        setPreviewTaskId(null);
+                        setPreviewFormat(null);
+                        setRightMode("studio");
+                      }}
+                      onSeekVideo={(videoId, timeSec) => {
+                        setLeftCollapsed(false);
+                        setSelectedVideoId(videoId);
+                        setFocusCue({ videoId, timeSec, nonce: Date.now() });
+                      }}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
@@ -1108,53 +1116,19 @@ function StudioHome({
   sources,
   notes,
   onOpenTask,
-  onCollapse,
   pendingCapabilityId,
   onPendingCapabilityHandled,
-  onBackToKnowledge,
 }: {
   access: string;
   notebookId: number;
   sources: SourceSummary[];
   notes: NoteRead[];
   onOpenTask: (taskId: number, formatKey: string) => void;
-  onCollapse: () => void;
   pendingCapabilityId?: number | null;
   onPendingCapabilityHandled?: () => void;
-  onBackToKnowledge?: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="panel-header">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Sparkles className="h-3.5 w-3.5" />
-          </span>
-          <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {onBackToKnowledge ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 rounded-full px-2 text-xs text-muted-foreground"
-              onClick={onBackToKnowledge}
-            >
-              知识
-            </Button>
-          ) : null}
-          <Button
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
-          title="折叠 Studio"
-          aria-label="折叠 Studio"
-          onClick={onCollapse}
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </Button>
-        </div>
-      </header>
       <StudioPanel
         access={access}
         notebookId={notebookId}
@@ -1216,10 +1190,10 @@ function mindMapNotice(
   failed: boolean,
   error: unknown,
   task: StudioTaskDetail | undefined,
-  formatKey?: string | null,
+  _formatKey?: string | null,
 ): string | null {
-  const emptyLabel = formatKey === "structured_notes" ? "没有笔记内容" : "没有导图内容";
-  const loadingLabel = formatKey === "structured_notes" ? "加载结构化笔记…" : "加载导图…";
+  const emptyLabel = "没有导图内容";
+  const loadingLabel = "加载导图…";
   if (!task) {
     if (loading) return loadingLabel;
     if (error instanceof ApiError) return error.message;

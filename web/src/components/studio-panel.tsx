@@ -6,7 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SourceRenameDialog } from "@/components/source-row-menu";
-import { isStudioOpenableFormat, isTextStudioFormat } from "@/studio/plugins/registry";
+import { isStudioFormatVisible, isStudioOpenableFormat, isTextStudioFormat } from "@/studio/plugins/registry";
 
 const ERROR_LABELS: Record<string, string> = {
   timeout: "超时",
@@ -56,6 +56,7 @@ interface Capability {
   id: number;
   name: string;
   icon: string | null;
+  format_key: string;
   form_json: FormField[];
 }
 
@@ -130,19 +131,16 @@ function sourceLabel(task: StudioTask): string {
 function formatShortLabel(formatKey: string): string {
   if (formatKey === "slides") return "幻";
   if (formatKey === "file") return "文";
-  if (formatKey === "structured_notes") return "笔";
   return "导";
 }
 
 function deleteConfirmLabel(formatKey: string): string {
   if (formatKey === "slides") return "删除这个幻灯片？";
-  if (formatKey === "structured_notes") return "删除这份结构化笔记？";
   return "删除这个导图？";
 }
 
 function renameHeading(formatKey: string): string {
   if (formatKey === "slides") return "重命名幻灯片";
-  if (formatKey === "structured_notes") return "重命名结构化笔记";
   return "重命名导图";
 }
 
@@ -196,8 +194,8 @@ export function StudioCollapsedRail({
     },
   });
 
-  const caps = capabilities.data ?? [];
-  const taskRows = tasks.data ?? [];
+  const caps = (capabilities.data ?? []).filter((c) => isStudioFormatVisible(c.format_key));
+  const taskRows = (tasks.data ?? []).filter((t) => isStudioFormatVisible(t.format_key));
 
   return (
     <div className="panel-rail">
@@ -408,7 +406,7 @@ export function StudioPanel({
   useEffect(() => {
     if (pendingCapabilityId == null) return;
     const capability = (capabilities.data ?? []).find((item) => item.id === pendingCapabilityId);
-    if (!capability) {
+    if (!capability || !isStudioFormatVisible(capability.format_key)) {
       if (capabilities.isFetched) onPendingCapabilityHandled?.();
       return;
     }
@@ -441,14 +439,15 @@ export function StudioPanel({
     });
   }
 
-  const taskRows = tasks.data ?? [];
+  const visibleCapabilities = (capabilities.data ?? []).filter((c) => isStudioFormatVisible(c.format_key));
+  const taskRows = (tasks.data ?? []).filter((t) => isStudioFormatVisible(t.format_key));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-3.5 pt-3">
         <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">能力</p>
         <div className="grid grid-cols-2 gap-2">
-          {(capabilities.data ?? []).map((capability) => (
+          {visibleCapabilities.map((capability) => (
             <button
               key={capability.id}
               type="button"
@@ -480,7 +479,7 @@ export function StudioPanel({
           <div className="empty-panel mx-3 mb-3 py-8">
             <p className="text-sm font-medium text-foreground">还没有产出</p>
             <p className="mt-1.5 max-w-[16rem] text-xs leading-relaxed text-muted-foreground">
-              点上方能力，生成导图、结构化笔记、幻灯片或文件。
+              点上方能力，生成导图、幻灯片或文件。
             </p>
           </div>
         ) : null}
