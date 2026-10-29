@@ -7,6 +7,7 @@ import {
   LogOut,
   ScrollText,
   Settings2,
+  FileText,
   Sparkles,
   Users,
   Waypoints,
@@ -29,12 +30,14 @@ import { AdminCoverPage } from "@/pages/admin-cover";
 import { AdminChatPage } from "@/pages/admin-chat";
 import { AdminVectorPage } from "@/pages/admin-vector";
 import { AdminStudioPanel } from "@/pages/admin-studio";
+import { AdminDraftStrategiesPanel } from "@/pages/admin-draft-strategies";
 import { AdminDashboard } from "@/pages/admin-dashboard";
 import { cn } from "@/lib/utils";
 
 type AdminSection =
   | "pipeline"
   | "studio"
+  | "draft-strategies"
   | "pipeline-logs"
   | "llm-traces"
   | "settings"
@@ -69,6 +72,7 @@ const SIDE_NAV: {
   { id: "home", label: "首页", icon: Home },
   { id: "pipeline", label: "抓取流水线", icon: Cable },
   { id: "studio", label: "Studio 能力", icon: Sparkles },
+  { id: "draft-strategies", label: "底稿策略", icon: FileText },
   { id: "pipeline-logs", label: "流水线日志", icon: ScrollText },
   { id: "llm-traces", label: "LLM 追踪", icon: Waypoints },
   { id: "settings", label: "系统设置", icon: Settings2 },
@@ -93,6 +97,7 @@ const OLD_TAB_MAP: Record<
   skills: { section: "studio" },
   agents: { section: "studio" },
   studio: { section: "studio" },
+  "draft-strategies": { section: "draft-strategies" },
   accounts: { section: "accounts" },
   "pipeline-logs": { section: "pipeline-logs" },
   "llm-traces": { section: "llm-traces" },
@@ -103,6 +108,7 @@ function isSection(v: string | null): v is AdminSection {
   return (
     v === "pipeline" ||
     v === "studio" ||
+    v === "draft-strategies" ||
     v === "pipeline-logs" ||
     v === "llm-traces" ||
     v === "settings" ||
@@ -334,6 +340,8 @@ export default function AdminPage() {
               ) : null}
 
               {section === "studio" ? <AdminStudioPanel /> : null}
+
+              {section === "draft-strategies" ? <AdminDraftStrategiesPanel /> : null}
 
               {section === "pipeline-logs" ? <AdminPipelineLogsPage /> : null}
               {section === "llm-traces" ? <AdminLlmTracesPage /> : null}

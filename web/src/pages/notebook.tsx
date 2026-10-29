@@ -30,6 +30,7 @@ import { MarkdownMessage } from "@/components/chat-markdown";
 import { NoteRichEditor, getMarkdown } from "@/components/note-editor";
 import type { Editor } from "@tiptap/react";
 import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
+import { KnowledgePanel } from "@/components/knowledge-panel";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioNotes } from "@/components/studio-notes";
 import { StudioSlides } from "@/components/studio-slides";
@@ -267,6 +268,7 @@ export default function NotebookPage() {
   const [leftCollapsed, setLeftCollapsed] = usePersistedBool(LEFT_COLLAPSE_KEY, false);
   const [rightCollapsed, setRightCollapsed] = usePersistedBool(RIGHT_COLLAPSE_KEY, false);
   const [pendingCapabilityId, setPendingCapabilityId] = useState<number | null>(null);
+  const [rightMode, setRightMode] = useState<"knowledge" | "studio">("knowledge");
 
   const upload = useMutation({
     mutationFn: (file: File) => uploadSource(token, notebookId, file),
@@ -826,6 +828,7 @@ export default function NotebookPage() {
                 setPreviewExpanded(false);
                 setOpenNoteId(null);
                 setPendingCapabilityId(capabilityId);
+                setRightMode("studio");
                 setRightCollapsed(false);
               }}
               onOpenTask={(taskId, formatKey) => {
@@ -986,7 +989,7 @@ export default function NotebookPage() {
                       公开分享模式下可查看来源与字幕，生成产出请使用自己的笔记本。
                     </p>
                   </div>
-                ) : (
+                ) : rightMode === "studio" ? (
                 <StudioHome
                   access={token}
                   notebookId={notebookId}
@@ -1000,6 +1003,22 @@ export default function NotebookPage() {
                     setPreviewExpanded(false);
                     setPreviewFormat(formatKey);
                     setPreviewTaskId(taskId);
+                  }}
+                
+                  onBackToKnowledge={() => setRightMode("knowledge")}
+                />
+                ) : (
+                <KnowledgePanel
+                  access={token}
+                  notebookId={notebookId}
+                  sources={nb.sources}
+                  notes={notes}
+                  onCollapse={() => setRightCollapsed(true)}
+                  onOpenStudio={() => setRightMode("studio")}
+                  onSeekVideo={(videoId, timeSec) => {
+                    setLeftCollapsed(false);
+                    setSelectedVideoId(videoId);
+                    setFocusCue({ videoId, timeSec, nonce: Date.now() });
                   }}
                 />
               )}
@@ -1092,6 +1111,7 @@ function StudioHome({
   onCollapse,
   pendingCapabilityId,
   onPendingCapabilityHandled,
+  onBackToKnowledge,
 }: {
   access: string;
   notebookId: number;
@@ -1101,6 +1121,7 @@ function StudioHome({
   onCollapse: () => void;
   pendingCapabilityId?: number | null;
   onPendingCapabilityHandled?: () => void;
+  onBackToKnowledge?: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1111,7 +1132,18 @@ function StudioHome({
           </span>
           <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
         </div>
-        <Button
+        <div className="flex items-center gap-1">
+          {onBackToKnowledge ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-full px-2 text-xs text-muted-foreground"
+              onClick={onBackToKnowledge}
+            >
+              知识
+            </Button>
+          ) : null}
+          <Button
           size="icon"
           variant="ghost"
           className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
@@ -1121,6 +1153,7 @@ function StudioHome({
         >
           <PanelRightClose className="h-4 w-4" />
         </Button>
+        </div>
       </header>
       <StudioPanel
         access={access}

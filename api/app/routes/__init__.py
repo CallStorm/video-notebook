@@ -24,6 +24,8 @@ from app.routes import (
     admin_models,
     admin_skills,
     admin_studio,
+    admin_draft_strategies,
+    knowledge_draft,
     auth,
     chat,
     collections,
@@ -60,6 +62,7 @@ api_router.include_router(admin_vector_settings.router)
 api_router.include_router(admin_observability.router)
 api_router.include_router(admin_stats.router)
 api_router.include_router(admin_studio.router)
+api_router.include_router(admin_draft_strategies.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)
 # Phase 4：notebook / source
@@ -71,6 +74,7 @@ api_router.include_router(sources.router)
 api_router.include_router(search.router)
 api_router.include_router(chat.router)
 api_router.include_router(studio.router)
+api_router.include_router(knowledge_draft.router)
 
 # /api/storage/{key} 视频代理（签发 token 校验后流式回写）
 from app.routes import storage_proxy  # noqa: E402
