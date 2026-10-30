@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Sparkles, X } from "lucide-react";
 import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
-import { EMPTY_COVER_TOKEN } from "@/lib/cover-gen";
-import { generateCover } from "@/lib/generate-cover";
-import { api, ApiError } from "@/lib/api";
+import { EMPTY_COVER_TOKEN, encodeCoverStyle, styleFromTitle } from "@/lib/cover-gen";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -131,14 +130,15 @@ export function CollectionEditDialog({
   });
 
   async function onGenerateCover() {
-    if (!access || !name.trim() || coverPending) return;
+    if (!name.trim() || coverPending) return;
     setCoverPending(true);
     setCoverError(null);
     try {
-      const result = await generateCover(access, name.trim(), undefined, { mode: "svg" });
-      setCoverUrl(result.cover_url);
+      // 集合图标：本地确定性 gen:v3 token（不走封面文生图 API）
+      const token = encodeCoverStyle(styleFromTitle(name.trim()));
+      setCoverUrl(token);
     } catch (err) {
-      setCoverError(err instanceof ApiError ? err.message : "生成图标失败");
+      setCoverError(err instanceof Error ? err.message : "生成图标失败");
     } finally {
       setCoverPending(false);
     }
@@ -196,7 +196,7 @@ export function CollectionEditDialog({
                   size="sm"
                   variant="outline"
                   className="h-8 rounded-full"
-                  disabled={!name.trim() || coverPending || !access}
+                  disabled={!name.trim() || coverPending}
                   onClick={() => void onGenerateCover()}
                 >
                   <Sparkles className="h-3.5 w-3.5" />

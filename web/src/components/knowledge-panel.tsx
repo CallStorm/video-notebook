@@ -243,6 +243,8 @@ function buildSlidesFields(draft: KnowledgeDraft, points: DraftPoint[]): Record<
   };
 }
 
+
+
 function resolveSourceIds(
   draft: KnowledgeDraft,
   sources: KnowledgeSource[],
@@ -377,8 +379,8 @@ export function KnowledgePanel({
     if (!cap) {
       setStudioError(
         formatKey === "mind_map"
-          ? "请先启用思维导图能力"
-          : "请先启用 PPT 能力",
+          ? "思维导图暂不可用，请稍后重试或联系管理员"
+          : "PPT 暂不可用，请稍后重试或联系管理员",
       );
       return;
     }
@@ -1172,11 +1174,11 @@ export function KnowledgePanel({
                   重做底稿
                 </button>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-10 flex-1 gap-1.5 rounded-xl border-primary/25 bg-primary/[0.04] text-xs font-medium text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                  className="h-10 min-w-[30%] flex-1 gap-1.5 rounded-xl border-primary/25 bg-primary/[0.04] text-xs font-medium text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
                   disabled={createStudioTask.isPending || draft.content.points.length === 0}
                   title="基于已勾选要点生成思维导图"
                   onClick={() => startStudioExport("mind_map")}

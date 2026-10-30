@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 import { Pin } from "lucide-react";
 import { NotebookCardMenu } from "@/components/notebook-card-menu";
 import { GeneratedCover } from "@/components/generated-cover";
@@ -139,9 +139,9 @@ export function NotebookBookCard({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
       </Link>
 
-      <div className="flex items-start gap-1.5 px-2.5 pb-2.5 pt-2">
+      <div className="flex items-start gap-1 px-2 pb-2 pt-1.5">
         <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1 text-left">
-          <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug tracking-tight text-foreground">
+          <h3 className="line-clamp-2 text-xs font-semibold leading-snug tracking-tight text-foreground">
             {nb.title}
           </h3>
           <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">

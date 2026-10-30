@@ -16,7 +16,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-type Platform = "youtube" | "bilibili" | "douyin";
+type Platform = "youtube" | "bilibili";
 
 interface SearchResultItem {
   id: string;
@@ -70,17 +70,11 @@ const PLATFORM_BADGE: Record<
     className: "bg-[#FB7299] text-white",
     soft: "bg-pink-50 text-pink-700 ring-pink-200/80",
   },
-  douyin: {
-    label: "抖音",
-    className: "bg-zinc-900 text-white",
-    soft: "bg-zinc-100 text-zinc-800 ring-zinc-200/80",
-  },
 };
 
 const PLATFORM_ERROR_LABEL: Record<Platform, string> = {
   bilibili: "B站",
   youtube: "YouTube",
-  douyin: "抖音",
 };
 
 function formatDuration(sec: number | null): string | null {

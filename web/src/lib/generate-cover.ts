@@ -13,12 +13,11 @@ export interface GeneratedCoverResult {
   label?: string;
 }
 
-/** 调用后端，按名称+描述生成封面（文生图 URL 或 SVG token）。 */
+/** 调用后端，按名称+描述文生图生成封面。 */
 export async function generateCover(
   access: string,
   title: string,
   description?: string,
-  opts?: { mode?: "image" | "svg" },
 ): Promise<GeneratedCoverResult> {
   return api<GeneratedCoverResult>("/covers/generate", {
     method: "POST",
@@ -26,7 +25,6 @@ export async function generateCover(
     body: {
       title: title.trim(),
       description: description?.trim() || null,
-      ...(opts?.mode ? { mode: opts.mode } : {}),
     },
   });
 }

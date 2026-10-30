@@ -1,4 +1,4 @@
-"""Studio capability sync from disk plugins + enable/disable."""
+"""Studio capability sync from disk plugins; mind_map/slides always on."""
 from __future__ import annotations
 
 import re
@@ -13,6 +13,11 @@ from app.studio.plugins.registry import get_plugin, list_plugins
 
 _TEXT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _FIELD_TYPES = frozenset({"sources", "language", "text", "select"})
+
+# Product-fixed formats: always available, not admin-togglable.
+ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides"})
+# Retired from product surface; keep DB/plugin rows but force off.
+ALWAYS_OFF_FORMATS = frozenset({"structured_notes", "four_panel"})
 
 
 def validate_form(fields: list[dict]) -> list[dict]:
@@ -91,8 +96,16 @@ def validate_form(fields: list[dict]) -> list[dict]:
     return normalized
 
 
+def _default_enabled(format_key: str, plugin_default: bool) -> bool:
+    if format_key in ALWAYS_ON_FORMATS:
+        return True
+    if format_key in ALWAYS_OFF_FORMATS:
+        return False
+    return bool(plugin_default)
+
+
 async def seed_builtin_capabilities(session: AsyncSession) -> None:
-    """Sync disk plugins into studio_capabilities (create / refresh form+name+icon)."""
+    """Sync disk plugins into studio_capabilities; force always-on / always-off."""
     plugin_ids = {p.id for p in list_plugins()}
     for plugin in list_plugins():
         form = validate_form(plugin.form)
@@ -110,18 +123,21 @@ async def seed_builtin_capabilities(session: AsyncSession) -> None:
                     icon=plugin.icon,
                     format_key=plugin.id,
                     agent_id=None,
-                    enabled=bool(plugin.enabled_by_default),
+                    enabled=_default_enabled(plugin.id, plugin.enabled_by_default),
                     is_builtin=True,
                     form_json=form,
                 )
             )
             continue
-        # Plugin metadata owned by disk; enabled / agent_id kept as admin set them.
+        # Plugin metadata owned by disk; always-on/off override admin toggles.
         cap.name = plugin.name
         cap.icon = plugin.icon
         cap.form_json = form
-        # Plugins no longer need bound agents.
         cap.agent_id = None
+        if plugin.id in ALWAYS_ON_FORMATS:
+            cap.enabled = True
+        elif plugin.id in ALWAYS_OFF_FORMATS:
+            cap.enabled = False
         session.add(cap)
 
     # Soft-delete builtins whose plugin folder disappeared.
@@ -139,9 +155,11 @@ async def seed_builtin_capabilities(session: AsyncSession) -> None:
             cap.enabled = False
             cap.deleted_at = now
             session.add(cap)
-        # structured_notes retired from Studio product — keep row, force off.
-        elif cap.format_key == "structured_notes" and cap.enabled:
+        elif cap.format_key in ALWAYS_OFF_FORMATS and cap.enabled:
             cap.enabled = False
+            session.add(cap)
+        elif cap.format_key in ALWAYS_ON_FORMATS and not cap.enabled:
+            cap.enabled = True
             session.add(cap)
     await session.commit()
 
@@ -169,17 +187,16 @@ async def get_capability(session: AsyncSession, capability_id: int) -> StudioCap
 
 
 async def enable_capability(session: AsyncSession, capability_id: int) -> StudioCapability:
+    """Kept for API/tests; product no longer exposes admin toggles."""
     cap = await _get_live(session, capability_id)
-    if cap.format_key == "structured_notes":
-        raise ConflictError("结构化笔记已下线，无法启用")
-    # Must correspond to a disk plugin (or legacy non-plugin for tests with is_builtin=False).
+    if cap.format_key in ALWAYS_OFF_FORMATS:
+        raise ConflictError("该能力已下线，无法启用")
     if cap.is_builtin:
         try:
             get_plugin(cap.format_key)
         except KeyError as exc:
             raise ConflictError("插件目录不存在，无法启用") from exc
     cap.enabled = True
-    # Clear legacy agent binding — plugins are self-contained.
     cap.agent_id = None
     session.add(cap)
     await session.commit()
@@ -188,7 +205,10 @@ async def enable_capability(session: AsyncSession, capability_id: int) -> Studio
 
 
 async def disable_capability(session: AsyncSession, capability_id: int) -> StudioCapability:
+    """Kept for API/tests; always-on formats cannot be disabled."""
     cap = await _get_live(session, capability_id)
+    if cap.format_key in ALWAYS_ON_FORMATS:
+        raise ConflictError("PPT 与思维导图固定启用，无法停用")
     cap.enabled = False
     session.add(cap)
     await session.commit()
@@ -221,13 +241,15 @@ async def update_capability(
     form: list[dict] | None,
     fields_set: set[str],
 ) -> StudioCapability:
-    raise BadRequestError("Studio 能力由插件目录管理，页面仅支持启用/停用")
+    raise BadRequestError("Studio 能力由插件目录管理，页面不再提供配置")
 
 
 async def delete_capability(session: AsyncSession, capability_id: int) -> None:
     cap = await _get_live(session, capability_id)
     if cap.is_builtin:
         raise ConflictError("预置能力不能删除；请停用或移除插件目录")
+    if cap.format_key in ALWAYS_ON_FORMATS:
+        raise ConflictError("PPT 与思维导图固定启用，不能删除")
     has_task = await session.scalar(
         select(StudioTask.id).where(StudioTask.capability_id == capability_id).limit(1)
     )

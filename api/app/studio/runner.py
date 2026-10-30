@@ -27,6 +27,7 @@ from app.models.studio import (
 )
 from app.storage import get_storage
 from app.studio.formats import FormatMismatch, NoOutput, accept_outputs, get_format
+from app.studio.four_panel_comic import write_comic_outputs
 from app.studio.plugins.registry import get_plugin
 from app.subtitles.store import load_subtitle
 from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
@@ -863,7 +864,7 @@ async def _store_success(
     main_key, data = _store_main(accepted_path, accepted_mime)
     stored_keys.append(main_key)
     text_content: str | None = None
-    if prepared.format_key in {"mind_map", "structured_notes"}:
+    if prepared.format_key in {"mind_map", "structured_notes", "four_panel"}:
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:
@@ -1029,6 +1030,29 @@ async def execute_studio_task(
         if prepared.skill_missing:
             await _mark_failed(factory, task_id, "process_failed", "技能目录不存在", work)
             trace_status, trace_error = "failed", "技能目录不存在"
+            return
+        # four_panel MVP: deterministic local JSON (no Claude). Keeps UI online without LLM.
+        if prepared.format_key == "four_panel":
+            outputs = work / "outputs"
+            write_comic_outputs(outputs, prepared.fields)
+            try:
+                accepted = accept_outputs(get_format(prepared.format_key), outputs)
+            except (FormatMismatch, NoOutput):
+                await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
+                trace_status, trace_error = "failed", "format mismatch"
+                return
+            await _store_success(
+                factory,
+                task_id,
+                prepared=prepared,
+                accepted_path=accepted.path,
+                accepted_mime=accepted.mime,
+                accepted_title=accepted.title,
+                pdf_convert=pdf_convert,
+                pdf_timeout_seconds=pdf_timeout_seconds,
+                work=work,
+                stored_keys=stored_keys,
+            )
             return
         if not prepared.api_key or not prepared.model_name:
             await _mark_failed(factory, task_id, "process_failed", "还没有配置 Claude Code", work)

@@ -1,11 +1,10 @@
-import React, { useMemo, useState } from "react";
+﻿import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Search, LayoutGrid, List, Pin, Trash2, Clapperboard, MessageSquareText, Sparkles, FolderKanban, Library, Layers } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
-import { isRemoteCover } from "@/lib/cover-gen";
-import { generateCover } from "@/lib/generate-cover";
+import { encodeCoverStyle, isRemoteCover, styleFromTitle } from "@/lib/cover-gen";
 import { NewNotebookDialog } from "@/components/new-notebook-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { AppHeader } from "@/components/app-header";
@@ -168,11 +167,11 @@ export default function HomePage() {
     if (!target) return;
     setGeneratingCoverId(id);
     try {
-      const result = await generateCover(token, target.name, undefined, { mode: "svg" });
+      const cover_url = encodeCoverStyle(styleFromTitle(target.name));
       await api(`/collections/${id}`, {
         method: "PATCH",
         access: token,
-        body: { cover_url: result.cover_url },
+        body: { cover_url },
       });
       await qc.invalidateQueries({ queryKey: ["collections"] });
     } catch (err) {
@@ -523,7 +522,7 @@ function MyNotebooksSection({
           </div>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
           {notebooks.map((nb) => (
             <NotebookBookCard
               key={nb.id}

@@ -292,5 +292,5 @@ export function AdminSkillsPanel() {
 
 /** 兼容旧链接 → 后台 Tab */
 export default function AdminSkillsPage() {
-  return <Navigate to="/admin?section=studio&tab=skills" replace />;
+  return <Navigate to="/admin" replace />;
 }

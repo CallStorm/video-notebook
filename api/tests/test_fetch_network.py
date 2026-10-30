@@ -51,7 +51,7 @@ def test_resolve_respects_cookie_and_proxy_toggles(tmp_path, monkeypatch) -> Non
 
     cookies_fs.write_cookie_text("youtube", "# Netscape\n.youtube.com\tTRUE\t/\tFALSE\t0\tA\tb\n")
     set_runtime_snapshot(
-        cookie_enabled={"youtube": True, "bilibili": False, "douyin": False},
+        cookie_enabled={"youtube": True, "bilibili": False},
         proxy_enabled=True,
         proxy_url="http://127.0.0.1:7890",
         proxy_apply_to=["youtube"],
@@ -61,7 +61,7 @@ def test_resolve_respects_cookie_and_proxy_toggles(tmp_path, monkeypatch) -> Non
     assert yt.proxy == "http://127.0.0.1:7890"
 
     set_runtime_snapshot(
-        cookie_enabled={"youtube": False, "bilibili": False, "douyin": False},
+        cookie_enabled={"youtube": False, "bilibili": False},
         proxy_enabled=True,
         proxy_url="http://127.0.0.1:7890",
         proxy_apply_to=["youtube"],
@@ -89,7 +89,7 @@ async def test_admin_fetch_network_crud(client: AsyncClient, db_session, tmp_pat
     r = await client.get("/api/admin/fetch-network", headers=h)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert len(body["cookies"]) == 3
+    assert len(body["cookies"]) == 2
     assert body["proxy"]["enabled"] is False
     assert "cookie_text" not in r.text.lower() or "SESSDATA" not in r.text
 

@@ -19,6 +19,7 @@ type GlobalModelRef = "claude_code" | "chat";
 interface Settings {
   default_prefix: string;
   default_model_ref: GlobalModelRef;
+  max_tokens: number;
   output_schema: Record<string, unknown>;
   kind_labels: Record<string, string>;
 }
@@ -117,7 +118,7 @@ export function AdminDraftStrategiesPanel() {
     <div className="space-y-6">
       <AdminPageHeader
         title="底稿策略"
-        description="配置知识底稿的全局前缀、默认模型与可复用策略（提示词）。生成底稿功能将读取此处策略；本页可试跑预览 JSON，不会写入笔记本。"
+        description="配置知识底稿的全局前缀、默认模型、生成 max_tokens 与可复用策略（提示词）。生成底稿功能将读取此处；本页可试跑预览 JSON，不会写入笔记本。"
         action={
           <Button
             type="button"
@@ -172,29 +173,47 @@ function GlobalPrefixCard({
   const qc = useQueryClient();
   const [prefix, setPrefix] = useState("");
   const [modelRef, setModelRef] = useState<GlobalModelRef>("claude_code");
+  const [maxTokens, setMaxTokens] = useState(200000);
+  const [maxTokensError, setMaxTokensError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsQ.data) return;
     setPrefix(settingsQ.data.default_prefix);
     setModelRef(settingsQ.data.default_model_ref);
+    setMaxTokens(
+      Number.isFinite(settingsQ.data.max_tokens) && settingsQ.data.max_tokens >= 1
+        ? settingsQ.data.max_tokens
+        : 200000,
+    );
+    setMaxTokensError(null);
   }, [settingsQ.data]);
 
   const save = useMutation({
-    mutationFn: () =>
-      api<Settings>("/admin/draft-strategies/settings", {
+    mutationFn: () => {
+      const n = Math.trunc(Number(maxTokens));
+      if (!Number.isFinite(n) || n < 1) {
+        return Promise.reject(new Error("底稿生成 max_tokens 须为正整数"));
+      }
+      return api<Settings>("/admin/draft-strategies/settings", {
         method: "PUT",
         access: token,
-        body: { default_prefix: prefix, default_model_ref: modelRef },
-      }),
+        body: {
+          default_prefix: prefix,
+          default_model_ref: modelRef,
+          max_tokens: n,
+        },
+      });
+    },
     onSuccess: (data) => {
       qc.setQueryData(["admin-draft-strategy-settings"], data);
+      setMaxTokensError(null);
     },
   });
 
   return (
     <AdminSectionCard
-      title="全局前缀"
-      description="拼在所有策略 Prompt 之前：禁臆造、时间锚点、输出契约等。策略正文不必重复这些硬规则。"
+      title="全局设置"
+      description="拼在所有策略 Prompt 之前的前缀、默认模型，以及生成底稿时的 max_tokens（默认 200000，可按模型上限调整）。"
     >
       {settingsQ.isLoading ? (
         <AdminLoading />
@@ -207,11 +226,11 @@ function GlobalPrefixCard({
             spellCheck={false}
             aria-label="全局前缀"
           />
-          <div className="flex flex-wrap items-end gap-4">
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">默认模型引用</span>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-foreground">默认模型引用</span>
               <select
-                className="admin-input block min-w-[14rem]"
+                className="admin-input w-full max-w-md"
                 value={modelRef}
                 onChange={(e) => setModelRef(e.target.value as GlobalModelRef)}
               >
@@ -222,10 +241,40 @@ function GlobalPrefixCard({
                 ))}
               </select>
             </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-foreground">底稿生成 max_tokens</span>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                className="admin-input w-40 font-mono"
+                value={Number.isFinite(maxTokens) ? maxTokens : ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setMaxTokens(Number.NaN);
+                    setMaxTokensError("须为正整数");
+                    return;
+                  }
+                  const n = Math.trunc(Number(raw));
+                  setMaxTokens(n);
+                  setMaxTokensError(!Number.isFinite(n) || n < 1 ? "须为正整数" : null);
+                }}
+                aria-label="底稿生成 max_tokens"
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                生成底稿与 JSON 修复共用；默认 200000。模型有上限时以 API 为准。
+              </span>
+              {maxTokensError ? (
+                <span className="text-xs text-destructive">{maxTokensError}</span>
+              ) : null}
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
             <Button
               type="button"
               className="rounded-full"
-              disabled={save.isPending}
+              disabled={save.isPending || !!maxTokensError}
               onClick={() => save.mutate()}
             >
               {save.isPending ? "保存中…" : "保存全局设置"}
@@ -235,7 +284,11 @@ function GlobalPrefixCard({
             ) : null}
             {save.isError ? (
               <span className="text-sm text-destructive">
-                {save.error instanceof ApiError ? save.error.message : "保存失败"}
+                {save.error instanceof ApiError
+                  ? save.error.message
+                  : save.error instanceof Error
+                    ? save.error.message
+                    : "保存失败"}
               </span>
             ) : null}
           </div>

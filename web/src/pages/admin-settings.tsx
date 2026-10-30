@@ -100,7 +100,7 @@ export function AdminSettingsPage() {
             <span>
               <span className="block text-sm font-medium">启用流水线日志</span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
-                默认关闭。查询页见「流水线日志」。
+                默认关闭。查询页见「运行观测 → 流水线日志」。
               </span>
             </span>
           </label>
@@ -131,7 +131,7 @@ export function AdminSettingsPage() {
           <p className="text-xs text-muted-foreground">
             查看：
             <Link
-              to="/admin?section=pipeline-logs"
+              to="/admin?section=observability&tab=pipeline-logs"
               className="ml-1 font-medium text-primary hover:underline"
             >
               流水线日志 →
@@ -155,7 +155,7 @@ export function AdminSettingsPage() {
             <span>
               <span className="block text-sm font-medium">启用 LLM 追踪</span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
-                默认关闭。管理员可在「LLM 追踪」查看 prompt / completion。
+                默认关闭。管理员可在「运行观测 → LLM 调用」查看 prompt / completion。
               </span>
             </span>
           </label>
@@ -198,10 +198,10 @@ export function AdminSettingsPage() {
           <p className="text-xs text-muted-foreground">
             查看：
             <Link
-              to="/admin?section=llm-traces"
+              to="/admin?section=observability&tab=llm-traces"
               className="ml-1 font-medium text-primary hover:underline"
             >
-              LLM 追踪 →
+              LLM 调用 →
             </Link>
           </p>
         </div>

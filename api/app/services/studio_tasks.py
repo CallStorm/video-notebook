@@ -15,7 +15,9 @@ from app.storage import get_storage
 
 _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
 # Retired from product surface; keep plugin/code for potential restore but hide from Studio UI/API lists.
-_HIDDEN_FORMATS = frozenset({"structured_notes"})
+_HIDDEN_FORMATS = frozenset({"structured_notes", "four_panel"})
+# Product-fixed: always treated as enabled (admin toggle removed).
+_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides"})
 
 
 def enqueue_studio_task(task_id: int) -> None:
@@ -31,14 +33,17 @@ async def list_enabled_capabilities(
     rows = (
         await session.execute(
             select(StudioCapability)
-            .where(
-                StudioCapability.enabled.is_(True),
-                StudioCapability.deleted_at.is_(None),
-            )
+            .where(StudioCapability.deleted_at.is_(None))
             .order_by(StudioCapability.id.asc())
         )
     ).scalars().all()
-    return [row for row in rows if row.format_key not in _HIDDEN_FORMATS]
+    out: list[StudioCapability] = []
+    for row in rows:
+        if row.format_key in _HIDDEN_FORMATS:
+            continue
+        if row.format_key in _ALWAYS_ON_FORMATS or row.enabled:
+            out.append(row)
+    return out
 
 
 async def list_tasks(
@@ -63,7 +68,7 @@ async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> Tas
     if task is None or task.deleted_at is not None or task.owner_id != owner_id:
         raise NotFoundError("任务不存在")
     text_content: str | None = None
-    if task.format_key in {"mind_map", "structured_notes"} and task.status == "succeeded":
+    if task.format_key in {"mind_map", "structured_notes", "four_panel"} and task.status == "succeeded":
         artifact = await session.scalar(
             select(StudioArtifact)
             .where(
@@ -120,10 +125,12 @@ async def create_task(
 ) -> StudioTask:
     await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
     cap = await session.get(StudioCapability, body.capability_id)
-    if cap is None or cap.deleted_at is not None or not cap.enabled:
+    if cap is None or cap.deleted_at is not None:
         raise BadRequestError("能力未启用")
     if cap.format_key in _HIDDEN_FORMATS:
         raise BadRequestError("该能力已下线")
+    if not cap.enabled and cap.format_key not in _ALWAYS_ON_FORMATS:
+        raise BadRequestError("能力未启用")
     # Plugins are self-contained (skill + system on disk); no agent binding required.
     try:
         from app.studio.plugins.registry import get_plugin

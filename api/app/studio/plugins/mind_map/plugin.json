@@ -3,7 +3,7 @@
   "name": "思维导图",
   "icon": "🧠",
   "version": "1.0.0",
-  "enabled_by_default": false,
+  "enabled_by_default": true,
   "timeout_seconds": 600,
   "skill": "mindmap-generator",
   "extensions": [

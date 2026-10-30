@@ -98,9 +98,7 @@ def _load_snapshot_from_db() -> _Snapshot:
                     apply.add(p)  # type: ignore[arg-type]
             return _Snapshot(
                 cookie_enabled={
-                    "youtube": bool(row.youtube_cookie_enabled),
-                    "bilibili": bool(row.bilibili_cookie_enabled),
-                    "douyin": bool(row.douyin_cookie_enabled),
+                    p: bool(getattr(row, f"{p}_cookie_enabled", False)) for p in PLATFORMS
                 },
                 proxy_enabled=bool(row.proxy_enabled),
                 proxy_url=row.get_proxy_url().strip() or None,
@@ -121,13 +119,6 @@ def detect_platform(url: str) -> PlatformKey | None:
         or host.endswith("bilivideo.com")
     ):
         return "bilibili"
-    if (
-        host.endswith("douyin.com")
-        or host.endswith("iesdouyin.com")
-        or host.endswith("douyinpic.com")
-        or host.endswith("douyinvod.com")
-    ):
-        return "douyin"
     return None
 
 

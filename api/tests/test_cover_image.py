@@ -46,7 +46,6 @@ async def test_generate_cover_image_mode(db_session, monkeypatch, tmp_path):
     storage_mod._singleton = LocalFsStorage(root=tmp_path, signed_token_secret="test")
 
     row = await cover_cfg.get_cover_settings_row(db_session)
-    row.mode = "image"
     row.image_prompt_system = "SYS_IMG"
     row.image_prompt_user = "T={title};D={description}"
     row.image_size = "512x768"
@@ -85,7 +84,6 @@ async def test_generate_cover_image_mode(db_session, monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_generate_cover_image_missing_role(db_session, monkeypatch):
     row = await cover_cfg.get_cover_settings_row(db_session)
-    row.mode = "image"
     db_session.add(row)
     await db_session.commit()
 
@@ -104,7 +102,6 @@ async def test_generate_cover_image_missing_role(db_session, monkeypatch):
 @pytest.mark.asyncio
 async def test_generate_cover_image_provider_error(db_session, monkeypatch):
     row = await cover_cfg.get_cover_settings_row(db_session)
-    row.mode = "image"
     db_session.add(row)
     await db_session.commit()
 

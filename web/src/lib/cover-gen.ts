@@ -1,7 +1,8 @@
-/** Cover tokens stored in cover_url:
+/** Cover / folder-icon style tokens stored in cover_url (display only for notebooks;
+ * new notebook covers are remote image URLs from text-to-image).
  *  - gen:v1:{0-11} legacy preset index
  *  - gen:v2:{pattern}:{a}:{b}:{c}:{ink}:{mist} legacy AI style
- *  - gen:v3:{layout}:{motif}:{pattern}:{a}:{b}:{c}:{ink}:{mist} layout+motif covers
+ *  - gen:v3:{layout}:{motif}:{pattern}:{a}:{b}:{c}:{ink}:{mist} layout+motif (folder icons + legacy)
  */
 
 export const COVER_VARIANT_COUNT = 12;
@@ -299,4 +300,41 @@ export function encodeCoverVariant(variant: number): string {
 
 export function coverStyle(variant: number): CoverStyle {
   return coverStyleFromVariant(variant);
+}
+
+
+/** Deterministic style for collection folder icons (no LLM / no cover API). */
+export function styleFromTitle(title: string, description?: string): CoverStyle {
+  const trimmed = (title || "").trim() || "未命名";
+  const desc = (description || "").trim();
+  const combined = desc ? `${trimmed}\n${desc}` : trimmed;
+  const seed = hashTitle(combined);
+  const theme = inferThemeFromTitle(combined);
+  const palette = COVER_PALETTES[seed % COVER_PALETTES.length];
+  const layout = theme.layouts[seed % theme.layouts.length];
+  const pattern = PATTERNS[(seed / 3) % PATTERNS.length | 0];
+  return {
+    palette: { ...palette },
+    pattern,
+    layout,
+    motif: theme.motif,
+    label: "",
+  };
+}
+
+/** Encode a CoverStyle as gen:v3 token (folder icons / legacy display). */
+export function encodeCoverStyle(style: CoverStyle): string {
+  const p = style.palette;
+  const hex = (v: string) => v.replace(/^#/, "");
+  return [
+    "gen:v3",
+    style.layout,
+    style.motif,
+    style.pattern,
+    hex(p.a),
+    hex(p.b),
+    hex(p.c),
+    hex(p.ink),
+    hex(p.mist),
+  ].join(":");
 }

@@ -1,4 +1,4 @@
-﻿"""Cover URL helpers: storage-backed images vs gen: SVG tokens."""
+﻿"""Cover URL helpers: storage-backed images; legacy gen: tokens still pass through."""
 from __future__ import annotations
 
 import re

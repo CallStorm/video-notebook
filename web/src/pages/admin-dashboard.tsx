@@ -392,9 +392,8 @@ export function AdminDashboard() {
         <p className="admin-dash-lede">内容资产、调用与就绪一览 · 缺埋点项灰显</p>
         <Button
           type="button"
-          variant="outline"
           size="sm"
-          className="rounded-full"
+          className="rounded-full shadow-soft"
           onClick={() => q.refetch()}
           disabled={q.isFetching}
         >

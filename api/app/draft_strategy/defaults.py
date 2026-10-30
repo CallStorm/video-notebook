@@ -38,7 +38,8 @@ OUTPUT_SCHEMA_INSTRUCTION = """你必须只输出一个 JSON 对象（不要 Mar
 2. 每一条 points[i] 都必须有非空字符串字段 example：用 1–2 句生活场景或典故帮助理解要点（例如「例：就像开车只盯后视镜会错过眼前风景」这种），禁止把原句字幕塞进 example，禁止留空、禁止省略该字段。
 3. example_kind 尽量填写：life / allusion / work / other。
 4. evidence 仍可写原句短引（可选）；example 与 evidence 不是同一字段。
-5. takeaways 要可执行，禁止空话。"""
+5. takeaways 要可执行，禁止空话。
+6. 字符串内若需引号，优先用中文「」或转义为 \"；禁止在 JSON 字符串里直接写未转义的英文双引号，对象/数组元素之间必须有逗号。"""
 
 DEFAULT_PREFIX = """你是视频知识底稿编辑。目标：从字幕/来源抽出可勾选、可跳播、可复习的知识底稿，而不是长摘要。
 

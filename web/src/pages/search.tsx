@@ -24,7 +24,7 @@ import { api, ApiError } from "@/lib/api";
 import { RequireAuth } from "@/components/require-auth";
 import { cn } from "@/lib/utils";
 
-type Platform = "youtube" | "bilibili" | "douyin";
+type Platform = "youtube" | "bilibili";
 
 interface SearchResultItem {
   id: string;
@@ -64,10 +64,9 @@ const PLATFORM_CHIPS: {
   hint: string;
   tone: string;
 }[] = [
-  { id: "all", label: "全部", hint: "三平台一起搜", tone: "platform-chip-all" },
+  { id: "all", label: "全部", hint: "YouTube / B站一起搜", tone: "platform-chip-all" },
   { id: "bilibili", label: "B站", hint: "Bilibili", tone: "platform-chip-bili" },
   { id: "youtube", label: "YouTube", hint: "YouTube", tone: "platform-chip-yt" },
-  // douyin temporarily disabled from aggregate UI
 ];
 
 const PLATFORM_BADGE: Record<
@@ -84,17 +83,11 @@ const PLATFORM_BADGE: Record<
     className: "bg-[#FB7299] text-white",
     soft: "bg-pink-50 text-pink-700 ring-pink-200/80",
   },
-  douyin: {
-    label: "抖音",
-    className: "bg-zinc-900 text-white",
-    soft: "bg-zinc-100 text-zinc-800 ring-zinc-200/80",
-  },
 };
 
 const PLATFORM_ERROR_LABEL: Record<Platform, string> = {
   bilibili: "B站",
   youtube: "YouTube",
-  douyin: "抖音",
 };
 
 function formatDuration(sec: number | null): string | null {

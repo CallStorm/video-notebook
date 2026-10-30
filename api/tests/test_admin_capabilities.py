@@ -1,4 +1,4 @@
-"""Admin studio: plugin seed + enable/disable (no page create/bind agent)."""
+"""Admin studio: plugin seed; mind_map/slides always on (no admin toggles)."""
 from __future__ import annotations
 
 import pytest_asyncio
@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.core.security import create_access_token
 from app.models.studio import StudioCapability
 from app.models.user import User
+from app.services.capabilities import ALWAYS_OFF_FORMATS, ALWAYS_ON_FORMATS
 
 
 @pytest_asyncio.fixture
@@ -20,7 +21,7 @@ async def admin_headers(db_session) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def test_seed_syncs_plugins_and_enable_without_agent(client, admin_headers, db_session):
+async def test_seed_forces_always_on_and_off(client, admin_headers, db_session):
     from app.services.capabilities import seed_builtin_capabilities
 
     await seed_builtin_capabilities(db_session)
@@ -30,9 +31,16 @@ async def test_seed_syncs_plugins_and_enable_without_agent(client, admin_headers
             select(StudioCapability).where(StudioCapability.is_builtin.is_(True))
         )
     ).scalars().all()
-    assert {row.format_key for row in rows} == {"mind_map", "structured_notes", "slides"}
+    keys = {row.format_key for row in rows}
+    assert ALWAYS_ON_FORMATS <= keys
+    for row in rows:
+        if row.format_key in ALWAYS_ON_FORMATS:
+            assert row.enabled is True
+            assert row.agent_id is None
+        if row.format_key in ALWAYS_OFF_FORMATS:
+            assert row.enabled is False
+
     mind = next(row for row in rows if row.format_key == "mind_map")
-    assert mind.agent_id is None
     assert [field["type"] for field in mind.form_json] == [
         "language",
         "sources",
@@ -44,22 +52,54 @@ async def test_seed_syncs_plugins_and_enable_without_agent(client, admin_headers
 
     plugins = await client.get("/api/admin/studio/plugins", headers=admin_headers)
     assert plugins.status_code == 200
-    assert {p["id"] for p in plugins.json()} == {"mind_map", "structured_notes", "slides"}
+    plugin_ids = {p["id"] for p in plugins.json()}
+    assert ALWAYS_ON_FORMATS <= plugin_ids
+
+    caps = await client.get("/api/admin/studio/capabilities", headers=admin_headers)
+    assert caps.status_code == 200
+    by_key = {c["format_key"]: c for c in caps.json()}
+    assert by_key["mind_map"]["enabled"] is True
+    assert by_key["slides"]["enabled"] is True
+
+
+async def test_enable_disable_routes_removed(client, admin_headers, db_session):
+    from app.services.capabilities import seed_builtin_capabilities
+
+    await seed_builtin_capabilities(db_session)
+    mind = (
+        await db_session.execute(
+            select(StudioCapability).where(StudioCapability.format_key == "mind_map")
+        )
+    ).scalar_one()
 
     enabled = await client.post(
         f"/api/admin/studio/capabilities/{mind.id}/enable",
         headers=admin_headers,
     )
-    assert enabled.status_code == 200
-    assert enabled.json()["enabled"] is True
-    assert enabled.json()["agent_id"] is None
+    assert enabled.status_code in {404, 405}
 
     disabled = await client.post(
         f"/api/admin/studio/capabilities/{mind.id}/disable",
         headers=admin_headers,
     )
-    assert disabled.status_code == 200
-    assert disabled.json()["enabled"] is False
+    assert disabled.status_code in {404, 405}
+
+
+async def test_disable_always_on_refused_in_service(db_session):
+    from app.core.errors import ConflictError
+    from app.services.capabilities import disable_capability, seed_builtin_capabilities
+
+    await seed_builtin_capabilities(db_session)
+    mind = (
+        await db_session.execute(
+            select(StudioCapability).where(StudioCapability.format_key == "mind_map")
+        )
+    ).scalar_one()
+    try:
+        await disable_capability(db_session, mind.id)
+        raise AssertionError("expected ConflictError")
+    except ConflictError:
+        pass
 
 
 async def test_create_capability_rejected(client, admin_headers):
@@ -74,7 +114,6 @@ async def test_create_capability_rejected(client, admin_headers):
             "form": [{"type": "sources"}],
         },
     )
-    # Route removed → 405, or service raises 400 if somehow reached
     assert created.status_code in {400, 404, 405}
 
 

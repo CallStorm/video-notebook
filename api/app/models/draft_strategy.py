@@ -23,6 +23,7 @@ class DraftStrategySettings(Base, TimestampMixin):
     default_model_ref: Mapped[str] = mapped_column(
         String(32), default="claude_code", nullable=False
     )
+    max_tokens: Mapped[int] = mapped_column(Integer, default=200000, nullable=False)
 
 
 class DraftStrategy(Base, TimestampMixin):

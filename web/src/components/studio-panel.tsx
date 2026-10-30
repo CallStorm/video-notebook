@@ -163,17 +163,20 @@ function sourceLabel(task: StudioTask): string {
 
 function formatShortLabel(formatKey: string): string {
   if (formatKey === "slides") return "幻";
+  if (formatKey === "four_panel") return "漫";
   if (formatKey === "file") return "文";
   return "导";
 }
 
 function deleteConfirmLabel(formatKey: string): string {
   if (formatKey === "slides") return "删除这个幻灯片？";
+  if (formatKey === "four_panel") return "删除这个四格漫？";
   return "删除这个导图？";
 }
 
 function renameHeading(formatKey: string): string {
   if (formatKey === "slides") return "重命名幻灯片";
+  if (formatKey === "four_panel") return "重命名四格漫";
   return "重命名导图";
 }
 
@@ -381,6 +384,26 @@ export function StudioPanel({
     link.remove();
   }
 
+  async function downloadFourPanel(task: StudioTask) {
+    const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
+      access,
+    });
+    if (!detail.text_content) {
+      setFormError("没有可下载的四格漫内容");
+      return;
+    }
+    const blob = new Blob([detail.text_content], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${detail.title || task.title}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+
   async function downloadMindMap(task: StudioTask) {
     const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
       access,
@@ -526,7 +549,9 @@ export function StudioPanel({
                         : () =>
                         void (task.format_key === "slides"
                           ? downloadSlides(task)
-                          : downloadMindMap(task))
+                          : task.format_key === "four_panel"
+                            ? downloadFourPanel(task)
+                            : downloadMindMap(task))
                     }
                   />
                 </div>

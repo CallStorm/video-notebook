@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type Platform = "youtube" | "bilibili" | "douyin";
+type Platform = "youtube" | "bilibili";
 type ProxyScheme = "http" | "https" | "socks5" | "socks4";
 
 interface PlatformCookieRead {
@@ -44,10 +44,9 @@ interface ProxyTestResult {
 const PLATFORM_LABEL: Record<Platform, string> = {
   youtube: "YouTube",
   bilibili: "B站",
-  douyin: "抖音",
 };
 
-const PLATFORMS: Platform[] = ["youtube", "bilibili", "douyin"];
+const PLATFORMS: Platform[] = ["youtube", "bilibili"];
 const SCHEMES: ProxyScheme[] = ["http", "https", "socks5", "socks4"];
 
 export function AdminFetchNetworkPage() {
@@ -66,12 +65,10 @@ export function AdminFetchNetworkPage() {
   const [draftEnabled, setDraftEnabled] = useState<Record<Platform, boolean>>({
     youtube: true,
     bilibili: true,
-    douyin: true,
   });
   const [draftText, setDraftText] = useState<Record<Platform, string>>({
     youtube: "",
     bilibili: "",
-    douyin: "",
   });
 
   const [proxyEnabled, setProxyEnabled] = useState(false);
@@ -86,7 +83,6 @@ export function AdminFetchNetworkPage() {
     const nextEnabled: Record<Platform, boolean> = {
       youtube: false,
       bilibili: false,
-      douyin: false,
     };
     for (const c of config.data.cookies) {
       nextEnabled[c.platform] = c.enabled;
@@ -215,7 +211,7 @@ export function AdminFetchNetworkPage() {
           <p className="text-sm text-destructive">{config.error.message}</p>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {PLATFORMS.map((platform) => {
             const meta = cookieByPlatform[platform];
             const open = manualOpen === platform;

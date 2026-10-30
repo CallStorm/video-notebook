@@ -16,11 +16,12 @@ class FetchNetworkConfig(Base, TimestampMixin):
 
     youtube_cookie_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     bilibili_cookie_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # legacy column retained for existing DBs; platform removed from product surface
     douyin_cookie_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     proxy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     proxy_url_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # e.g. ["youtube", "bilibili", "douyin"]
+    # e.g. ["youtube", "bilibili"]
     proxy_apply_to: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
     def set_proxy_url(self, raw: str | None) -> None:

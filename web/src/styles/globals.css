@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -584,7 +584,7 @@
   }
 
   .notebook-cover {
-    @apply aspect-[4/5] bg-muted/30;
+    @apply aspect-[3/4] bg-muted/30;
   }
 
   /* 新建/编辑弹窗封面预览（保留圆角书壳，不再依赖列表立体书） */
@@ -934,16 +934,8 @@
     @apply sticky top-0 flex h-[calc(100vh-4rem)] w-56 shrink-0 flex-col border-r border-border/60 bg-card/90 px-3 py-4 backdrop-blur-md lg:w-60;
   }
 
-  .admin-side-brand {
-    @apply mb-4 flex items-center gap-2.5 rounded-xl border border-border/50 bg-muted/30 px-2.5 py-2.5;
-  }
-
-  .admin-side-brand-icon {
-    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary;
-  }
-
   .admin-side-nav {
-    @apply flex flex-1 flex-col gap-1 overflow-y-auto;
+    @apply flex flex-1 flex-col gap-1 overflow-y-auto pt-1;
   }
 
   .admin-side-item {
@@ -1309,14 +1301,10 @@
     @apply bg-red-600;
   }
 
-  .platform-chip-dy .platform-filter-dot {
-    @apply bg-zinc-900;
-  }
 
   .platform-filter-active.platform-chip-all .platform-filter-dot,
   .platform-filter-active.platform-chip-bili .platform-filter-dot,
-  .platform-filter-active.platform-chip-yt .platform-filter-dot,
-  .platform-filter-active.platform-chip-dy .platform-filter-dot {
+  .platform-filter-active.platform-chip-yt .platform-filter-dot {
     @apply bg-white/90;
   }
 

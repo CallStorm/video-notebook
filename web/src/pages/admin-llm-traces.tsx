@@ -72,14 +72,14 @@ interface TraceDetail extends TraceItem {
 const KIND_LABEL: Record<string, string> = {
   chat: "对话",
   overview: "概览",
-  studio: "Studio",
+  studio: "产物",
 };
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "全部" },
   { value: "overview", label: "概览" },
   { value: "chat", label: "对话" },
-  { value: "studio", label: "Studio" },
+  { value: "studio", label: "产物" },
 ];
 
 const STATUS_LABEL: Record<string, string> = {
@@ -465,7 +465,7 @@ export function AdminLlmTracesPage() {
       {!settings.isLoading && !enabled ? (
         <AdminEmptyState
           title="LLM 追踪未启用"
-          description="请到系统设置开启「启用 LLM 追踪」后再查看对话、概览与 Studio 调用。"
+          description="请到系统设置开启「启用 LLM 追踪」后再查看对话、概览与产物调用。"
           action={
             <Link
               to="/admin?section=settings"
@@ -542,7 +542,7 @@ export function AdminLlmTracesPage() {
                 description={
                   kind || notebookId || status
                     ? "当前筛选无结果，试试放宽条件。"
-                    : "去对话页问一句、生成概览或跑 Studio 任务试试。"
+                    : "去对话页问一句、生成概览或跑产物任务试试。"
                 }
               />
             ) : null}

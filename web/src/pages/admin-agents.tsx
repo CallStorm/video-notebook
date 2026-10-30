@@ -389,5 +389,5 @@ export function AdminAgentsPanel() {
 
 /** 兼容旧链接 → 后台 Tab */
 export default function AdminAgentsPage() {
-  return <Navigate to="/admin?section=studio&tab=agents" replace />;
+  return <Navigate to="/admin" replace />;
 }

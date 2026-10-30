@@ -1,4 +1,4 @@
-"""/api/admin/studio — plugin list + enable/disable only."""
+"""/api/admin/studio — read-only plugin/capability introspection (no toggles)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -23,7 +23,7 @@ async def list_studio_formats(_: User = Depends(require_admin)):
 
 @router.get("/plugins")
 async def list_studio_plugins(_: User = Depends(require_admin)):
-    """Disk plugins (source of truth for what can be enabled)."""
+    """Disk plugins (source of truth for installed formats)."""
     return [
         {
             "id": p.id,
@@ -52,21 +52,3 @@ async def get_capability(
     _: User = Depends(require_admin),
 ):
     return await svc.get_capability(session, capability_id)
-
-
-@router.post("/capabilities/{capability_id}/disable", response_model=CapabilityRead)
-async def disable_capability(
-    capability_id: int,
-    session: AsyncSession = Depends(get_session),
-    _: User = Depends(require_admin),
-):
-    return await svc.disable_capability(session, capability_id)
-
-
-@router.post("/capabilities/{capability_id}/enable", response_model=CapabilityRead)
-async def enable_capability(
-    capability_id: int,
-    session: AsyncSession = Depends(get_session),
-    _: User = Depends(require_admin),
-):
-    return await svc.enable_capability(session, capability_id)

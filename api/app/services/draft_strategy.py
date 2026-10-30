@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import BadRequestError, NotFoundError
 from app.draft_strategy.defaults import (
     BUILTIN_STRATEGIES,
@@ -66,10 +67,21 @@ async def _ensure_settings(session: AsyncSession) -> DraftStrategySettings:
             id=_SETTINGS_ID,
             default_prefix=DEFAULT_PREFIX,
             default_model_ref="claude_code",
+            max_tokens=int(get_settings().draft_max_tokens) or 200000,
         )
         session.add(row)
         await session.flush()
     return row
+
+
+
+async def resolve_draft_max_tokens(session: AsyncSession) -> int:
+    """界面/DB 配置优先；无效时回退到 Settings.draft_max_tokens（env 默认 200000）。"""
+    row = await _ensure_settings(session)
+    n = int(getattr(row, "max_tokens", 0) or 0)
+    if n >= 1:
+        return n
+    return max(1, int(get_settings().draft_max_tokens) or 200000)
 
 
 async def seed_builtin_strategies(session: AsyncSession) -> None:
@@ -130,6 +142,7 @@ async def get_settings(session: AsyncSession) -> DraftStrategySettingsRead:
     return DraftStrategySettingsRead(
         default_prefix=row.default_prefix or "",
         default_model_ref=row.default_model_ref,  # type: ignore[arg-type]
+        max_tokens=int(row.max_tokens) if getattr(row, "max_tokens", None) else int(get_settings().draft_max_tokens) or 200000,
         output_schema=OUTPUT_SCHEMA,
         kind_labels=KIND_LABELS,
     )
@@ -140,15 +153,19 @@ async def update_settings(
 ) -> DraftStrategySettingsRead:
     if body.default_model_ref not in GLOBAL_MODEL_REF_VALUES:
         raise BadRequestError("default_model_ref 无效")
+    if int(body.max_tokens) < 1:
+        raise BadRequestError("max_tokens 须为正整数")
     row = await _ensure_settings(session)
     row.default_prefix = body.default_prefix or ""
     row.default_model_ref = body.default_model_ref
+    row.max_tokens = int(body.max_tokens)
     session.add(row)
     await session.commit()
     await session.refresh(row)
     return DraftStrategySettingsRead(
         default_prefix=row.default_prefix or "",
         default_model_ref=row.default_model_ref,  # type: ignore[arg-type]
+        max_tokens=int(row.max_tokens),
         output_schema=OUTPUT_SCHEMA,
         kind_labels=KIND_LABELS,
     )
@@ -358,32 +375,126 @@ async def _load_video_transcript(session: AsyncSession, video_id: int) -> str:
     return transcript
 
 
-def _extract_json(text: str) -> tuple[dict[str, Any] | None, str | None]:
+def _strip_json_fences(text: str) -> str:
     raw = (text or "").strip()
     if not raw:
-        return None, "模型返回为空"
-    # 剥掉 ```json ... ```
+        return ""
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw, re.IGNORECASE)
     if fence:
-        raw = fence.group(1).strip()
-    try:
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data, None
-        return None, "JSON 根节点不是对象"
-    except json.JSONDecodeError:
-        # 尝试截取第一个 { ... 最后一个 }
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                data = json.loads(raw[start : end + 1])
-                if isinstance(data, dict):
-                    return data, None
-            except json.JSONDecodeError as exc:
-                return None, f"JSON 解析失败: {exc}"
-        return None, "无法从回复中解析 JSON"
+        return fence.group(1).strip()
+    loose = re.match(r"```(?:json)?\s*([\s\S]*)", raw, re.IGNORECASE)
+    if loose:
+        return loose.group(1).strip()
+    return raw
 
+
+def _repair_common_json(raw: str) -> str:
+    """轻量修复：尾逗号、智能引号、BOM。"""
+    s = raw.lstrip("\ufeff").strip()
+    s = (
+        s.replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+    )
+    s = re.sub(r",(\s*[}\]])", r"\1", s)
+    return s
+
+
+def _balanced_object_slice(raw: str) -> str | None:
+    """按括号深度截取第一个完整 JSON 对象；若截断则尝试补全闭合。"""
+    start = raw.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : i + 1]
+
+    frag = raw[start:]
+    stack: list[str] = []
+    in_str2 = False
+    esc2 = False
+    for ch in frag:
+        if in_str2:
+            if esc2:
+                esc2 = False
+            elif ch == "\\":
+                esc2 = True
+            elif ch == '"':
+                in_str2 = False
+            continue
+        if ch == '"':
+            in_str2 = True
+        elif ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in "}]" and stack and stack[-1] == ch:
+            stack.pop()
+    if in_str2:
+        frag += '"'
+    while stack:
+        frag += stack.pop()
+    return frag
+
+
+def _extract_json(text: str) -> tuple[dict[str, Any] | None, str | None]:
+    raw = _strip_json_fences(text)
+    if not raw:
+        return None, "模型返回为空"
+
+    candidates: list[str] = [raw, _repair_common_json(raw)]
+    sliced = _balanced_object_slice(raw)
+    if sliced:
+        candidates.append(sliced)
+        candidates.append(_repair_common_json(sliced))
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(raw[start : end + 1])
+        candidates.append(_repair_common_json(raw[start : end + 1]))
+
+    seen: set[str] = set()
+    last_exc: json.JSONDecodeError | None = None
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        try:
+            data = json.loads(cand)
+            if isinstance(data, dict):
+                return data, None
+            return None, "JSON 根节点不是对象"
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+            continue
+
+    if last_exc is not None:
+        pos = int(getattr(last_exc, "pos", 0) or 0)
+        base = sliced or raw
+        lo = max(0, pos - 40)
+        hi = min(len(base), pos + 40)
+        snip = base[lo:hi].replace("\n", "\\n")
+        return None, f"JSON 解析失败: {last_exc} | near: …{snip}…"
+    return None, "无法从回复中解析 JSON"
 
 async def run_playground(
     session: AsyncSession, body: DraftStrategyPlaygroundRequest
@@ -426,10 +537,11 @@ async def run_playground(
     )
     user_prompt = f"{strategy_prompt}\n\n---\n来源材料：\n{source_text}"
 
+    max_tokens = await resolve_draft_max_tokens(session)
     raw_text = await provider.complete(
         user_prompt,
         system=system,
-        max_tokens=3500,
+        max_tokens=max_tokens,
     )
     preview, parse_error = _extract_json(raw_text)
     return DraftStrategyPlaygroundResponse(

@@ -549,7 +549,7 @@ async def _failures(
             )
         if stu_f:
             extras.append(
-                FailureTopItem(stage="studio_biz", count=stu_f, label="Studio 失败")
+                FailureTopItem(stage="studio_biz", count=stu_f, label="产物失败")
             )
         extras.sort(key=lambda x: x.count, reverse=True)
         top = extras[:8]

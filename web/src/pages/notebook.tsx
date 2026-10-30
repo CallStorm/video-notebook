@@ -33,6 +33,7 @@ import { KnowledgePanel } from "@/components/knowledge-panel";
 import { RightPanelTabs } from "@/components/right-panel-tabs";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
+import { StudioComic } from "@/components/studio-comic";
 import { displayStudioTaskTitle } from "@/components/studio-panel";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
@@ -246,6 +247,42 @@ export default function NotebookPage() {
     queryKey: ["studio-task", notebookId, previewTaskId],
     queryFn: () => api<StudioTaskDetail>(`/studio/tasks/${previewTaskId}`, { access: token }),
     enabled: !!token && previewTaskId != null,
+  });
+
+  const regenerateComic = useMutation({
+    mutationFn: async () => {
+      const task = preview.data;
+      if (!task?.capability_id) throw new Error("缺少能力信息，无法重新生成");
+      const fields: Record<string, string> = {};
+      for (const item of task.params_json?.fields ?? []) {
+        if (item && typeof item.key === "string" && typeof item.value === "string" && item.key) {
+          fields[item.key] = item.value;
+        }
+      }
+      const language =
+        task.params_json?.language === "English" || task.params_json?.language === "中文"
+          ? task.params_json.language
+          : "中文";
+      return api<{ id: number; format_key: string }>(`/notebooks/${notebookId}/studio/tasks`, {
+        method: "POST",
+        access: token,
+        body: {
+          capability_id: task.capability_id,
+          language,
+          video_ids: idList(task.params_json?.video_ids),
+          note_ids: idList(task.params_json?.note_ids),
+          fields,
+        },
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
+      setPreviewTaskId(null);
+      setPreviewFormat(null);
+      setPreviewExpanded(false);
+      setRightCollapsed(false);
+      setRightMode("studio");
+    },
   });
 
   useEffect(() => {
@@ -911,6 +948,23 @@ export default function NotebookPage() {
                     setOpenNoteId(noteId);
                   }}
                 />
+              ) : previewTaskId != null && previewFormat === "four_panel" ? (
+                <StudioComic
+                  title={displayStudioTaskTitle(preview.data?.title) || "四格漫"}
+                  crumb={nb.title}
+                  text={comicNotice(preview.isLoading, preview.isError, preview.error, preview.data) ? null : (preview.data?.text_content ?? null)}
+                  notice={comicNotice(preview.isLoading, preview.isError, preview.error, preview.data)}
+                  noticeError={preview.isError}
+                  regenerating={regenerateComic.isPending}
+                  expanded={previewExpanded}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+                  onRegenerate={() => regenerateComic.mutate()}
+                />
               ) : previewTaskId != null && previewFormat === "file" ? (
                 <StudioFile
                   access={token}
@@ -1151,10 +1205,12 @@ interface StudioTaskDetail {
   title: string;
   status: string;
   format_key: string;
+  capability_id?: number;
   text_content: string | null;
   pdf_error?: string | null;
   artifacts?: StudioArtifactRef[];
   params_json?: {
+    language?: string;
     video_ids?: unknown;
     note_ids?: unknown;
     fields?: { key?: string; label?: string; value?: string }[];
@@ -1182,6 +1238,28 @@ function snapshotNotes(ids: number[], notes: NoteRead[]): { id: number; title: s
     title: notes.find((note) => note.id === id)?.title || `笔记 ${id}`,
   }));
 }
+
+
+function comicNotice(
+  loading: boolean,
+  failed: boolean,
+  error: unknown,
+  task: StudioTaskDetail | undefined,
+): string | null {
+  const emptyLabel = "没有四格漫内容";
+  const loadingLabel = "加载四格漫…";
+  if (!task) {
+    if (loading) return loadingLabel;
+    if (error instanceof ApiError) return error.message;
+    if (failed) return "加载失败";
+    return loadingLabel;
+  }
+  if (task.status === "queued" || task.status === "running") return "四格漫生成中…";
+  if (task.status === "failed") return "生成失败";
+  if (task.text_content == null) return emptyLabel;
+  return null;
+}
+
 
 function mindMapNotice(
   loading: boolean,

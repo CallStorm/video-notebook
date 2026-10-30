@@ -14,6 +14,7 @@ GlobalModelRef = Literal["claude_code", "chat"]
 class DraftStrategySettingsRead(BaseModel):
     default_prefix: str
     default_model_ref: GlobalModelRef
+    max_tokens: int
     output_schema: dict[str, Any]
     kind_labels: dict[str, str]
 
@@ -21,6 +22,7 @@ class DraftStrategySettingsRead(BaseModel):
 class DraftStrategySettingsUpdate(BaseModel):
     default_prefix: str = Field(default="", max_length=20000)
     default_model_ref: GlobalModelRef = "claude_code"
+    max_tokens: int = Field(default=200000, ge=1)
 
 
 class DraftStrategyRead(BaseModel):

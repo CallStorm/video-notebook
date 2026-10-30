@@ -54,9 +54,7 @@ export function NewNotebookDialog({
     onSubmit({
       title: title.trim(),
       description: description.trim(),
-      cover_url: isEmptyCover(coverUrl)
-        ? "gen:v3:accent:abstract:orbs:1C1917:44403C:A8A29E:FAFAF9:78716C"
-        : coverUrl,
+      cover_url: isEmptyCover(coverUrl) ? "" : coverUrl,
     });
   };
 

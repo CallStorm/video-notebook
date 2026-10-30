@@ -5,8 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Platform = Literal["youtube", "bilibili", "douyin"]
-PLATFORMS: tuple[Platform, ...] = ("youtube", "bilibili", "douyin")
+Platform = Literal["youtube", "bilibili"]
+PLATFORMS: tuple[Platform, ...] = ("youtube", "bilibili")
 
 
 class PlatformCookieRead(BaseModel):

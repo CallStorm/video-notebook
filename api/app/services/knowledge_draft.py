@@ -32,6 +32,7 @@ from app.services.draft_strategy import (
     _ensure_settings,
     _extract_json,
     _load_video_transcript,
+    resolve_draft_max_tokens,
     seed_builtin_strategies,
 )
 
@@ -424,17 +425,49 @@ async def generate_draft(
         + f"\n\n---\n来源材料：\n{material}"
     )
 
+    max_tokens = await resolve_draft_max_tokens(session)
     try:
         raw_text = await provider.complete(
             user_prompt,
             system=system,
-            max_tokens=4000,
+            max_tokens=max_tokens,
         )
     except Exception as exc:  # noqa: BLE001
         raise BadRequestError(f"模型调用失败：{exc}") from exc
 
     preview, parse_error = _extract_json(raw_text or "")
+    if preview is None and (raw_text or "").strip():
+        # 模型偶发非法 JSON（未转义引号/截断）；再要它只输出修复后的对象
+        try:
+            repair_raw = await provider.complete(
+                "下面是一段本应是 JSON 对象的文本，但无法被 json.loads 解析。"
+                "请只输出修复后的合法 JSON 对象（不要 Markdown 围栏、不要解释）。"
+                "保持原有字段与语义，不要增删要点。\n\n---\n"
+                + (raw_text or "")[:12000],
+                system="只输出一个合法 JSON 对象。",
+                max_tokens=max_tokens,
+            )
+            preview2, parse_error2 = _extract_json(repair_raw or "")
+            if preview2 is not None:
+                preview, parse_error = preview2, None
+            else:
+                parse_error = parse_error or parse_error2
+        except Exception:
+            pass
     if preview is None:
+        # 落盘原始回复便于排查（不入库）
+        try:
+            from pathlib import Path as _P
+
+            dump = _P(__file__).resolve().parents[2] / "logs"
+            # repo/logs 优先
+            repo_logs = _P(__file__).resolve().parents[3] / "logs"
+            out_dir = repo_logs if repo_logs.is_dir() else dump
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out = out_dir / f"draft-parse-fail-nb{notebook_id}.txt"
+            out.write_text(raw_text or "", encoding="utf-8")
+        except Exception:
+            pass
         raise BadRequestError(parse_error or "无法解析模型输出为底稿 JSON")
 
     content = _normalize_content(preview)
