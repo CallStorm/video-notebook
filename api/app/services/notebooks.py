@@ -53,6 +53,7 @@ def _to_read_dict(
     index_status: str | None = None,
     indexed_at: str | None = None,
     index_error: str | None = None,
+    tags: list[dict] | None = None,
 ) -> dict:
     return {
         "id": nb.id,
@@ -71,6 +72,7 @@ def _to_read_dict(
         "index_status": index_status,
         "indexed_at": indexed_at,
         "index_error": index_error,
+        "tags": tags or [],
         "created_at": nb.created_at.isoformat() if nb.created_at else None,
         "updated_at": nb.updated_at.isoformat() if nb.updated_at else None,
     }
@@ -153,6 +155,13 @@ async def _owner_names(session: AsyncSession, owner_ids: list[int]) -> dict[int,
     return {int(uid): name for uid, name in rows}
 
 
+
+async def _tags_map(session: AsyncSession, notebook_ids: list[int], owner_id: int | None) -> dict[int, list[dict]]:
+    if not notebook_ids or owner_id is None:
+        return {}
+    from app.services import tags as tags_svc
+    return await tags_svc.tags_for_notebooks(session, owner_id, notebook_ids)
+
 async def to_read(
     session: AsyncSession,
     nb: Notebook,
@@ -169,12 +178,15 @@ async def to_read(
     states = await index_states_for_notebooks(session, [nb.id])
     is_owner = viewer_id == nb.owner_id if viewer_id is not None else False
     idx = _index_fields(states.get(nb.id), is_owner=is_owner)
+    tag_owner = nb.owner_id if (viewer_id is None or viewer_id == nb.owner_id) else None
+    tags_map = await _tags_map(session, [nb.id], tag_owner)
     return _to_read_dict(
         nb,
         source_count=source_count,
         note_count=note_count,
         owner_name=owner_name,
         viewer_id=viewer_id,
+        tags=tags_map.get(nb.id, []),
         **idx,
     )
 
@@ -191,6 +203,19 @@ async def to_read_many(
     if include_owner_name:
         names = await _owner_names(session, [nb.owner_id for nb in notebooks])
     states = await index_states_for_notebooks(session, [nb.id for nb in notebooks])
+    # Only expose tags for notebooks the viewer owns (or when no viewer).
+    owned_ids = [
+        nb.id
+        for nb in notebooks
+        if viewer_id is None or viewer_id == nb.owner_id
+    ]
+    tag_owner = None
+    if notebooks:
+        if viewer_id is not None:
+            tag_owner = viewer_id
+        else:
+            tag_owner = notebooks[0].owner_id
+    tags_map = await _tags_map(session, owned_ids, tag_owner)
     out: list[dict] = []
     for nb in notebooks:
         source_count, note_count = counts.get(nb.id, (0, 0))
@@ -203,6 +228,7 @@ async def to_read_many(
                 note_count=note_count,
                 owner_name=names.get(nb.owner_id),
                 viewer_id=viewer_id,
+                tags=tags_map.get(nb.id, []) if is_owner or viewer_id is None else [],
                 **idx,
             )
         )
@@ -216,11 +242,19 @@ async def list_notebooks(
     search: str | None,
     page: int,
     size: int,
+    tag_id: int | None = None,
 ) -> tuple[list[Notebook], int]:
     stmt = select(Notebook).where(Notebook.owner_id == owner_id, Notebook.deleted_at.is_(None))
     if search:
         like = f"%{search}%"
         stmt = stmt.where(Notebook.title.like(like))
+    if tag_id is not None:
+        from app.models.tag import NotebookTag, Tag
+        stmt = (
+            stmt.join(NotebookTag, NotebookTag.notebook_id == Notebook.id)
+            .join(Tag, Tag.id == NotebookTag.tag_id)
+            .where(Tag.owner_id == owner_id, Tag.id == tag_id)
+        )
     total = (
         await session.scalar(
             select(func.count()).select_from(stmt.subquery())

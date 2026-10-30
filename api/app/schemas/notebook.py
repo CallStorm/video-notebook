@@ -6,6 +6,13 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+# ── Tag brief (embedded on notebook list/detail) ────────────────
+class TagBrief(BaseModel):
+    id: int
+    name: str
+    color: str | None = None
+
+
 # ── Notebook ─────────────────────────────────────────────────────
 class NotebookCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
@@ -40,6 +47,7 @@ class NotebookRead(BaseModel):
     index_status: str | None = None
     indexed_at: str | None = None
     index_error: str | None = None
+    tags: list[TagBrief] = []
     created_at: str | None
     updated_at: str | None
 

@@ -3,12 +3,11 @@ import { Brand } from "@/components/brand";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-export type AppNavKey = "mine" | "discover" | "collections" | "admin";
+export type AppNavKey = "mine" | "discover" | "admin";
 
 const NAV_ITEMS: { key: AppNavKey; label: string; to: string; adminOnly?: boolean }[] = [
   { key: "mine", label: "我的笔记本", to: "/" },
   { key: "discover", label: "发现", to: "/discover" },
-  { key: "collections", label: "集合", to: "/?tab=collections" },
   { key: "admin", label: "后台配置", to: "/admin", adminOnly: true },
 ];
 

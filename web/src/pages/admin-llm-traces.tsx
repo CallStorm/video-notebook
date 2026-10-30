@@ -73,6 +73,7 @@ const KIND_LABEL: Record<string, string> = {
   chat: "对话",
   overview: "概览",
   studio: "产物",
+  tags: "标签",
 };
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
@@ -80,6 +81,7 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: "overview", label: "概览" },
   { value: "chat", label: "对话" },
   { value: "studio", label: "产物" },
+  { value: "tags", label: "标签" },
 ];
 
 const STATUS_LABEL: Record<string, string> = {

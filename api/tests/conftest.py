@@ -37,6 +37,7 @@ from app.db.base import Base  # noqa: E402
 
 # 强制 import 所有 model 让 Base.metadata 注册（顺序敏感；新加 model 后这里也加 import）
 from app.models.collection import Collection, CollectionNotebook  # noqa: E402,F401
+from app.models.tag import NotebookTag, Tag  # noqa: E402,F401
 from app.models.credential import Credential  # noqa: F401,E402
 from app.models.default_model import DefaultModel  # noqa: F401,E402
 from app.models.model import Model  # noqa: F401,E402
@@ -134,6 +135,8 @@ async def _clean_db():
             "vector_settings_config",
             "collection_notebooks",
             "collections",
+            "notebook_tags",
+            "tags",
             "notes",
             "chat_messages",
             "chat_threads",

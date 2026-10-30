@@ -10,7 +10,6 @@ import AdminPage from "@/pages/admin";
 import AdminStudioPage from "@/pages/admin-studio";
 import DiscoverPage from "@/pages/discover";
 import NotebookPage from "@/pages/notebook";
-import CollectionPage from "@/pages/collection";
 import { RequireAuth } from "@/components/require-auth";
 import { AuthProvider } from "@/lib/auth";
 
@@ -56,11 +55,7 @@ const router = createBrowserRouter([
       },
       {
         path: "/collections/:id",
-        element: (
-          <RequireAuth>
-            <CollectionPage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/" replace />,
       },
       {
         path: "/admin",

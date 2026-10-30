@@ -29,6 +29,7 @@ from app.routes import (
     auth,
     chat,
     collections,
+    tags,
     covers,
     health,
     icons,
@@ -68,6 +69,7 @@ api_router.include_router(providers.router)
 # Phase 4：notebook / source
 api_router.include_router(notebooks.router)
 api_router.include_router(collections.router)
+api_router.include_router(tags.router)
 api_router.include_router(icons.router)
 api_router.include_router(covers.router)
 api_router.include_router(sources.router)

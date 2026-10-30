@@ -18,6 +18,7 @@ export interface NotebookBookCardData {
   updated_at: string | null;
   index_status?: string | null;
   index_error?: string | null;
+  tags?: { id: number; name: string; color: string | null }[];
 }
 
 function formatSources(n: number): string {
@@ -52,7 +53,7 @@ export function NotebookBookCard({
   onToggleShare,
   onReindex,
   onDelete,
-  onAddToCollection,
+  onEditTags,
 }: {
   notebook: NotebookBookCardData;
   onUpdateTitle: (id: number) => void;
@@ -60,7 +61,7 @@ export function NotebookBookCard({
   onToggleShare?: (id: number) => void;
   onReindex?: (id: number) => void;
   onDelete: (id: number) => void;
-  onAddToCollection?: (id: number) => void;
+  onEditTags?: (id: number) => void;
 }) {
   const remote = isRemoteCover(nb.cover_url);
   const sourcesLabel = formatSources(nb.source_count ?? 0);
@@ -152,6 +153,25 @@ export function NotebookBookCard({
               <span className="truncate">{formatDateZh(nb.updated_at)}</span>
             ) : null}
           </p>
+          {nb.tags && nb.tags.length > 0 ? (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {nb.tags.slice(0, 2).map((t) => (
+                <span
+                  key={t.id}
+                  className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: t.color || "#2F6B4F" }}
+                  />
+                  <span className="truncate">{t.name}</span>
+                </span>
+              ))}
+              {nb.tags.length > 2 ? (
+                <span className="text-[10px] text-muted-foreground">+{nb.tags.length - 2}</span>
+              ) : null}
+            </div>
+          ) : null}
         </Link>
         <div
           className="shrink-0 pt-0.5 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
@@ -163,7 +183,7 @@ export function NotebookBookCard({
             shareAll={!!nb.share_all}
             indexStatus={nb.index_status}
             onRequestEdit={onUpdateTitle}
-            onAddToCollection={onAddToCollection}
+            onEditTags={onEditTags}
             onTogglePin={onTogglePin}
             onToggleShare={onToggleShare}
             onReindex={onReindex}
