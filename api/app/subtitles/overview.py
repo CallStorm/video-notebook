@@ -8,6 +8,8 @@ from app.llm.providers import make_provider
 from app.models.notebook import SubtitleLine, Video
 from app.overview_settings.defaults import DEFAULT_OVERVIEW_PROMPT
 from app.services.overview_settings import get_overview_settings_row, resolve_prompt
+from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
+import time
 
 _MAX_TRANSCRIPT_CHARS = 12_000
 
@@ -17,6 +19,7 @@ async def write_overview(
     lines: list[SubtitleLine],
     *,
     video: Video | None = None,
+    notebook_id: int | None = None,
 ) -> str:
     transcript = _transcript(lines)
     if not transcript:
@@ -42,15 +45,60 @@ async def write_overview(
         model_name=llm.model_name,
         params_json=llm.params_json,
     )
-    text = await provider.complete(
-        "\n".join(user_parts),
-        system="你是视频笔记编辑。只输出概览正文，不要开场白或解释。",
-        max_tokens=800,
+    user_prompt = "\n".join(user_parts)
+    system = "你是视频笔记编辑。只输出概览正文，不要开场白或解释。"
+    resolved_notebook_id = notebook_id
+    if resolved_notebook_id is None and video is not None:
+        from sqlalchemy import select as _select
+
+        from app.models.notebook import NotebookSource
+
+        resolved_notebook_id = await session.scalar(
+            _select(NotebookSource.notebook_id)
+            .where(NotebookSource.video_id == video.id)
+            .order_by(NotebookSource.notebook_id.asc())
+            .limit(1)
+        )
+    trace_id = start_llm_trace(
+        kind="overview",
+        notebook_id=resolved_notebook_id,
+        video_id=getattr(video, "id", None) if video is not None else None,
+        provider=llm.provider,
+        model_name=llm.model_name,
     )
-    cleaned = text.strip()
-    if not cleaned:
-        raise RuntimeError("模型没有返回概览")
-    return cleaned[:4000]
+    llm_span(trace_id, "system", content=system, role="system")
+    llm_span(trace_id, "user", content=user_prompt, role="user")
+    t0 = time.perf_counter()
+    try:
+        text = await provider.complete(
+            user_prompt,
+            system=system,
+            max_tokens=800,
+        )
+        cleaned = text.strip()
+        if not cleaned:
+            raise RuntimeError("模型没有返回概览")
+        llm_span(trace_id, "generation", content=cleaned[:4000], role="assistant")
+        usage = getattr(provider, "last_usage", None)
+        end_llm_trace(
+            trace_id,
+            status="ok",
+            t0=t0,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+        )
+        return cleaned[:4000]
+    except Exception as exc:
+        usage = getattr(provider, "last_usage", None)
+        end_llm_trace(
+            trace_id,
+            status="failed",
+            error_text=str(exc),
+            t0=t0,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+        )
+        raise
 
 
 def _transcript(lines: list[SubtitleLine]) -> str:

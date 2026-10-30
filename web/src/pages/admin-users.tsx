@@ -8,7 +8,6 @@ import {
   AdminEmptyState,
   AdminFieldLabel,
   AdminLoading,
-  AdminPageHeader,
   AdminSectionCard,
   AdminStatusBadge,
   AdminTableShell,
@@ -92,11 +91,6 @@ export function AdminUsersPage() {
 
   return (
     <div className="space-y-5">
-      <AdminPageHeader
-        title="账号管理"
-        description="创建账号、搜索与启用/禁用。仅管理员可操作。"
-      />
-
       <AdminSectionCard title="新建账号" description="手机号作为登录名，初始密码至少 8 位。">
         <form
           className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4"

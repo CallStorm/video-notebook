@@ -17,14 +17,16 @@ from app.core.errors import NotFoundError
 from app.core.security import create_access_token
 from app.db import session as session_module
 from app.models.notebook import Notebook
-from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
+from app.models.studio import StudioArtifact, StudioCapability, StudioTask
 from app.models.user import User
 from app.services.studio_tasks import delete_task
 from app.storage import get_storage
 from app.studio.runner import execute_studio_task
-from app.studio.worker import studio_run, sweep_studio_tasks
+from app.studio.plugins.registry import get_plugin
+from app.studio.worker import _SWEEP_GRACE_SECONDS, studio_run, sweep_studio_tasks
 
 _NOW = datetime(2026, 10, 18, 12, 0, 0)
+_STALE_AFTER = get_plugin("mind_map").timeout_seconds + _SWEEP_GRACE_SECONDS
 
 
 async def _user(db_session, *, phone: str, name: str) -> User:
@@ -40,7 +42,7 @@ async def _seed_task(
     *,
     owner: User | None = None,
     status: str = "queued",
-    timeout_seconds: int = 30,
+    format_key: str = "mind_map",
     started_at: datetime | None = None,
     result_json: dict | None = None,
 ) -> tuple[User, StudioTask]:
@@ -48,20 +50,11 @@ async def _seed_task(
     notebook = Notebook(owner_id=owner.id, title="本", is_pinned=False, share_all=False)
     db_session.add(notebook)
     await db_session.flush()
-    agent = Agent(
-        name="导图智能体",
-        system_prompt="写出导图",
-        timeout_seconds=timeout_seconds,
-        is_active=True,
-        updated_by=owner.id,
-    )
-    db_session.add(agent)
-    await db_session.flush()
     cap = StudioCapability(
         name="思维导图",
         icon="🧠",
-        format_key="mind_map",
-        agent_id=agent.id,
+        format_key=format_key,
+        agent_id=None,
         enabled=True,
         is_builtin=True,
         form_json=[],
@@ -72,8 +65,8 @@ async def _seed_task(
         notebook_id=notebook.id,
         owner_id=owner.id,
         capability_id=cap.id,
-        agent_id=agent.id,
-        format_key="mind_map",
+        agent_id=None,
+        format_key=format_key,
         title=cap.name,
         status=status,
         params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
@@ -115,15 +108,13 @@ async def test_sweep_marks_stale_running_task_failed(db_session):
     owner, stale = await _seed_task(
         db_session,
         status="running",
-        timeout_seconds=30,
-        started_at=_NOW - timedelta(seconds=91),
+        started_at=_NOW - timedelta(seconds=_STALE_AFTER + 1),
     )
     _, fresh = await _seed_task(
         db_session,
         owner=owner,
         status="running",
-        timeout_seconds=30,
-        started_at=_NOW - timedelta(seconds=89),
+        started_at=_NOW - timedelta(seconds=_STALE_AFTER - 1),
     )
     await sweep_studio_tasks(_NOW)
     await db_session.refresh(stale)
@@ -138,8 +129,7 @@ async def test_sweep_does_not_fail_task_that_became_succeeded(db_session, monkey
     _, task = await _seed_task(
         db_session,
         status="running",
-        timeout_seconds=30,
-        started_at=_NOW - timedelta(seconds=91),
+        started_at=_NOW - timedelta(seconds=_STALE_AFTER + 1),
     )
     original = AsyncSession.execute
     state = {"flipped": False}

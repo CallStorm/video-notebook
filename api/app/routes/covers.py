@@ -1,4 +1,4 @@
-"""/api/covers — AI 生成笔记本/集合封面样式。"""
+"""/api/covers — AI 生成笔记本封面（文生图）。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -42,4 +42,5 @@ async def generate_cover(
         title=body.title,
         description=body.description,
     )
+    result.pop("storage_key", None)
     return CoverGenerateResponse(**result)

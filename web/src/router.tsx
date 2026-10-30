@@ -7,13 +7,9 @@ import {
 import HomePage from "@/pages/home";
 import LoginPage from "@/pages/login";
 import AdminPage from "@/pages/admin";
-import AdminSkillsPage from "@/pages/admin-skills";
-import AdminAgentsPage from "@/pages/admin-agents";
 import AdminStudioPage from "@/pages/admin-studio";
 import DiscoverPage from "@/pages/discover";
-import SearchPage from "@/pages/search";
 import NotebookPage from "@/pages/notebook";
-import CollectionPage from "@/pages/collection";
 import { RequireAuth } from "@/components/require-auth";
 import { AuthProvider } from "@/lib/auth";
 
@@ -32,10 +28,23 @@ const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
-      { path: "/", element: <HomePage /> },
+      {
+        path: "/",
+        element: (
+          <RequireAuth>
+            <HomePage />
+          </RequireAuth>
+        ),
+      },
       { path: "/login", element: <LoginPage /> },
-      { path: "/discover", element: <DiscoverPage /> },
-      { path: "/search", element: <SearchPage /> },
+      {
+        path: "/discover",
+        element: (
+          <RequireAuth>
+            <DiscoverPage />
+          </RequireAuth>
+        ),
+      },
       {
         path: "/notebooks/:id",
         element: (
@@ -46,11 +55,7 @@ const router = createBrowserRouter([
       },
       {
         path: "/collections/:id",
-        element: (
-          <RequireAuth>
-            <CollectionPage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/" replace />,
       },
       {
         path: "/admin",
@@ -62,19 +67,11 @@ const router = createBrowserRouter([
       },
       {
         path: "/admin/skills",
-        element: (
-          <RequireAuth admin>
-            <AdminSkillsPage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/admin?section=studio" replace />,
       },
       {
         path: "/admin/agents",
-        element: (
-          <RequireAuth admin>
-            <AdminAgentsPage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/admin?section=studio" replace />,
       },
       {
         path: "/admin/studio",
@@ -84,7 +81,7 @@ const router = createBrowserRouter([
           </RequireAuth>
         ),
       },
-      // 兜底：未匹配路由 → 首页
+      // 兜底：未匹配路由 → 首页（未登录会由 RequireAuth 再跳登录）
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

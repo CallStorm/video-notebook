@@ -12,3 +12,8 @@ class ChatRequest(BaseModel):
 
 class SourceSelection(BaseModel):
     selected_for_chat: bool
+
+
+class DeleteChatMessagesRequest(BaseModel):
+    message_ids: list[int] = Field(min_length=1)
+

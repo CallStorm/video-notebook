@@ -1,7 +1,8 @@
-/** Cover tokens stored in cover_url:
+/** Cover / folder-icon style tokens stored in cover_url (display only for notebooks;
+ * new notebook covers are remote image URLs from text-to-image).
  *  - gen:v1:{0-11} legacy preset index
  *  - gen:v2:{pattern}:{a}:{b}:{c}:{ink}:{mist} legacy AI style
- *  - gen:v3:{layout}:{motif}:{pattern}:{a}:{b}:{c}:{ink}:{mist} layout+motif covers
+ *  - gen:v3:{layout}:{motif}:{pattern}:{a}:{b}:{c}:{ink}:{mist} layout+motif (folder icons + legacy)
  */
 
 export const COVER_VARIANT_COUNT = 12;
@@ -9,6 +10,8 @@ export const COVER_VARIANT_COUNT = 12;
 export const GEN_V1_PREFIX = "gen:v1:";
 export const GEN_V2_PREFIX = "gen:v2:";
 export const GEN_V3_PREFIX = "gen:v3:";
+/** Create-dialog placeholder - no title-driven motif until user clicks generate. */
+export const EMPTY_COVER_TOKEN = "gen:empty";
 
 export type CoverPalette = {
   a: string;
@@ -66,6 +69,15 @@ export type CoverStyle = {
   label?: string;
 };
 
+/** Neutral muted palette for empty / never-generated covers. */
+export const EMPTY_COVER_STYLE: CoverStyle = {
+  palette: { a: "#E7E5E4", b: "#D6D3D1", c: "#A8A29E", ink: "#57534E", mist: "#78716C" },
+  pattern: "orbs",
+  layout: "accent",
+  motif: "abstract",
+  label: "",
+};
+
 type ThemeHit = {
   motif: CoverMotif;
   layouts: CoverLayout[];
@@ -86,13 +98,13 @@ const THEME_RULES: { keys: string[]; motif: CoverMotif; layouts: CoverLayout[]; 
     label: "",
   },
   {
-    keys: ["经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "管理", "财务"],
+    keys: ["经济", "财经", "金融", "财政", "投资", "股市", "理财", "商业", "营销", "职场", "管理", "财务", "合同", "造价", "预算", "审计", "会计"],
     motif: "finance",
     layouts: ["bands", "accent", "frame"],
     label: "",
   },
   {
-    keys: ["自然", "健康", "运动", "环保", "植物", "旅行", "户外", "生态"],
+    keys: ["自然", "健康", "运动", "环保", "植物", "旅行", "户外", "生态", "工地", "施工", "建筑", "土木", "工程现场"],
     motif: "nature",
     layouts: ["hero", "split", "bands"],
     label: "",
@@ -104,7 +116,7 @@ const THEME_RULES: { keys: string[]; motif: CoverMotif; layouts: CoverLayout[]; 
     label: "",
   },
   {
-    keys: ["创意", "设计", "艺术", "音乐", "电影", "娱乐", "游戏"],
+    keys: ["创意", "设计", "艺术", "音乐", "电影", "娱乐", "游戏", "党建", "党史", "红色", "思政"],
     motif: "creative",
     layouts: ["badge", "split", "frame"],
     label: "",
@@ -164,6 +176,14 @@ export function isGenCover(coverUrl: string | null | undefined): boolean {
   );
 }
 
+export function isEmptyCover(coverUrl: string | null | undefined): boolean {
+  // Only the explicit create-dialog token (or blank string). null/undefined
+  // still means "derive from variant" for existing notebook cards.
+  if (coverUrl == null) return false;
+  const t = coverUrl.trim();
+  return t === "" || t === EMPTY_COVER_TOKEN;
+}
+
 function hex6(raw: string, fallback: string): string {
   const s = raw.trim().replace(/^#/, "");
   if (!/^[0-9A-Fa-f]{6}$/.test(s)) return fallback;
@@ -198,6 +218,9 @@ export function parseCoverStyle(
   fallbackId = 0,
   titleForLegacy?: string,
 ): CoverStyle {
+  if (isEmptyCover(coverUrl)) {
+    return { ...EMPTY_COVER_STYLE, palette: { ...EMPTY_COVER_STYLE.palette } };
+  }
   if (coverUrl?.startsWith(GEN_V3_PREFIX)) {
     const parts = coverUrl.slice(GEN_V3_PREFIX.length).split(":");
     if (parts.length >= 8) {
@@ -277,4 +300,41 @@ export function encodeCoverVariant(variant: number): string {
 
 export function coverStyle(variant: number): CoverStyle {
   return coverStyleFromVariant(variant);
+}
+
+
+/** Deterministic style for collection folder icons (no LLM / no cover API). */
+export function styleFromTitle(title: string, description?: string): CoverStyle {
+  const trimmed = (title || "").trim() || "未命名";
+  const desc = (description || "").trim();
+  const combined = desc ? `${trimmed}\n${desc}` : trimmed;
+  const seed = hashTitle(combined);
+  const theme = inferThemeFromTitle(combined);
+  const palette = COVER_PALETTES[seed % COVER_PALETTES.length];
+  const layout = theme.layouts[seed % theme.layouts.length];
+  const pattern = PATTERNS[(seed / 3) % PATTERNS.length | 0];
+  return {
+    palette: { ...palette },
+    pattern,
+    layout,
+    motif: theme.motif,
+    label: "",
+  };
+}
+
+/** Encode a CoverStyle as gen:v3 token (folder icons / legacy display). */
+export function encodeCoverStyle(style: CoverStyle): string {
+  const p = style.palette;
+  const hex = (v: string) => v.replace(/^#/, "");
+  return [
+    "gen:v3",
+    style.layout,
+    style.motif,
+    style.pattern,
+    hex(p.a),
+    hex(p.b),
+    hex(p.c),
+    hex(p.ink),
+    hex(p.mist),
+  ].join(":");
 }

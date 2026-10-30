@@ -114,6 +114,8 @@ async def index_notebook(
             session.add(state)
             await session.commit()
             await session.refresh(state)
+            # Signal no-op to pipeline logger (DB status stays ready).
+            setattr(state, "_index_noop", True)
             return state
 
         try:

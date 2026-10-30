@@ -49,3 +49,30 @@ class NotebookCollectionsRead(BaseModel):
 
 class NotebookCollectionsPut(BaseModel):
     collection_ids: list[int]
+
+
+class AutoOrganizeNotebookBrief(BaseModel):
+    id: int
+    title: str
+    description: str | None = None
+
+
+class AutoOrganizeSuggestedCollection(BaseModel):
+    temp_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    notebook_ids: list[int] = []
+
+
+class AutoOrganizePreviewResponse(BaseModel):
+    collections: list[AutoOrganizeSuggestedCollection]
+    notebooks: list[AutoOrganizeNotebookBrief]
+    message: str | None = None
+
+
+class AutoOrganizeApplyRequest(BaseModel):
+    collections: list[AutoOrganizeSuggestedCollection]
+
+
+class AutoOrganizeApplyResponse(BaseModel):
+    collections: list[CollectionRead]
+

@@ -122,7 +122,7 @@ class TaskRead(BaseModel):
     notebook_id: int
     owner_id: int
     capability_id: int
-    agent_id: int
+    agent_id: int | None = None
     format_key: str
     title: str
     status: str

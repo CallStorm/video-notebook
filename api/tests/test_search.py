@@ -57,22 +57,22 @@ async def test_search_aggregates_and_keeps_platform_errors(
         if platform == "youtube":
             return yt
         if platform == "bilibili":
-            return bili
-        return PlatformSearchError(platform="douyin", message="抖音搜索失败: blocked")
+            return PlatformSearchError(platform="bilibili", message="B站搜索失败: blocked")
+        return PlatformSearchError(platform=platform, message="unexpected")
 
     with patch("app.search.service._search_one", side_effect=fake_one):
         resp = await client.post(
             "/api/search",
             headers={"Authorization": f"Bearer {token}"},
-            json={"query": "notebooklm", "platforms": ["youtube", "bilibili", "douyin"]},
+            json={"query": "notebooklm", "platforms": ["youtube", "bilibili"]},
         )
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert len(body["items"]) == 2
+    assert len(body["items"]) == 1
     platforms = {i["platform"] for i in body["items"]}
-    assert platforms == {"youtube", "bilibili"}
-    assert body["errors"] == [{"platform": "douyin", "message": "抖音搜索失败: blocked"}]
+    assert platforms == {"youtube"}
+    assert body["errors"] == [{"platform": "bilibili", "message": "B站搜索失败: blocked"}]
 
 
 async def test_search_empty_query_rejected(client: AsyncClient, db_session) -> None:

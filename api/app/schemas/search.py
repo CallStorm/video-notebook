@@ -5,8 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-Platform = Literal["youtube", "bilibili", "douyin"]
-ALL_PLATFORMS: tuple[Platform, ...] = ("youtube", "bilibili", "douyin")
+Platform = Literal["youtube", "bilibili"]
+ALL_PLATFORMS: tuple[Platform, ...] = ("youtube", "bilibili")
 
 
 class SearchRequest(BaseModel):
@@ -34,6 +34,7 @@ class SearchResultItem(BaseModel):
     uploader: str | None = None
     uploader_url: str | None = None
     view_count: int | None = None
+    comment_count: int | None = None
     description: str | None = None
 
 

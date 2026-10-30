@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-PlatformKey = Literal["youtube", "bilibili", "douyin"]
-PLATFORMS: tuple[PlatformKey, ...] = ("youtube", "bilibili", "douyin")
+PlatformKey = Literal["youtube", "bilibili"]
+PLATFORMS: tuple[PlatformKey, ...] = ("youtube", "bilibili")
 
 
 @dataclass(frozen=True)

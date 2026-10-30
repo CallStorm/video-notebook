@@ -12,9 +12,12 @@ import { useAuth } from "@/lib/auth";
 interface ChatSettings {
   history_limit: number;
   default_history_limit: number;
+  max_context_chars: number;
+  default_max_context_chars: number;
 }
 
 const PRESETS = [4, 6, 8, 12, 16, 20] as const;
+const CONTEXT_PRESETS = [30_000, 60_000, 100_000, 200_000] as const;
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
@@ -32,10 +35,12 @@ export function AdminChatPage() {
   });
 
   const [historyLimit, setHistoryLimit] = useState(8);
+  const [maxContextChars, setMaxContextChars] = useState(60_000);
 
   useEffect(() => {
     if (!config.data) return;
     setHistoryLimit(config.data.history_limit);
+    setMaxContextChars(config.data.max_context_chars);
   }, [config.data]);
 
   const save = useMutation({
@@ -45,6 +50,7 @@ export function AdminChatPage() {
         access: token,
         body: {
           history_limit: clamp(Math.round(historyLimit), 2, 20),
+          max_context_chars: clamp(Math.round(maxContextChars), 10_000, 500_000),
         },
       }),
     onSuccess: (data) => {
@@ -56,7 +62,7 @@ export function AdminChatPage() {
     <div className="space-y-5">
       <AdminPageHeader
         title="对话设置"
-        description="控制笔记本 Chat 每次提问携带的历史轮数。勾选来源的字幕全文每轮都会带上，不会因超限被截断。"
+        description="控制笔记本 Chat 每次提问携带的历史轮数与上下文字符预算。勾选来源的字幕全文每轮都会带上，不会因超限被截断。"
       />
 
       {config.isLoading ? <AdminLoading /> : null}
@@ -99,6 +105,49 @@ export function AdminChatPage() {
             onChange={(e) => setHistoryLimit(Number(e.target.value))}
             className="w-full accent-primary"
           />
+        </div>
+      </AdminSectionCard>
+
+      <AdminSectionCard
+        title="上下文预算"
+        description="按字符估算：系统提示 + 勾选字幕全文 + 笔记 + 当前问题 + 历史。超出时从最旧一轮开始丢弃历史；勾选字幕全文始终保留，若字幕本身超限会直接报错。"
+      >
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            上下文字符上限 · 当前 {maxContextChars.toLocaleString()} 字符
+          </p>
+          <p className="text-xs text-muted-foreground">
+            默认 { (config.data?.default_max_context_chars ?? 60000).toLocaleString() }
+            （可用环境变量 MAX_CONTEXT_TOKENS 覆盖种子值）。范围 10,000–500,000。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {CONTEXT_PRESETS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setMaxContextChars(n)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+                  maxContextChars === n
+                    ? "bg-primary text-primary-foreground shadow-glow"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {(n / 1000).toFixed(0)}k
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={10000}
+              max={500000}
+              step={1000}
+              value={maxContextChars}
+              onChange={(e) => setMaxContextChars(Number(e.target.value) || 0)}
+              className="w-40 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            />
+            <span className="text-xs text-muted-foreground">字符</span>
+          </div>
         </div>
       </AdminSectionCard>
 

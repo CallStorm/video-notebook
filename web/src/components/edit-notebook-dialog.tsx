@@ -48,6 +48,9 @@ export function EditNotebookDialog({
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [genPending, setGenPending] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [genHint, setGenHint] = useState<string | null>(null);
+  /** Freeze preview title so typing does not reshuffle legacy gen:v1 motifs. */
+  const [previewTitle, setPreviewTitle] = useState("");
 
   useEffect(() => {
     if (open && notebook) {
@@ -56,7 +59,9 @@ export function EditNotebookDialog({
       setCoverUrl(
         notebook.cover_url ?? encodeCoverVariant(notebook.id % 12),
       );
+      setPreviewTitle(notebook.title);
       setGenError(null);
+      setGenHint(null);
       setGenPending(false);
     }
   }, [open, notebook]);
@@ -94,9 +99,15 @@ export function EditNotebookDialog({
     if (!access || !title.trim() || genPending) return;
     setGenPending(true);
     setGenError(null);
+    if (!description.trim()) {
+      setGenHint("填写描述后生成更贴切");
+    } else {
+      setGenHint(null);
+    }
     try {
       const result = await generateCover(access, title.trim(), description.trim());
       setCoverUrl(result.cover_url);
+      setPreviewTitle(title.trim());
     } catch (err) {
       setGenError(err instanceof ApiError ? err.message : "生成失败，请重试");
     } finally {
@@ -140,7 +151,7 @@ export function EditNotebookDialog({
                   />
                 ) : (
                   <GeneratedCover
-                    title={title.trim() || notebook.title}
+                    title={previewTitle || notebook.title}
                     coverUrl={coverUrl}
                     variant={notebook.id}
                     meta={previewMeta}
@@ -149,7 +160,7 @@ export function EditNotebookDialog({
                 )}
                 {genPending ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white backdrop-blur-[1px]">
-                    AI 生成中…
+                    生成中…
                   </div>
                 ) : null}
               </div>
@@ -165,8 +176,11 @@ export function EditNotebookDialog({
                 {genPending ? "生成中…" : "生成封面"}
               </Button>
               <p className="text-center text-[11px] leading-snug text-muted-foreground">
-                点击后由 AI 根据名称与描述生成
+                根据名称与描述生成封面图（需后台配置封面文生图模型）
               </p>
+              {genHint && !genError ? (
+                <p className="text-center text-[11px] text-amber-700 dark:text-amber-400">{genHint}</p>
+              ) : null}
               {genError ? (
                 <p className="text-center text-xs text-destructive">{genError}</p>
               ) : null}
@@ -194,7 +208,7 @@ export function EditNotebookDialog({
                 </label>
                 <textarea
                   id="nb-edit-desc"
-                  placeholder="简单描述（可选，生成封面时会参考）"
+                  placeholder="简单描述（可选，智能配色时会参考）"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   maxLength={2000}

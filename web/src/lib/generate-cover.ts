@@ -13,7 +13,7 @@ export interface GeneratedCoverResult {
   label?: string;
 }
 
-/** 调用后端，按名称+描述生成封面样式 token（含 layout/motif）。 */
+/** 调用后端，按名称+描述文生图生成封面。 */
 export async function generateCover(
   access: string,
   title: string,

@@ -24,7 +24,7 @@ import { api, ApiError } from "@/lib/api";
 import { RequireAuth } from "@/components/require-auth";
 import { cn } from "@/lib/utils";
 
-type Platform = "youtube" | "bilibili" | "douyin";
+type Platform = "youtube" | "bilibili";
 
 interface SearchResultItem {
   id: string;
@@ -37,6 +37,7 @@ interface SearchResultItem {
   uploader: string | null;
   uploader_url: string | null;
   view_count: number | null;
+  comment_count: number | null;
   description: string | null;
 }
 
@@ -63,10 +64,9 @@ const PLATFORM_CHIPS: {
   hint: string;
   tone: string;
 }[] = [
-  { id: "all", label: "全部", hint: "三平台一起搜", tone: "platform-chip-all" },
+  { id: "all", label: "全部", hint: "YouTube / B站一起搜", tone: "platform-chip-all" },
   { id: "bilibili", label: "B站", hint: "Bilibili", tone: "platform-chip-bili" },
   { id: "youtube", label: "YouTube", hint: "YouTube", tone: "platform-chip-yt" },
-  { id: "douyin", label: "抖音", hint: "抖音", tone: "platform-chip-dy" },
 ];
 
 const PLATFORM_BADGE: Record<
@@ -83,17 +83,11 @@ const PLATFORM_BADGE: Record<
     className: "bg-[#FB7299] text-white",
     soft: "bg-pink-50 text-pink-700 ring-pink-200/80",
   },
-  douyin: {
-    label: "抖音",
-    className: "bg-zinc-900 text-white",
-    soft: "bg-zinc-100 text-zinc-800 ring-zinc-200/80",
-  },
 };
 
 const PLATFORM_ERROR_LABEL: Record<Platform, string> = {
   bilibili: "B站",
   youtube: "YouTube",
-  douyin: "抖音",
 };
 
 function formatDuration(sec: number | null): string | null {
@@ -325,6 +319,7 @@ function SearchPageInner() {
                   const badge = PLATFORM_BADGE[item.platform];
                   const duration = formatDuration(item.duration);
                   const views = formatViews(item.view_count);
+                  const comments = formatViews(item.comment_count);
                   return (
                     <article
                       key={`${item.platform}-${item.id}`}
@@ -375,7 +370,11 @@ function SearchPageInner() {
                           {item.title}
                         </h3>
                         <p className="truncate text-xs text-muted-foreground">
-                          {[item.uploader, views ? `${views} 次观看` : null]
+                          {[
+                            item.uploader,
+                            views ? `${views} 播放` : null,
+                            comments ? `${comments} 评论` : null,
+                          ]
                             .filter(Boolean)
                             .join(" · ") || "—"}
                         </p>
@@ -434,7 +433,7 @@ function SearchPageInner() {
               输入关键词开始搜索
             </p>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground/80">
-              支持 B站 · YouTube · 抖音 · 点封面可预览
+              支持 B站 · YouTube · 点封面可预览
             </p>
           </div>
         )}
@@ -504,59 +503,24 @@ function SearchPageInner() {
                       <p className="max-w-sm text-white/85">
                         {previewError || "该平台暂不支持页内预览"}
                       </p>
-                      <div className="flex flex-wrap justify-center gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="rounded-full"
-                          onClick={() => resolvePreview.mutate(preview)}
-                        >
-                          重试
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                          onClick={() =>
-                            window.open(preview.url, "_blank", "noopener,noreferrer")
-                          }
-                        >
-                          打开原站
-                        </Button>
-                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="rounded-full"
+                        onClick={() => resolvePreview.mutate(preview)}
+                      >
+                        重试
+                      </Button>
                     </>
                   )}
                 </div>
               )}
             </div>
 
-            <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 bg-card px-4 py-3">
+            <footer className="border-t border-border/50 bg-card px-4 py-3">
               <p className="text-xs text-muted-foreground">
-                预览走本地代理，不影响原站播放
+                在结果卡片中可加入笔记本或打开原站
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full"
-                  onClick={() =>
-                    window.open(preview.url, "_blank", "noopener,noreferrer")
-                  }
-                >
-                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                  原站
-                </Button>
-                <Button
-                  type="button"
-                  className="h-9 rounded-full"
-                  onClick={() => {
-                    setAddVideo({ title: preview.title, url: preview.url });
-                  }}
-                >
-                  <NotebookPen className="mr-1.5 h-3.5 w-3.5" />
-                  加入笔记本
-                </Button>
-              </div>
             </footer>
           </div>
         </div>

@@ -21,6 +21,7 @@ from app.core.logging import configure_logging, get_logger
 from app.db.session import dispose_engine, get_sessionmaker
 from app.routes import api_router
 from app.services.capabilities import seed_builtin_capabilities
+from app.services.draft_strategy import seed_builtin_strategies
 
 configure_logging()
 logger = get_logger("app.main")
@@ -37,6 +38,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.app_env != "test":
         async with get_sessionmaker()() as session:
             await seed_builtin_capabilities(session)
+            await seed_builtin_strategies(session)
     try:
         yield
     finally:

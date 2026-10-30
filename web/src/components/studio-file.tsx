@@ -31,12 +31,12 @@ export function StudioFile({
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
         <p className="min-w-0 text-xs text-muted-foreground">
           <button type="button" className="hover:text-foreground hover:underline" onClick={onBack}>
-            Studio
+            产物
           </button>
           <span className="px-1">›</span>
           <span className="text-foreground">{title}</span>
         </p>
-        <Button size="icon" variant="ghost" className="h-7 w-7" title="返回 Studio" onClick={onBack}>
+        <Button size="icon" variant="ghost" className="h-7 w-7" title="返回产物" onClick={onBack}>
           <X className="h-3.5 w-3.5" />
         </Button>
       </header>

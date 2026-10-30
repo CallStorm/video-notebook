@@ -1,5 +1,7 @@
 ﻿import {
   coverStyleFromVariant,
+  isEmptyCover,
+  isRemoteCover,
   parseCoverStyle,
   type CoverLayout,
   type CoverMotif,
@@ -305,6 +307,34 @@ function renderLayout(layout: CoverLayout, props: LayoutProps) {
   }
 }
 
+function EmptyCoverPlaceholder({ className, label }: { className?: string; label: string }) {
+  return (
+    <svg
+      viewBox="0 0 100 140"
+      preserveAspectRatio="xMidYMid slice"
+      className={className}
+      role="img"
+      aria-label={label}
+    >
+      <rect width="100" height="140" fill="#F5F5F4" />
+      <rect
+        x="10"
+        y="14"
+        width="80"
+        height="112"
+        rx="6"
+        fill="none"
+        stroke="#D6D3D1"
+        strokeWidth="1.6"
+        strokeDasharray="4 3"
+      />
+      <circle cx="50" cy="58" r="14" fill="#E7E5E4" />
+      <rect x="34" y="82" width="32" height="4" rx="2" fill="#D6D3D1" />
+      <rect x="40" y="90" width="20" height="3" rx="1.5" fill="#E7E5E4" />
+    </svg>
+  );
+}
+
 export function GeneratedCover({
   title,
   coverUrl,
@@ -321,6 +351,20 @@ export function GeneratedCover({
   className?: string;
 }) {
   const short = title.trim() || "未命名";
+  // Explicit gen:empty only — null cover_url still uses variant + title (home cards).
+  if (!style && isEmptyCover(coverUrl)) {
+    return <EmptyCoverPlaceholder className={className} label="空封面" />;
+  }
+  if (!style && isRemoteCover(coverUrl)) {
+    return (
+      <img
+        src={coverUrl!}
+        alt={short}
+        className={className}
+        style={{ objectFit: "cover", width: "100%", height: "100%" }}
+      />
+    );
+  }
   const resolved: CoverStyle =
     style ??
     (coverUrl

@@ -45,7 +45,7 @@ export function LoginForm() {
   };
 
   return (
-    <div className="glass-card w-full max-w-sm p-6">
+    <div className="login-glass-card w-full max-w-sm p-7">
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="space-y-2">
           <label htmlFor="phone" className="text-sm font-medium">
@@ -59,7 +59,7 @@ export function LoginForm() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="13800000000"
-            className="h-11 rounded-xl bg-background/80"
+            className="h-11 rounded-xl border-border/60 bg-background/55 backdrop-blur-sm"
             required
           />
         </div>
@@ -74,7 +74,7 @@ export function LoginForm() {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-11 rounded-xl bg-background/80"
+            className="h-11 rounded-xl border-border/60 bg-background/55 backdrop-blur-sm"
             required
           />
         </div>
@@ -86,7 +86,7 @@ export function LoginForm() {
         <Button
           type="submit"
           disabled={mutation.isPending}
-          className="h-11 w-full rounded-full text-sm font-semibold"
+          className="login-btn-shine h-11 w-full rounded-full text-sm font-semibold shadow-glow"
         >
           {mutation.isPending ? "登录中…" : "登录"}
         </Button>

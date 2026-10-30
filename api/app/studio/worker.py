@@ -16,7 +16,8 @@ from sqlalchemy import select, update
 
 from app.core.config import get_settings
 from app.db.session import dispose_engine, get_sessionmaker
-from app.models.studio import Agent, StudioTask
+from app.models.studio import StudioTask
+from app.studio.plugins.registry import get_plugin
 from app.studio.runner import execute_studio_task
 
 _SWEEP_GRACE_SECONDS = 60
@@ -95,17 +96,20 @@ async def sweep_studio_tasks(now: datetime) -> None:
     async with factory() as session:
         rows = (
             await session.execute(
-                select(StudioTask.id, StudioTask.started_at, Agent.timeout_seconds)
-                .join(Agent, Agent.id == StudioTask.agent_id)
+                select(StudioTask.id, StudioTask.started_at, StudioTask.format_key)
                 .where(
                     StudioTask.status == "running",
                     StudioTask.started_at.is_not(None),
                 )
             )
         ).all()
-        for task_id, started_at, timeout_seconds in rows:
+        for task_id, started_at, format_key in rows:
             if started_at is None:
                 continue
+            try:
+                timeout_seconds = get_plugin(str(format_key)).timeout_seconds
+            except KeyError:
+                timeout_seconds = 600
             started = _naive(started_at)
             if started < now - timedelta(seconds=timeout_seconds + _SWEEP_GRACE_SECONDS):
                 await session.execute(

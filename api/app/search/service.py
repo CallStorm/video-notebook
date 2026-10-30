@@ -1,4 +1,4 @@
-"""Aggregate video search across YouTube / Bilibili / Douyin."""
+"""Aggregate video search across YouTube / Bilibili."""
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +14,6 @@ from app.schemas.search import (
     SearchResultItem,
 )
 from app.search.bilibili import search_bilibili
-from app.search.douyin import search_douyin
 from app.search.ytdlp_search import search_with_ytdlp
 
 logger = logging.getLogger(__name__)
@@ -85,12 +84,7 @@ def _bilibili(query: str, limit: int) -> list[SearchResultItem]:
         ) from api_exc
 
 
-def _douyin(query: str, limit: int) -> list[SearchResultItem]:
-    return search_douyin(query, limit=limit)
-
-
 _DISPATCH: dict[Platform, Callable[[str, int], list[SearchResultItem]]] = {
     "youtube": _youtube,
     "bilibili": _bilibili,
-    "douyin": _douyin,
 }

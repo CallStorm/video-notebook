@@ -9,7 +9,7 @@
         try {
           var skin = localStorage.getItem("vn-skin");
           if (skin !== "cloud" && skin !== "ink" && skin !== "sand" && skin !== "bamboo") {
-            skin = "cloud";
+            skin = "bamboo";
           }
           document.documentElement.setAttribute("data-skin", skin);
           var raw = localStorage.getItem("vn-dark");
@@ -19,7 +19,7 @@
           else dark = skin === "ink";
           document.documentElement.classList.toggle("dark", dark);
         } catch (e) {
-          document.documentElement.setAttribute("data-skin", "cloud");
+          document.documentElement.setAttribute("data-skin", "bamboo");
         }
       })();
     </script>

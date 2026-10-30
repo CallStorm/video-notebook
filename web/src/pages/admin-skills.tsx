@@ -1,4 +1,4 @@
-﻿import { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -292,5 +292,5 @@ export function AdminSkillsPanel() {
 
 /** 兼容旧链接 → 后台 Tab */
 export default function AdminSkillsPage() {
-  return <Navigate to="/admin?tab=skills" replace />;
+  return <Navigate to="/admin" replace />;
 }

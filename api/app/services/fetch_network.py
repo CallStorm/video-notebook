@@ -54,9 +54,7 @@ async def _ensure_row(session: AsyncSession) -> FetchNetworkConfig:
 def _publish_runtime(row: FetchNetworkConfig) -> None:
     set_runtime_snapshot(
         cookie_enabled={
-            "youtube": bool(row.youtube_cookie_enabled),
-            "bilibili": bool(row.bilibili_cookie_enabled),
-            "douyin": bool(row.douyin_cookie_enabled),
+            p: bool(getattr(row, f"{p}_cookie_enabled", False)) for p in PLATFORMS
         },
         proxy_enabled=bool(row.proxy_enabled),
         proxy_url=row.get_proxy_url() or None,

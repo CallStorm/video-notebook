@@ -252,7 +252,7 @@ async def fetch_url(
 
     from app.sources.fetch import kick_fetch_job
 
-    kick_fetch_job(v.id)
+    kick_fetch_job(v.id, notebook_id=notebook_id)
     return _video_to_dict(v)
 
 

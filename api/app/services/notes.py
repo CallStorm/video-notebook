@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.context import strip_citations
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import ChatMessage, ChatThread, Note, Notebook
 
@@ -91,13 +92,15 @@ async def save_message_as_note(
     ).scalar_one_or_none()
     if existing is not None:
         return note_dict(existing)
+    # Only this create-from-chat path strips [n]. Chat messages keep markers + citations_json.
+    body = strip_citations(message.content_text)
     note = Note(
         notebook_id=notebook.id,
         author_id=owner_id,
         message_id=message.id,
-        title=_title(message.content_text),
-        content_text=message.content_text,
-        citations_json=message.citations_json or [],
+        title=_title(body),
+        content_text=body,
+        citations_json=[],
     )
     session.add(note)
     try:
@@ -131,10 +134,18 @@ async def set_note_selected(
 
 
 async def rename_note(
-    session: AsyncSession, *, owner_id: int, note_id: int, title: str
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    note_id: int,
+    title: str | None = None,
+    content_text: str | None = None,
 ) -> dict:
     note = await _owned_note(session, owner_id=owner_id, note_id=note_id)
-    note.title = title.strip()[:255]
+    if title is not None:
+        note.title = title.strip()[:255]
+    if content_text is not None:
+        note.content_text = content_text
     session.add(note)
     await session.commit()
     await session.refresh(note)
@@ -160,8 +171,22 @@ async def _owned_note(session: AsyncSession, *, owner_id: int, note_id: int) -> 
 
 
 def _title(text: str) -> str:
+    """Pick a note title from body; skip GFM table rows."""
     for line in text.splitlines():
         cleaned = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
-        if cleaned:
-            return cleaned[:80]
+        if not cleaned:
+            continue
+        # GFM table rows are not titles
+        if cleaned.startswith("|") and cleaned.count("|") >= 2:
+            continue
+        if set(cleaned.replace("|", "").replace(":", "").replace("-", "").replace(" ", "")) == set():
+            continue
+        return cleaned[:80]
+    # Table-only note: join first row cells
+    for line in text.splitlines():
+        cleaned = line.strip()
+        if cleaned.startswith("|") and cleaned.endswith("|"):
+            cells = [c.strip() for c in cleaned.strip("|").split("|") if c.strip() and set(c.strip()) != {"-"}]
+            if cells:
+                return " · ".join(cells)[:80]
     return "笔记"

@@ -8,12 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import Note, NotebookSource
-from app.models.studio import Agent, StudioArtifact, StudioCapability, StudioTask
+from app.models.studio import StudioArtifact, StudioCapability, StudioTask
 from app.schemas.studio import TaskCreate, TaskDetail, TaskRead, TaskRename
 from app.services.notebooks import get_notebook
 from app.storage import get_storage
 
 _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
+# Retired from product surface; keep plugin/code for potential restore but hide from Studio UI/API lists.
+_HIDDEN_FORMATS = frozenset({"structured_notes", "four_panel"})
+# Product-fixed: always treated as enabled (admin toggle removed).
+_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides"})
 
 
 def enqueue_studio_task(task_id: int) -> None:
@@ -29,14 +33,17 @@ async def list_enabled_capabilities(
     rows = (
         await session.execute(
             select(StudioCapability)
-            .where(
-                StudioCapability.enabled.is_(True),
-                StudioCapability.deleted_at.is_(None),
-            )
+            .where(StudioCapability.deleted_at.is_(None))
             .order_by(StudioCapability.id.asc())
         )
     ).scalars().all()
-    return list(rows)
+    out: list[StudioCapability] = []
+    for row in rows:
+        if row.format_key in _HIDDEN_FORMATS:
+            continue
+        if row.format_key in _ALWAYS_ON_FORMATS or row.enabled:
+            out.append(row)
+    return out
 
 
 async def list_tasks(
@@ -53,7 +60,7 @@ async def list_tasks(
             .order_by(StudioTask.id.desc())
         )
     ).scalars().all()
-    return list(rows)
+    return [row for row in rows if row.format_key not in _HIDDEN_FORMATS]
 
 
 async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> TaskDetail:
@@ -61,7 +68,7 @@ async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> Tas
     if task is None or task.deleted_at is not None or task.owner_id != owner_id:
         raise NotFoundError("任务不存在")
     text_content: str | None = None
-    if task.format_key == "mind_map" and task.status == "succeeded":
+    if task.format_key in {"mind_map", "structured_notes", "four_panel"} and task.status == "succeeded":
         artifact = await session.scalar(
             select(StudioArtifact)
             .where(
@@ -118,13 +125,19 @@ async def create_task(
 ) -> StudioTask:
     await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
     cap = await session.get(StudioCapability, body.capability_id)
-    if cap is None or cap.deleted_at is not None or not cap.enabled:
+    if cap is None or cap.deleted_at is not None:
         raise BadRequestError("能力未启用")
-    if cap.agent_id is None:
-        raise BadRequestError("智能体未启用")
-    agent = await session.get(Agent, cap.agent_id)
-    if agent is None or agent.deleted_at is not None or not agent.is_active:
-        raise BadRequestError("智能体未启用")
+    if cap.format_key in _HIDDEN_FORMATS:
+        raise BadRequestError("该能力已下线")
+    if not cap.enabled and cap.format_key not in _ALWAYS_ON_FORMATS:
+        raise BadRequestError("能力未启用")
+    # Plugins are self-contained (skill + system on disk); no agent binding required.
+    try:
+        from app.studio.plugins.registry import get_plugin
+
+        get_plugin(cap.format_key)
+    except KeyError as exc:
+        raise BadRequestError("能力插件不存在") from exc
 
     form = cap.form_json or []
     has_sources = any(field.get("type") == "sources" for field in form)
@@ -172,13 +185,21 @@ async def create_task(
             {"key": key, "label": field.get("label") or "", "value": value}
         )
 
+    initial_title = cap.name
+    for item in snapshot_fields:
+        key = item.get("key")
+        value = item.get("value")
+        if key in {"title", "topic"} and isinstance(value, str) and value.strip():
+            initial_title = value.strip()[:255]
+            break
+
     task = StudioTask(
         notebook_id=notebook_id,
         owner_id=owner_id,
         capability_id=cap.id,
-        agent_id=agent.id,
+        agent_id=None,
         format_key=cap.format_key,
-        title=cap.name,
+        title=initial_title,
         status="queued",
         params_json={
             "language": body.language,

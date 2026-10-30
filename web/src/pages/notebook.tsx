@@ -8,11 +8,11 @@ import {
   Link2,
   Loader2,
   Library,
-  Sparkles,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Search as SearchIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePersistedBool } from "@/lib/use-persisted-bool";
@@ -21,16 +21,23 @@ import { api, ApiError } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AddSourceDialog } from "@/components/add-source-dialog";
+import { NotebookWebSearchDialog } from "@/components/notebook-web-search-dialog";
 import { SourceTranscript } from "@/components/source-transcript";
 import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu";
 import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type ChatRelay } from "@/components/notebook-chat";
 import { MarkdownMessage } from "@/components/chat-markdown";
+import { NoteRichEditor, getMarkdown } from "@/components/note-editor";
+import type { Editor } from "@tiptap/react";
 import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
+import { KnowledgePanel } from "@/components/knowledge-panel";
+import { RightPanelTabs } from "@/components/right-panel-tabs";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
+import { StudioComic } from "@/components/studio-comic";
+import { displayStudioTaskTitle } from "@/components/studio-panel";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
-import { Copy, StickyNote, X } from "lucide-react";
+import { Check, Copy, Pencil, StickyNote, X } from "lucide-react";
 
 interface VideoRead {
   id: number;
@@ -242,6 +249,42 @@ export default function NotebookPage() {
     enabled: !!token && previewTaskId != null,
   });
 
+  const regenerateComic = useMutation({
+    mutationFn: async () => {
+      const task = preview.data;
+      if (!task?.capability_id) throw new Error("缺少能力信息，无法重新生成");
+      const fields: Record<string, string> = {};
+      for (const item of task.params_json?.fields ?? []) {
+        if (item && typeof item.key === "string" && typeof item.value === "string" && item.key) {
+          fields[item.key] = item.value;
+        }
+      }
+      const language =
+        task.params_json?.language === "English" || task.params_json?.language === "中文"
+          ? task.params_json.language
+          : "中文";
+      return api<{ id: number; format_key: string }>(`/notebooks/${notebookId}/studio/tasks`, {
+        method: "POST",
+        access: token,
+        body: {
+          capability_id: task.capability_id,
+          language,
+          video_ids: idList(task.params_json?.video_ids),
+          note_ids: idList(task.params_json?.note_ids),
+          fields,
+        },
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
+      setPreviewTaskId(null);
+      setPreviewFormat(null);
+      setPreviewExpanded(false);
+      setRightCollapsed(false);
+      setRightMode("studio");
+    },
+  });
+
   useEffect(() => {
     setPreviewTaskId(null);
     setPreviewFormat(null);
@@ -252,8 +295,9 @@ export default function NotebookPage() {
   }, [notebookId]);
 
   const [showAddSource, setShowAddSource] = useState(false);
+  const [showWebSearch, setShowWebSearch] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState<number | null>(null);
-  const [focusCue, setFocusCue] = useState<{ videoId: number; lineNo: number } | null>(null);
+  const [focusCue, setFocusCue] = useState<{ videoId: number; lineNo?: number; timeSec?: number; nonce?: number } | null>(null);
   const [openNoteId, setOpenNoteId] = useState<number | null>(null);
   const [renameTarget, setRenameTarget] = useState<
     { kind: "source"; id: number; title: string } | { kind: "note"; id: number; title: string } | null
@@ -261,6 +305,21 @@ export default function NotebookPage() {
   const [leftCollapsed, setLeftCollapsed] = usePersistedBool(LEFT_COLLAPSE_KEY, false);
   const [rightCollapsed, setRightCollapsed] = usePersistedBool(RIGHT_COLLAPSE_KEY, false);
   const [pendingCapabilityId, setPendingCapabilityId] = useState<number | null>(null);
+  const [rightMode, setRightMode] = useState<"knowledge" | "studio">("knowledge");
+
+  const studioTasksQ = useQuery({
+    queryKey: ["studio-tasks", notebookId],
+    queryFn: () =>
+      api<{ id: number; status: string }[]>(`/notebooks/${notebookId}/studio/tasks`, { access: token }),
+    enabled: !!token && !!notebookId && !!detail.data && detail.data.is_owner !== false,
+    refetchInterval: (query) => {
+      const rows = query.state.data ?? [];
+      return rows.some((task) => task.status === "queued" || task.status === "running") ? 2000 : false;
+    },
+  });
+  const studioBusyCount = (studioTasksQ.data ?? []).filter(
+    (task) => task.status === "queued" || task.status === "running",
+  ).length;
 
   const upload = useMutation({
     mutationFn: (file: File) => uploadSource(token, notebookId, file),
@@ -294,6 +353,18 @@ export default function NotebookPage() {
       api<NoteRead>(`/notes/${noteId}`, { method: "PATCH", access: token, body: { title } }),
     onSuccess: () => {
       setRenameTarget(null);
+      qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+    },
+  });
+
+  const updateNote = useMutation({
+    mutationFn: ({ noteId, content_text }: { noteId: number; content_text: string }) =>
+      api<NoteRead>(`/notes/${noteId}`, {
+        method: "PATCH",
+        access: token,
+        body: { content_text },
+      }),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
     },
   });
@@ -417,12 +488,13 @@ export default function NotebookPage() {
 
   const nb = detail.data;
   const isOwner = nb.is_owner !== false; // 缺省按主人处理，兼容旧响应
+
   const notes = nb.notes ?? [];
   const selected = nb.sources.find((source) => source.video_id === selectedVideoId) ?? null;
   const openNote = notes.find((note) => note.id === openNoteId) ?? null;
   const browsingList = !selected;
   const listRows = mixSourceRows(nb.sources, notes);
-  const previewMessage = mindMapNotice(preview.isLoading, preview.isError, preview.error, preview.data);
+  const previewMessage = mindMapNotice(preview.isLoading, preview.isError, preview.error, preview.data, previewFormat);
   const workbenchColumns = [
     leftCollapsed ? "3rem" : "minmax(15rem, 1fr)",
     "minmax(0, 2.2fr)",
@@ -590,32 +662,46 @@ export default function NotebookPage() {
               overviewStatus={selected.video.overview_status}
               overviewText={selected.video.overview_text}
               overviewError={selected.video.overview_error}
-              focusLineNo={focusCue?.videoId === selected.video_id ? focusCue.lineNo : null}
+              focusLineNo={focusCue?.videoId === selected.video_id ? focusCue.lineNo ?? null : null}
+              seekTimeSec={focusCue?.videoId === selected.video_id ? focusCue.timeSec ?? null : null}
+              seekNonce={focusCue?.videoId === selected.video_id ? focusCue.nonce ?? null : null}
               onBack={() => setSelectedVideoId(null)}
             />
           ) : null}
 
-          {/* 两按钮：添加来源 / 新建笔记（仅主人） */}
+          {/* 三按钮：添加来源 / 网页搜索 / 新建笔记（仅主人） */}
           {isOwner ? (
-          <div className={browsingList ? "flex gap-2 border-b border-border/40 px-3 py-3" : "hidden"}>
+          <div className={browsingList ? "flex flex-wrap gap-2 border-b border-border/40 px-3 py-3" : "hidden"}>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
+              className="min-w-0 flex-1 rounded-full border-primary/25 bg-primary/5 px-2 text-primary hover:bg-primary/10 hover:text-primary"
               onClick={() => {
                 setShowAddSource(true);
               }}
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> 添加来源
+              <Plus className="mr-1 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">添加来源</span>
             </Button>
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 rounded-full border-border/70"
+              className="min-w-0 flex-1 rounded-full border-primary/25 bg-primary/5 px-2 text-primary hover:bg-primary/10 hover:text-primary"
+              onClick={() => setShowWebSearch(true)}
+              title="搜索网页视频并加入本笔记本"
+            >
+              <SearchIcon className="mr-1 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">网页搜索</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-w-0 flex-1 rounded-full border-border/70 px-2"
               onClick={() => alert("笔记功能即将上线")}
               title="即将上线"
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> 新建笔记
+              <Plus className="mr-1 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">新建笔记</span>
             </Button>
           </div>
           ) : browsingList ? (
@@ -657,6 +743,13 @@ export default function NotebookPage() {
             }}
           />
 
+          <NotebookWebSearchDialog
+            open={showWebSearch}
+            onOpenChange={setShowWebSearch}
+            adding={fetchUrl.isPending}
+            onAddUrl={(url) => fetchUrl.mutateAsync(url)}
+          />
+
           {browsingList && listRows.length === 0 ? (
             <div className="empty-panel">
               <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -664,7 +757,7 @@ export default function NotebookPage() {
               </span>
               <p className="text-sm font-medium text-foreground">还没有来源</p>
               <p className="mt-1.5 max-w-[14rem] text-xs leading-relaxed text-muted-foreground">
-                点上方「添加来源」，上传视频或粘贴链接。
+                点上方「添加来源」或「网页搜索」，上传、粘贴链接或搜视频加入。
               </p>
             </div>
           ) : null}
@@ -765,9 +858,13 @@ export default function NotebookPage() {
             onJump={(videoId, lineNo) => {
               setLeftCollapsed(false);
               setSelectedVideoId(videoId);
-              setFocusCue({ videoId, lineNo });
+              setFocusCue({ videoId, lineNo, nonce: Date.now() });
             }}
             relay={relay}
+            onCleared={() => {
+              setRelay(null);
+              discussing.current = false;
+            }}
           />
         </main>
 
@@ -777,14 +874,6 @@ export default function NotebookPage() {
               access={token}
               notebookId={notebookId}
               onExpand={() => setRightCollapsed(false)}
-              onOpenCapability={(capabilityId) => {
-                setPreviewTaskId(null);
-                setPreviewFormat(null);
-                setPreviewExpanded(false);
-                setOpenNoteId(null);
-                setPendingCapabilityId(capabilityId);
-                setRightCollapsed(false);
-              }}
               onOpenTask={(taskId, formatKey) => {
                 setOpenNoteId(null);
                 setPendingCapabilityId(null);
@@ -801,8 +890,8 @@ export default function NotebookPage() {
                   size="icon"
                   variant="outline"
                   className="absolute -left-3 top-1/2 z-20 h-7 w-7 -translate-y-1/2 rounded-full border-border/70 bg-card shadow-soft"
-                  title="折叠 Studio"
-                  aria-label="折叠 Studio"
+                  title="折叠产物"
+                  aria-label="折叠产物"
                   onClick={() => setRightCollapsed(true)}
                 >
                   <PanelRightClose className="h-3.5 w-3.5" />
@@ -811,6 +900,10 @@ export default function NotebookPage() {
               {openNote ? (
                 <StudioNote
                   note={openNote}
+                  saving={updateNote.isPending}
+                  onSaveContent={(content_text) =>
+                    updateNote.mutateAsync({ noteId: openNote.id, content_text })
+                  }
                   onOpenStudio={() => setOpenNoteId(null)}
                   onJump={(videoId, lineNo) => {
                     setLeftCollapsed(false);
@@ -822,9 +915,10 @@ export default function NotebookPage() {
                 <StudioSlides
                   access={token}
                   taskId={previewTaskId}
-                  title={preview.data?.title || "幻灯片"}
+                  title={displayStudioTaskTitle(preview.data?.title) || "幻灯片"}
                   crumb={nb.title}
                   artifacts={preview.data?.artifacts ?? []}
+                  fields={preview.data?.params_json?.fields ?? null}
                   pending={!preview.data && !preview.isError}
                   notice={
                     preview.isError
@@ -853,6 +947,23 @@ export default function NotebookPage() {
                     setRightCollapsed(false);
                     setOpenNoteId(noteId);
                   }}
+                />
+              ) : previewTaskId != null && previewFormat === "four_panel" ? (
+                <StudioComic
+                  title={displayStudioTaskTitle(preview.data?.title) || "四格漫"}
+                  crumb={nb.title}
+                  text={comicNotice(preview.isLoading, preview.isError, preview.error, preview.data) ? null : (preview.data?.text_content ?? null)}
+                  notice={comicNotice(preview.isLoading, preview.isError, preview.error, preview.data)}
+                  noticeError={preview.isError}
+                  regenerating={regenerateComic.isPending}
+                  expanded={previewExpanded}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+                  onRegenerate={() => regenerateComic.mutate()}
                 />
               ) : previewTaskId != null && previewFormat === "file" ? (
                 <StudioFile
@@ -900,27 +1011,72 @@ export default function NotebookPage() {
                 />
               ) : !isOwner ? (
                   <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-                    <p className="text-sm font-medium">Studio 仅主人可用</p>
+                    <p className="text-sm font-medium">产物仅主人可用</p>
                     <p className="max-w-xs text-xs text-muted-foreground">
-                      公开分享模式下可查看来源与字幕，生成产出请使用自己的笔记本。
+                      公开分享模式下可查看来源与字幕，生成产物请使用自己的笔记本。
                     </p>
                   </div>
                 ) : (
-                <StudioHome
-                  access={token}
-                  notebookId={notebookId}
-                  sources={nb.sources}
-                  notes={notes}
-                  pendingCapabilityId={pendingCapabilityId}
-                  onPendingCapabilityHandled={() => setPendingCapabilityId(null)}
-                  onCollapse={() => setRightCollapsed(true)}
-                  onOpenTask={(taskId, formatKey) => {
-                    setRightCollapsed(false);
-                    setPreviewExpanded(false);
-                    setPreviewFormat(formatKey);
-                    setPreviewTaskId(taskId);
-                  }}
-                />
+                <>
+                  <header className="panel-header py-2">
+                    <div className="min-w-0 flex-1">
+                      <RightPanelTabs
+                        mode={rightMode}
+                        onChange={setRightMode}
+                        studioBusyCount={studioBusyCount}
+                      />
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary"
+                      title="折叠"
+                      aria-label="折叠右侧面板"
+                      onClick={() => setRightCollapsed(true)}
+                    >
+                      <PanelRightClose className="h-4 w-4" />
+                    </Button>
+                  </header>
+                  {rightMode === "studio" ? (
+                    <StudioHome
+                      access={token}
+                      notebookId={notebookId}
+                      sources={nb.sources}
+                      notes={notes}
+                      pendingCapabilityId={pendingCapabilityId}
+                      onPendingCapabilityHandled={() => setPendingCapabilityId(null)}
+                      onGoKnowledge={() => setRightMode("knowledge")}
+                      onOpenTask={(taskId, formatKey) => {
+                        setRightCollapsed(false);
+                        setPreviewExpanded(false);
+                        setPreviewFormat(formatKey);
+                        setPreviewTaskId(taskId);
+                      }}
+                    />
+                  ) : (
+                    <KnowledgePanel
+                      access={token}
+                      notebookId={notebookId}
+                      sources={nb.sources}
+                      notes={notes}
+                      embedded
+                      onStudioTaskCreated={(_taskId, _formatKey) => {
+                        setRightCollapsed(false);
+                        setPendingCapabilityId(null);
+                        setPreviewExpanded(false);
+                        // New task is queued/running: switch to 产物 list for progress.
+                        setPreviewTaskId(null);
+                        setPreviewFormat(null);
+                        setRightMode("studio");
+                      }}
+                      onSeekVideo={(videoId, timeSec) => {
+                        setLeftCollapsed(false);
+                        setSelectedVideoId(videoId);
+                        setFocusCue({ videoId, timeSec, nonce: Date.now() });
+                      }}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
@@ -1008,7 +1164,7 @@ function StudioHome({
   sources,
   notes,
   onOpenTask,
-  onCollapse,
+  onGoKnowledge,
   pendingCapabilityId,
   onPendingCapabilityHandled,
 }: {
@@ -1017,36 +1173,19 @@ function StudioHome({
   sources: SourceSummary[];
   notes: NoteRead[];
   onOpenTask: (taskId: number, formatKey: string) => void;
-  onCollapse: () => void;
+  onGoKnowledge?: () => void;
   pendingCapabilityId?: number | null;
   onPendingCapabilityHandled?: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="panel-header">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Sparkles className="h-3.5 w-3.5" />
-          </span>
-          <h2 className="text-sm font-semibold tracking-tight">Studio</h2>
-        </div>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7 rounded-full hover:bg-primary/10 hover:text-primary"
-          title="折叠 Studio"
-          aria-label="折叠 Studio"
-          onClick={onCollapse}
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </Button>
-      </header>
       <StudioPanel
         access={access}
         notebookId={notebookId}
         sources={sources}
         notes={notes}
         onOpenTask={onOpenTask}
+        onGoKnowledge={onGoKnowledge}
         pendingCapabilityId={pendingCapabilityId}
         onPendingCapabilityHandled={onPendingCapabilityHandled}
       />
@@ -1066,12 +1205,15 @@ interface StudioTaskDetail {
   title: string;
   status: string;
   format_key: string;
+  capability_id?: number;
   text_content: string | null;
   pdf_error?: string | null;
   artifacts?: StudioArtifactRef[];
   params_json?: {
+    language?: string;
     video_ids?: unknown;
     note_ids?: unknown;
+    fields?: { key?: string; label?: string; value?: string }[];
   };
 }
 
@@ -1097,32 +1239,70 @@ function snapshotNotes(ids: number[], notes: NoteRead[]): { id: number; title: s
   }));
 }
 
-function mindMapNotice(
+
+function comicNotice(
   loading: boolean,
   failed: boolean,
   error: unknown,
   task: StudioTaskDetail | undefined,
 ): string | null {
+  const emptyLabel = "没有四格漫内容";
+  const loadingLabel = "加载四格漫…";
   if (!task) {
-    if (loading) return "加载导图…";
+    if (loading) return loadingLabel;
     if (error instanceof ApiError) return error.message;
     if (failed) return "加载失败";
-    return "加载导图…";
+    return loadingLabel;
   }
-  if (task.text_content == null) return "没有导图内容";
+  if (task.status === "queued" || task.status === "running") return "四格漫生成中…";
+  if (task.status === "failed") return "生成失败";
+  if (task.text_content == null) return emptyLabel;
+  return null;
+}
+
+
+function mindMapNotice(
+  loading: boolean,
+  failed: boolean,
+  error: unknown,
+  task: StudioTaskDetail | undefined,
+  _formatKey?: string | null,
+): string | null {
+  const emptyLabel = "没有导图内容";
+  const loadingLabel = "加载导图…";
+  if (!task) {
+    if (loading) return loadingLabel;
+    if (error instanceof ApiError) return error.message;
+    if (failed) return "加载失败";
+    return loadingLabel;
+  }
+  if (task.text_content == null) return emptyLabel;
   return null;
 }
 
 function StudioNote({
   note,
+  saving,
+  onSaveContent,
   onOpenStudio,
   onJump,
 }: {
   note: NoteRead;
+  saving?: boolean;
+  onSaveContent: (content_text: string) => Promise<unknown>;
   onOpenStudio: () => void;
   onJump: (videoId: number, lineNo: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+
+  useEffect(() => {
+    setEditing(false);
+    setEditError(null);
+    editorRef.current = null;
+  }, [note.id]);
 
   async function copyNote() {
     try {
@@ -1134,27 +1314,82 @@ function StudioNote({
     }
   }
 
+  async function saveEdit() {
+    const editor = editorRef.current;
+    if (!editor || saving) return;
+    setEditError(null);
+    try {
+      const content_text = getMarkdown(editor);
+      await onSaveContent(content_text);
+      setEditing(false);
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "保存失败");
+    }
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setEditError(null);
+    editorRef.current = null;
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="panel-header">
         <p className="min-w-0 truncate text-xs text-muted-foreground">
           <button type="button" className="hover:text-foreground hover:underline" onClick={onOpenStudio}>
-            Studio
+            产物
           </button>
           <span className="px-1">›</span>
           <span className="text-foreground">笔记</span>
         </p>
         <div className="flex items-center gap-0.5">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 rounded-full"
-            title={copied ? "已复制" : "复制"}
-            onClick={() => void copyNote()}
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="返回 Studio" onClick={onOpenStudio}>
+          {editing ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 rounded-full px-2 text-xs"
+                disabled={!!saving}
+                onClick={cancelEdit}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 rounded-full px-2.5 text-xs"
+                disabled={!!saving}
+                onClick={() => void saveEdit()}
+              >
+                {saving ? "保存中…" : "保存"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-full"
+                title="编辑"
+                onClick={() => {
+                  setEditError(null);
+                  setEditing(true);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-full"
+                title={copied ? "已复制" : "复制"}
+                onClick={() => void copyNote()}
+              >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </Button>
+            </>
+          )}
+          <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="返回产物" onClick={onOpenStudio}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -1162,9 +1397,20 @@ function StudioNote({
       <div className="flex shrink-0 items-start gap-2 px-4 pb-2 pt-3">
         <h2 className="min-w-0 flex-1 text-base font-semibold leading-6 tracking-tight">{note.title}</h2>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-        <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
-      </div>
+      {editError ? <p className="px-4 pb-2 text-xs text-destructive">{editError}</p> : null}
+      {editing ? (
+        <NoteRichEditor
+          key={`edit-${note.id}`}
+          initialMarkdown={note.content_text}
+          onEditor={(ed) => {
+            editorRef.current = ed;
+          }}
+        />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+          <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
+        </div>
+      )}
     </div>
   );
 }

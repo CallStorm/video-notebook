@@ -9,7 +9,6 @@ from app.fetch_network.types import PLATFORMS, PlatformKey
 _DOMAIN: dict[PlatformKey, str] = {
     "youtube": ".youtube.com",
     "bilibili": ".bilibili.com",
-    "douyin": ".douyin.com",
 }
 
 

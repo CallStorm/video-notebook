@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { init } from "pptx-preview";
+import JSZip from "jszip";
 import { Download, Maximize2, Minimize2, Play, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -21,12 +22,62 @@ const SLIDE_WIDTH = 960;
 const SLIDE_HEIGHT = 540;
 const SCROLL_GAP = 16;
 
+export type SlideField = { key?: string; label?: string; value?: string };
+
+function fieldMap(fields: SlideField[] | undefined | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const item of fields ?? []) {
+    if (item && typeof item.key === "string" && typeof item.value === "string" && item.key) {
+      out[item.key] = item.value;
+    }
+  }
+  return out;
+}
+
+function matchBriefLine(brief: string, prefixes: string[]): string | null {
+  for (const line of brief.split("\n")) {
+    const s = line.trim();
+    for (const prefix of prefixes) {
+      if (s.startsWith(prefix)) {
+        const v = s.slice(prefix.length).trim();
+        if (v) return v;
+      }
+    }
+  }
+  return null;
+}
+
+export function parseSlideMetaChips(fields: SlideField[] | undefined | null): string[] {
+  try {
+    const fmap = fieldMap(fields);
+    const brief = fmap.brief || "";
+    const chips: string[] = [];
+    const audience = (fmap.audience || "").trim() || matchBriefLine(brief, ["受众：", "受众:"]);
+    const pages = (fmap.page_count || fmap.pages || "").trim() || matchBriefLine(brief, ["页数：", "页数:"]);
+    const structure =
+      (fmap.structure || "").trim() || matchBriefLine(brief, ["结构建议：", "结构建议:", "结构：", "结构:"]);
+    if (audience) chips.push(audience);
+    if (pages) {
+      const shortPages = pages.split(/[（(]/)[0]?.trim() || pages;
+      chips.push(shortPages.length > 24 ? shortPages.slice(0, 24) + "…" : shortPages);
+    }
+    if (structure) {
+      chips.push(structure.length > 36 ? structure.slice(0, 36) + "…" : structure);
+    }
+    return chips;
+  } catch {
+    return [];
+  }
+}
+
+
 export function StudioSlides({
   access,
   taskId,
   title,
   crumb,
   artifacts,
+  fields,
   pending,
   notice,
   videos,
@@ -42,6 +93,7 @@ export function StudioSlides({
   title: string;
   crumb: string;
   artifacts: SlideArtifact[];
+  fields?: SlideField[] | null;
   pending?: boolean;
   notice?: string | null;
   videos: SlideSource[];
@@ -65,6 +117,7 @@ export function StudioSlides({
   const [failed, setFailed] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourceCount = videos.length + notes.length;
+  const metaChips = parseSlideMetaChips(fields);
   const mode = presenting ? "present" : expanded ? "expand" : "scroll";
   const shell =
     expanded || presenting
@@ -76,34 +129,45 @@ export function StudioSlides({
     const url = pptx.data?.url;
     if (!host || !url) return;
     let cancelled = false;
+    let previewer: ReturnType<typeof init> | null = null;
     setFailed(false);
     setIndex(0);
     setCount(0);
-    const previewer = init(host, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, mode: "list" });
     void (async () => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("load failed");
-      const buffer = await response.arrayBuffer();
-      if (cancelled) return;
-      await previewer.preview(buffer);
-      if (cancelled) return;
-      const wrapper = host.querySelector(".pptx-preview-wrapper");
-      if (wrapper instanceof HTMLElement) {
-        wrapper.style.overflow = "visible";
-        wrapper.style.background = "transparent";
-        wrapper.style.margin = "0";
-        wrapper.style.width = `${SLIDE_WIDTH}px`;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("load failed");
+        const raw = await response.arrayBuffer();
+        if (cancelled) return;
+        const buffer = await preparePptxBuffer(raw);
+        if (cancelled) return;
+        previewer = init(host, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, mode: "list" });
+        await previewer.preview(buffer);
+        if (cancelled) return;
+        const wrapper = host.querySelector(".pptx-preview-wrapper");
+        if (wrapper instanceof HTMLElement) {
+          wrapper.style.overflow = "visible";
+          wrapper.style.background = "transparent";
+          wrapper.style.margin = "0";
+          wrapper.style.width = `${SLIDE_WIDTH}px`;
+        }
+        host.querySelectorAll(".pptx-preview-wrapper-pagination, .pptx-preview-wrapper-next").forEach((node) => {
+          if (node instanceof HTMLElement) node.style.display = "none";
+        });
+        const slides = slideNodes(host).length;
+        if (slides < 1) throw new Error("pptx has no slides");
+        setCount(slides);
+      } catch {
+        if (!cancelled) {
+          setFailed(true);
+          setCount(0);
+          host.replaceChildren();
+        }
       }
-      host.querySelectorAll(".pptx-preview-wrapper-pagination, .pptx-preview-wrapper-next").forEach((node) => {
-        if (node instanceof HTMLElement) node.style.display = "none";
-      });
-      setCount(slideNodes(host).length);
-    })().catch(() => {
-      if (!cancelled) setFailed(true);
-    });
+    })();
     return () => {
       cancelled = true;
-      previewer.destroy();
+      previewer?.destroy();
       host.replaceChildren();
       railRef.current?.replaceChildren();
     };
@@ -194,7 +258,7 @@ export function StudioSlides({
           <div className="flex items-center justify-between px-5 pt-4">
             <p className="min-w-0 truncate text-sm text-muted-foreground">
               <button type="button" className="hover:text-foreground hover:underline" onClick={onBack}>
-                Studio
+                产物
               </button>
               <span className="px-1.5">›</span>
               <span className="text-foreground">{crumb}</span>
@@ -247,6 +311,19 @@ export function StudioSlides({
             <h2 className={expanded ? "text-2xl font-semibold tracking-tight" : "text-lg font-semibold tracking-tight"}>
               {title}
             </h2>
+            {metaChips.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {metaChips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="max-w-full truncate rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[11px] text-muted-foreground"
+                    title={chip}
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {sourceCount > 0 ? (
               <div className="relative mt-3">
                 <button
@@ -290,7 +367,9 @@ export function StudioSlides({
       ) : pending || (pptx.isLoading && main) ? (
         <p className="px-5 py-4 text-sm text-muted-foreground">加载预览…</p>
       ) : failed || !main ? (
-        <p className="px-5 py-4 text-sm text-muted-foreground">预览不可用</p>
+        <p className="px-5 py-4 text-sm text-muted-foreground">
+          {!main ? "还没有幻灯片文件" : "预览不可用（文件可能为空或损坏，请重新生成）"}
+        </p>
       ) : (
         <div className="flex min-h-0 flex-1">
           <div
@@ -330,6 +409,29 @@ export function StudioSlides({
       )}
     </div>
   );
+}
+
+async function preparePptxBuffer(buffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+    throw new Error("not a pptx zip");
+  }
+  const zip = await JSZip.loadAsync(buffer);
+  const presentation = zip.file("ppt/presentation.xml");
+  if (!presentation) throw new Error("missing presentation.xml");
+  let xml = await presentation.async("string");
+  const hasSlideRef =
+    /<p:sldId[\s>]/i.test(xml) ||
+    [...zip.file(/ppt\/slides\/slide\d+\.xml$/i)].length > 0;
+  if (!hasSlideRef) throw new Error("pptx has no slides");
+  if (!/defaultTextStyle/i.test(xml)) {
+    if (!xml.includes("</p:presentation>")) throw new Error("bad presentation.xml");
+    // pptx-preview calls Object.keys(defaultTextStyleSource) with no null guard.
+    xml = xml.replace("</p:presentation>", "<p:defaultTextStyle></p:defaultTextStyle></p:presentation>");
+    zip.file("ppt/presentation.xml", xml);
+    return zip.generateAsync({ type: "arraybuffer" });
+  }
+  return buffer;
 }
 
 function slideNodes(host: HTMLElement): HTMLElement[] {

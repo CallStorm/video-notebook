@@ -71,6 +71,7 @@ class _TTLCache[K, V]:
 _llm_cache = _TTLCache[str, LlmResolved]()
 _stt_cache = _TTLCache[str, SttResolved]()
 _logo_cache = _TTLCache[str, LlmResolved]()
+_cover_image_cache = _TTLCache[str, LlmResolved]()
 _embedding_cache = _TTLCache[str, EmbeddingResolved]()
 
 
@@ -129,6 +130,20 @@ async def get_active_logo_llm(session: AsyncSession) -> LlmResolved:
     return resolved
 
 
+
+
+async def get_active_cover_image_llm(session: AsyncSession) -> LlmResolved:
+    """Notebook cover text-to-image model; requires cover_image role (no chat fallback)."""
+    cached = _cover_image_cache.get("active")
+    if cached:
+        return cached
+    m, cred = await _resolve_default(session, "cover_image")
+    resolved = _to_llm(m, cred)
+    _cover_image_cache.put("active", resolved)
+    return resolved
+
+
+
 async def get_active_stt(session: AsyncSession) -> SttResolved:
     cached = _stt_cache.get("active")
     if cached:
@@ -165,15 +180,17 @@ async def get_active_embedding(session: AsyncSession) -> EmbeddingResolved:
 
 def invalidate(role: str | None = None) -> None:
     """Admin 改了配置后调用。下次读会回 DB 拉。"""
-    if role in (None, "chat", "logo", "all"):
+    if role in (None, "chat", "logo", "cover_image", "all"):
         _llm_cache.clear()
         _logo_cache.clear()
+        _cover_image_cache.clear()
     if role in (None, "stt", "all"):
         _stt_cache.clear()
     if role in (None, "embedding", "all"):
         _embedding_cache.clear()
-    if role and role not in ("chat", "stt", "logo", "embedding", "all"):
+    if role and role not in ("chat", "stt", "logo", "cover_image", "embedding", "all"):
         _llm_cache.clear()
         _logo_cache.clear()
+        _cover_image_cache.clear()
         _stt_cache.clear()
         _embedding_cache.clear()

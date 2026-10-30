@@ -1,0 +1,39 @@
+{
+  "id": "four_panel",
+  "name": "四格漫",
+  "icon": "🎭",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "timeout_seconds": 120,
+  "skill": "four-panel-comic",
+  "extensions": [
+    ".json"
+  ],
+  "preferred_names": [
+    "comic.json"
+  ],
+  "form": [
+    {
+      "type": "language"
+    },
+    {
+      "type": "sources"
+    },
+    {
+      "type": "text",
+      "key": "title",
+      "label": "短标题",
+      "placeholder": "列表与封面用，如：审核清单",
+      "required": false,
+      "multiline": false
+    },
+    {
+      "type": "text",
+      "key": "brief",
+      "label": "要点材料",
+      "placeholder": "主题与勾选要点（主张/原句/例/结论）",
+      "required": true,
+      "multiline": true
+    }
+  ]
+}

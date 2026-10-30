@@ -125,6 +125,9 @@ class Settings(BaseSettings):
     # ─── LLM 调用护栏 ────────────────────────────────────────────────────
     max_context_tokens: int = 60000
 
+    # 生成知识底稿（knowledge_draft）的 completion max_tokens；环境变量 DRAFT_MAX_TOKENS
+    draft_max_tokens: int = 200000
+
     # ─── 对话 ─────────────────────────────────────────────────────────────
     # 最近 N 轮（用户+助手成对）。可被管理后台 chat_settings_config 覆盖。
     chat_history_limit: int = 8

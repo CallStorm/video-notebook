@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+# ── Tag brief (embedded on notebook list/detail) ────────────────
+class TagBrief(BaseModel):
+    id: int
+    name: str
+    color: str | None = None
 
 
 # ── Notebook ─────────────────────────────────────────────────────
@@ -40,6 +47,7 @@ class NotebookRead(BaseModel):
     index_status: str | None = None
     indexed_at: str | None = None
     index_error: str | None = None
+    tags: list[TagBrief] = []
     created_at: str | None
     updated_at: str | None
 
@@ -90,7 +98,16 @@ class SourceSummary(BaseModel):
 
 
 class NoteRename(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
+    """更新笔记：可改标题、正文，至少一项。"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    content_text: str | None = None
+
+    @model_validator(mode="after")
+    def require_one_field(self):
+        if self.title is None and self.content_text is None:
+            raise ValueError("需要提供 title 或 content_text")
+        return self
 
 
 class NoteRead(BaseModel):

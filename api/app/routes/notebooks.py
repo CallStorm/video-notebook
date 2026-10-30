@@ -8,6 +8,7 @@ from app.core.deps import get_current_active_user
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.collection import NotebookCollectionsPut, NotebookCollectionsRead
+from app.schemas.tag import NotebookTagsPut, NotebookTagsRead
 from app.schemas.notebook import (
     NotebookCreate,
     NotebookListResponse,
@@ -17,6 +18,7 @@ from app.schemas.notebook import (
 )
 from app.schemas.vector_settings import NotebookIndexStateRead, NotebookReindexResult
 from app.services import collections as collections_svc
+from app.services import tags as tags_svc
 from app.services import notebooks as svc
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
@@ -25,6 +27,7 @@ router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 @router.get("", response_model=NotebookListResponse)
 async def list_notebooks(
     search: str | None = Query(default=None, max_length=200),
+    tag_id: int | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
@@ -36,6 +39,7 @@ async def list_notebooks(
         search=search,
         page=page,
         size=size,
+        tag_id=tag_id,
     )
     reads = await svc.to_read_many(session, items, viewer_id=user.id)
     return NotebookListResponse(
@@ -144,7 +148,7 @@ async def get_notebook_detail(
         for source in sources:
             video = source.video
             if video.subtitle_status == "pending" and video.storage_key:
-                kick_subtitle_job(video.id)
+                kick_subtitle_job(video.id, notebook_id=notebook_id)
     from app.services.notes import list_notes_readable
 
     notes = await list_notes_readable(
@@ -240,6 +244,27 @@ async def put_notebook_collections(
         session, user.id, notebook_id, body.collection_ids
     )
     return NotebookCollectionsRead(collection_ids=ids)
+
+
+
+
+@router.get("/{notebook_id}/tags", response_model=NotebookTagsRead)
+async def get_notebook_tags(
+    notebook_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await tags_svc.get_notebook_tags(session, user.id, notebook_id)
+
+
+@router.put("/{notebook_id}/tags", response_model=NotebookTagsRead)
+async def put_notebook_tags(
+    notebook_id: int,
+    body: NotebookTagsPut,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await tags_svc.set_notebook_tags(session, user.id, notebook_id, body.tag_ids)
 
 
 @router.get("/{notebook_id}/index", response_model=NotebookIndexStateRead)

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 import { Pin } from "lucide-react";
 import { NotebookCardMenu } from "@/components/notebook-card-menu";
 import { GeneratedCover } from "@/components/generated-cover";
@@ -18,6 +18,7 @@ export interface NotebookBookCardData {
   updated_at: string | null;
   index_status?: string | null;
   index_error?: string | null;
+  tags?: { id: number; name: string; color: string | null }[];
 }
 
 function formatSources(n: number): string {
@@ -52,7 +53,7 @@ export function NotebookBookCard({
   onToggleShare,
   onReindex,
   onDelete,
-  onAddToCollection,
+  onEditTags,
 }: {
   notebook: NotebookBookCardData;
   onUpdateTitle: (id: number) => void;
@@ -60,7 +61,7 @@ export function NotebookBookCard({
   onToggleShare?: (id: number) => void;
   onReindex?: (id: number) => void;
   onDelete: (id: number) => void;
-  onAddToCollection?: (id: number) => void;
+  onEditTags?: (id: number) => void;
 }) {
   const remote = isRemoteCover(nb.cover_url);
   const sourcesLabel = formatSources(nb.source_count ?? 0);
@@ -139,9 +140,9 @@ export function NotebookBookCard({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
       </Link>
 
-      <div className="flex items-start gap-1.5 px-2.5 pb-2.5 pt-2">
+      <div className="flex items-start gap-1 px-2 pb-2 pt-1.5">
         <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1 text-left">
-          <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug tracking-tight text-foreground">
+          <h3 className="line-clamp-2 text-xs font-semibold leading-snug tracking-tight text-foreground">
             {nb.title}
           </h3>
           <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
@@ -152,6 +153,25 @@ export function NotebookBookCard({
               <span className="truncate">{formatDateZh(nb.updated_at)}</span>
             ) : null}
           </p>
+          {nb.tags && nb.tags.length > 0 ? (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {nb.tags.slice(0, 2).map((t) => (
+                <span
+                  key={t.id}
+                  className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: t.color || "#2F6B4F" }}
+                  />
+                  <span className="truncate">{t.name}</span>
+                </span>
+              ))}
+              {nb.tags.length > 2 ? (
+                <span className="text-[10px] text-muted-foreground">+{nb.tags.length - 2}</span>
+              ) : null}
+            </div>
+          ) : null}
         </Link>
         <div
           className="shrink-0 pt-0.5 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
@@ -163,7 +183,7 @@ export function NotebookBookCard({
             shareAll={!!nb.share_all}
             indexStatus={nb.index_status}
             onRequestEdit={onUpdateTitle}
-            onAddToCollection={onAddToCollection}
+            onEditTags={onEditTags}
             onTogglePin={onTogglePin}
             onToggleShare={onToggleShare}
             onReindex={onReindex}
