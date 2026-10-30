@@ -6,6 +6,7 @@ import {
   Loader2,
   Network,
   PanelRightClose,
+  Play,
   Plus,
   Presentation,
   RefreshCw,
@@ -819,18 +820,19 @@ export function KnowledgePanel({
                         className={
                           "group rounded-2xl border px-2.5 py-2.5 shadow-sm transition " +
                           (point.checked
-                            ? "border-primary/35 bg-primary/[0.05]"
-                            : "border-border/55 bg-card")
+                            ? "border-primary/35 bg-primary/[0.04]"
+                            : "border-border/50 bg-card hover:border-border/80")
                         }
                       >
-                        <div className="flex items-start gap-2">
-                          <div className="flex shrink-0 flex-col items-center gap-1.5 pt-0.5">
+                        <div className="flex items-start gap-2.5">
+                          {/* 左轨：序号 + 勾选 */}
+                          <div className="flex w-5 shrink-0 flex-col items-center gap-1.5 pt-0.5">
                             <span
                               className={
-                                "flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold " +
+                                "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold " +
                                 (point.checked
                                   ? "bg-primary text-primary-foreground"
-                                  : "bg-primary/15 text-primary")
+                                  : "bg-primary/12 text-primary")
                               }
                             >
                               {idx + 1}
@@ -838,10 +840,10 @@ export function KnowledgePanel({
                             <button
                               type="button"
                               className={
-                                "flex h-4 w-4 items-center justify-center rounded border " +
+                                "flex h-4 w-4 items-center justify-center rounded border transition " +
                                 (point.checked
                                   ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-muted-foreground/40")
+                                  : "border-primary/40 bg-background hover:border-primary/70")
                               }
                               aria-label="勾选要点"
                               onClick={() => togglePoint(point)}
@@ -849,56 +851,61 @@ export function KnowledgePanel({
                               {point.checked ? <Check className="h-3 w-3" /> : null}
                             </button>
                           </div>
-                          <div className="min-w-0 flex-1 space-y-1.5">
-                            {editingPointId === point.id ? (
-                              <div className="space-y-1">
-                                <textarea
-                                  className="min-h-[3rem] w-full rounded-lg border border-input bg-background px-2 py-1 text-xs"
-                                  value={editingPointText}
-                                  onChange={(e) => setEditingPointText(e.target.value)}
-                                  autoFocus
-                                />
-                                <div className="flex gap-1">
-                                  <Button size="sm" className="h-7 text-xs" onClick={savePointEdit}>
-                                    保存
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 text-xs"
-                                    onClick={() => setEditingPointId(null)}
-                                  >
-                                    取消
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <p
-                                className="cursor-text text-[13px] font-semibold leading-snug text-foreground"
-                                onDoubleClick={() => {
-                                  setEditingPointId(point.id);
-                                  setEditingPointText(point.text);
-                                }}
-                              >
-                                {point.text}
-                              </p>
-                            )}
 
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            {/* 主张：仅此处加粗 */}
+                            <div className="min-w-0">
+                              {editingPointId === point.id ? (
+                                <div className="space-y-1">
+                                  <textarea
+                                    className="min-h-[3rem] w-full rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                                    value={editingPointText}
+                                    onChange={(e) => setEditingPointText(e.target.value)}
+                                    autoFocus
+                                  />
+                                  <div className="flex gap-1">
+                                    <Button size="sm" className="h-7 text-xs" onClick={savePointEdit}>
+                                      保存
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs"
+                                      onClick={() => setEditingPointId(null)}
+                                    >
+                                      取消
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p
+                                  className="cursor-text text-[13px] font-semibold leading-snug text-foreground"
+                                  onDoubleClick={() => {
+                                    setEditingPointId(point.id);
+                                    setEditingPointText(point.text);
+                                  }}
+                                >
+                                  {point.text}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* 原句：标签 + 常规字重，无底色 */}
                             {evidence ? (
                               <div className="flex items-start gap-1.5">
-                                <div className="min-w-0 flex-1 rounded-xl border border-border/55 bg-muted/55 px-2.5 py-1.5">
-                                  <p className="text-[11px] leading-relaxed text-foreground/80">
-                                    <span className="font-semibold text-muted-foreground">原句：</span>
-                                    {evidence}
-                                  </p>
-                                </div>
+                                <p className="min-w-0 flex-1 text-[11px] font-normal leading-relaxed text-foreground/90">
+                                  <span className="mr-1.5 inline-flex items-center rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-semibold text-primary">
+                                    原句
+                                  </span>
+                                  {evidence}
+                                </p>
                                 <button
                                   type="button"
                                   className={
-                                    "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition " +
+                                    "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition " +
                                     (askPointId === point.id
-                                      ? "border-primary/40 bg-primary/15 text-primary"
-                                      : "border-border/70 bg-card text-primary hover:border-primary/35 hover:bg-primary/10")
+                                      ? "bg-primary/12 text-primary"
+                                      : "text-muted-foreground/70 hover:bg-muted hover:text-primary")
                                   }
                                   title="就这段问问"
                                   aria-label="就这段问问"
@@ -917,7 +924,7 @@ export function KnowledgePanel({
                               <div className="flex items-center justify-end">
                                 <button
                                   type="button"
-                                  className="flex h-7 w-7 items-center justify-center rounded-full border border-border/50 text-muted-foreground/40"
+                                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/30"
                                   title="无原句，暂不可问"
                                   disabled
                                 >
@@ -926,40 +933,22 @@ export function KnowledgePanel({
                               </div>
                             )}
 
+                            {/* 例：彩色标签 + 正文，无色块 */}
                             {example ? (
-                              <div className="rounded-xl border border-amber-200/70 bg-amber-50/90 px-2.5 py-1.5 dark:border-amber-900/50 dark:bg-amber-950/40">
-                                <p className="text-[11px] leading-relaxed text-foreground/85">
-                                  <span className="font-semibold text-amber-800/90 dark:text-amber-200/90">
-                                    例：
-                                  </span>
-                                  {example}
-                                </p>
-                              </div>
+                              <p className="text-[11px] font-normal leading-relaxed text-foreground/85">
+                                <span className="mr-1.5 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                                  例
+                                </span>
+                                {example}
+                              </p>
                             ) : (
-                              <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-2.5 py-1.5">
-                                <p className="text-[10px] text-muted-foreground">
-                                  暂无例子 · 重新生成后会出现「例：…」
-                                </p>
-                              </div>
+                              <p className="text-[10px] text-muted-foreground/80">
+                                <span className="mr-1 text-amber-700/70 dark:text-amber-400/70">例</span>
+                                暂无例子 · 重新生成后会出现「例：…」
+                              </p>
                             )}
 
-                            <div className="flex items-center justify-end">
-                              {secs != null && seekId != null && onSeekVideo ? (
-                                <button
-                                  type="button"
-                                  className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                                  title="跳到原片"
-                                  onClick={() => onSeekVideo(seekId, secs)}
-                                >
-                                  {point.time}
-                                </button>
-                              ) : point.time ? (
-                                <span className="font-mono text-[10px] text-muted-foreground/70">
-                                  {point.time}
-                                </span>
-                              ) : null}
-                            </div>
-
+                            {/* 已有评论 / 编辑评论 */}
                             {editingComment ? (
                               <div className="space-y-1 rounded-xl border border-primary/20 bg-primary/[0.03] p-2">
                                 <textarea
@@ -1003,9 +992,9 @@ export function KnowledgePanel({
                                 </div>
                               </div>
                             ) : comment ? (
-                              <div className="flex items-start gap-1.5 rounded-xl border border-border/50 bg-card px-2.5 py-1.5">
+                              <div className="flex items-start gap-1.5 rounded-lg border border-border/40 px-2 py-1.5">
                                 <p
-                                  className="min-w-0 flex-1 cursor-text text-[11px] leading-relaxed text-foreground/85"
+                                  className="min-w-0 flex-1 cursor-text text-[11px] font-normal leading-relaxed text-foreground/85"
                                   onDoubleClick={() => beginCommentEdit(point)}
                                   title="双击编辑"
                                 >
@@ -1029,16 +1018,38 @@ export function KnowledgePanel({
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </div>
-                            ) : (
-                              <button
-                                type="button"
-                                className="flex h-8 w-full items-center justify-start gap-1 rounded-xl border border-dashed border-border/70 px-2.5 text-[11px] text-muted-foreground transition hover:border-primary/35 hover:bg-primary/[0.04] hover:text-primary"
-                                onClick={() => beginCommentEdit(point)}
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                写评论
-                              </button>
-                            )}
+                            ) : null}
+
+                            {/* 底栏：时间 + 写评论（勾选已在左轨） */}
+                            <div className="flex items-center gap-2 border-t border-border/40 pt-1.5">
+                              {secs != null && seekId != null && onSeekVideo ? (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground transition hover:text-primary"
+                                  title="跳到原片"
+                                  onClick={() => onSeekVideo(seekId, secs)}
+                                >
+                                  <Play className="h-2.5 w-2.5 fill-current" />
+                                  {point.time}
+                                </button>
+                              ) : point.time ? (
+                                <span className="font-mono text-[10px] text-muted-foreground">
+                                  {point.time}
+                                </span>
+                              ) : null}
+                              <div className="ml-auto">
+                                {!editingComment && !comment ? (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                    onClick={() => beginCommentEdit(point)}
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                    写评论
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
