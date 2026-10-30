@@ -22,7 +22,7 @@ export function RightPanelTabs({
     { id: "knowledge", label: "知识", icon: BookOpen, badge: undefined },
     {
       id: "studio",
-      label: "Studio",
+      label: "产物",
       icon: Sparkles,
       badge: studioBusyCount > 0 ? studioBusyCount : undefined,
     },

@@ -258,7 +258,7 @@ export function StudioSlides({
           <div className="flex items-center justify-between px-5 pt-4">
             <p className="min-w-0 truncate text-sm text-muted-foreground">
               <button type="button" className="hover:text-foreground hover:underline" onClick={onBack}>
-                Studio
+                产物
               </button>
               <span className="px-1.5">›</span>
               <span className="text-foreground">{crumb}</span>

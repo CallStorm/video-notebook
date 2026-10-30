@@ -376,8 +376,8 @@ export function KnowledgePanel({
     if (!cap) {
       setStudioError(
         formatKey === "mind_map"
-          ? "请先在 Studio 启用思维导图能力"
-          : "请先在 Studio 启用 PPT 能力",
+          ? "请先启用思维导图能力"
+          : "请先启用 PPT 能力",
       );
       return;
     }
@@ -708,7 +708,7 @@ export function KnowledgePanel({
                 className="h-7 rounded-full px-2 text-xs text-muted-foreground"
                 onClick={onOpenStudio}
               >
-                Studio
+                产物
               </Button>
             ) : null}
             {onCollapse ? (

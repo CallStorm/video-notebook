@@ -202,13 +202,11 @@ export function StudioCollapsedRail({
   access,
   notebookId,
   onExpand,
-  onOpenCapability,
   onOpenTask,
 }: {
   access: string;
   notebookId: number;
   onExpand: () => void;
-  onOpenCapability: (capabilityId: number) => void;
   onOpenTask: (taskId: number, formatKey: string) => void;
 }) {
   const capabilities = useQuery({
@@ -227,7 +225,6 @@ export function StudioCollapsedRail({
     },
   });
 
-  const caps = (capabilities.data ?? []).filter((c) => isStudioFormatVisible(c.format_key));
   const taskRows = (tasks.data ?? []).filter((t) => isStudioFormatVisible(t.format_key));
 
   return (
@@ -236,35 +233,14 @@ export function StudioCollapsedRail({
         size="icon"
         variant="ghost"
         className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary"
-        title="展开 Studio"
-        aria-label="展开 Studio"
+        title="展开产物"
+        aria-label="展开产物"
         onClick={onExpand}
       >
         <PanelRightOpen className="h-4 w-4" />
       </Button>
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto pb-2">
-        <span className="pt-1 text-[9px] font-medium tracking-wide text-muted-foreground">能力</span>
-        {caps.length === 0 && !capabilities.isLoading ? (
-          <span className="px-1 text-center text-[9px] leading-tight text-muted-foreground/80">暂无</span>
-        ) : null}
-        {caps.map((capability) => (
-          <button
-            key={capability.id}
-            type="button"
-            className="panel-rail-icon"
-            title={capability.name}
-            aria-label={capability.name}
-            onClick={() => onOpenCapability(capability.id)}
-          >
-            {capability.icon ? (
-              <span className="text-base leading-none">{capability.icon}</span>
-            ) : (
-              <span className="text-[10px] font-semibold text-primary">AI</span>
-            )}
-          </button>
-        ))}
-        <div className="my-1.5 h-px w-7 shrink-0 bg-border/70" />
-        <span className="text-[9px] font-medium tracking-wide text-muted-foreground">产出</span>
+        <span className="pt-1 text-[9px] font-medium tracking-wide text-muted-foreground">产物</span>
         {taskRows.length === 0 && !tasks.isLoading ? (
           <span className="px-1 text-center text-[9px] leading-tight text-muted-foreground/80">暂无</span>
         ) : null}
@@ -319,6 +295,7 @@ export function StudioPanel({
   sources,
   notes,
   onOpenTask,
+  onGoKnowledge,
   pendingCapabilityId = null,
   onPendingCapabilityHandled,
 }: {
@@ -327,6 +304,7 @@ export function StudioPanel({
   sources: StudioSource[];
   notes: StudioNote[];
   onOpenTask?: (taskId: number, formatKey: string) => void;
+  onGoKnowledge?: () => void;
   pendingCapabilityId?: number | null;
   onPendingCapabilityHandled?: () => void;
 }) {
@@ -473,51 +451,32 @@ export function StudioPanel({
     });
   }
 
-  const visibleCapabilities = (capabilities.data ?? []).filter((c) => isStudioFormatVisible(c.format_key));
   const taskRows = (tasks.data ?? []).filter((t) => isStudioFormatVisible(t.format_key));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="px-3.5 pt-3">
-        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">能力</p>
-        <div className="grid grid-cols-2 gap-2">
-          {visibleCapabilities.map((capability) => (
-            <button
-              key={capability.id}
-              type="button"
-              className="studio-tile text-xs"
-              onClick={() => openCapability(capability)}
-            >
-              {capability.icon ? (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base leading-none">
-                  {capability.icon}
-                </span>
-              ) : (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">
-                  AI
-                </span>
-              )}
-              <span className="line-clamp-2 font-medium leading-snug">{capability.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
       {capabilities.error instanceof ApiError ? (
-        <p className="px-4 text-xs text-destructive">{capabilities.error.message}</p>
+        <p className="px-4 pt-3 text-xs text-destructive">{capabilities.error.message}</p>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-3.5 pb-1 pt-4">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">产出</p>
-        </div>
         {taskRows.length === 0 && !tasks.isLoading ? (
-          <div className="empty-panel mx-3 mb-3 py-8">
-            <p className="text-sm font-medium text-foreground">还没有产出</p>
+          <div className="empty-panel mx-3 mb-3 mt-6 py-8">
+            <p className="text-sm font-medium text-foreground">还没有产物</p>
             <p className="mt-1.5 max-w-[16rem] text-xs leading-relaxed text-muted-foreground">
-              点上方能力，生成导图、幻灯片或文件。
+              在知识里勾选要点后生成导图或幻灯片。
             </p>
+            {onGoKnowledge ? (
+              <button
+                type="button"
+                className="mt-3 text-xs font-medium text-primary hover:underline"
+                onClick={onGoKnowledge}
+              >
+                去知识
+              </button>
+            ) : null}
           </div>
         ) : null}
-        <div className="pb-3">
+        <div className="pb-3 pt-2">
           {taskRows.map((task) => {
             const busy = task.status === "queued" || task.status === "running";
             const errorLabel =

@@ -837,15 +837,6 @@ export default function NotebookPage() {
               access={token}
               notebookId={notebookId}
               onExpand={() => setRightCollapsed(false)}
-              onOpenCapability={(capabilityId) => {
-                setPreviewTaskId(null);
-                setPreviewFormat(null);
-                setPreviewExpanded(false);
-                setOpenNoteId(null);
-                setPendingCapabilityId(capabilityId);
-                setRightMode("studio");
-                setRightCollapsed(false);
-              }}
               onOpenTask={(taskId, formatKey) => {
                 setOpenNoteId(null);
                 setPendingCapabilityId(null);
@@ -862,8 +853,8 @@ export default function NotebookPage() {
                   size="icon"
                   variant="outline"
                   className="absolute -left-3 top-1/2 z-20 h-7 w-7 -translate-y-1/2 rounded-full border-border/70 bg-card shadow-soft"
-                  title="折叠 Studio"
-                  aria-label="折叠 Studio"
+                  title="折叠产物"
+                  aria-label="折叠产物"
                   onClick={() => setRightCollapsed(true)}
                 >
                   <PanelRightClose className="h-3.5 w-3.5" />
@@ -966,9 +957,9 @@ export default function NotebookPage() {
                 />
               ) : !isOwner ? (
                   <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-                    <p className="text-sm font-medium">Studio 仅主人可用</p>
+                    <p className="text-sm font-medium">产物仅主人可用</p>
                     <p className="max-w-xs text-xs text-muted-foreground">
-                      公开分享模式下可查看来源与字幕，生成产出请使用自己的笔记本。
+                      公开分享模式下可查看来源与字幕，生成产物请使用自己的笔记本。
                     </p>
                   </div>
                 ) : (
@@ -1000,6 +991,7 @@ export default function NotebookPage() {
                       notes={notes}
                       pendingCapabilityId={pendingCapabilityId}
                       onPendingCapabilityHandled={() => setPendingCapabilityId(null)}
+                      onGoKnowledge={() => setRightMode("knowledge")}
                       onOpenTask={(taskId, formatKey) => {
                         setRightCollapsed(false);
                         setPreviewExpanded(false);
@@ -1018,7 +1010,7 @@ export default function NotebookPage() {
                         setRightCollapsed(false);
                         setPendingCapabilityId(null);
                         setPreviewExpanded(false);
-                        // New task is queued/running: switch to Studio list for progress.
+                        // New task is queued/running: switch to 产物 list for progress.
                         setPreviewTaskId(null);
                         setPreviewFormat(null);
                         setRightMode("studio");
@@ -1118,6 +1110,7 @@ function StudioHome({
   sources,
   notes,
   onOpenTask,
+  onGoKnowledge,
   pendingCapabilityId,
   onPendingCapabilityHandled,
 }: {
@@ -1126,6 +1119,7 @@ function StudioHome({
   sources: SourceSummary[];
   notes: NoteRead[];
   onOpenTask: (taskId: number, formatKey: string) => void;
+  onGoKnowledge?: () => void;
   pendingCapabilityId?: number | null;
   onPendingCapabilityHandled?: () => void;
 }) {
@@ -1137,6 +1131,7 @@ function StudioHome({
         sources={sources}
         notes={notes}
         onOpenTask={onOpenTask}
+        onGoKnowledge={onGoKnowledge}
         pendingCapabilityId={pendingCapabilityId}
         onPendingCapabilityHandled={onPendingCapabilityHandled}
       />
@@ -1265,7 +1260,7 @@ function StudioNote({
       <header className="panel-header">
         <p className="min-w-0 truncate text-xs text-muted-foreground">
           <button type="button" className="hover:text-foreground hover:underline" onClick={onOpenStudio}>
-            Studio
+            产物
           </button>
           <span className="px-1">›</span>
           <span className="text-foreground">笔记</span>
@@ -1316,7 +1311,7 @@ function StudioNote({
               </Button>
             </>
           )}
-          <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="返回 Studio" onClick={onOpenStudio}>
+          <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full" title="返回产物" onClick={onOpenStudio}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
