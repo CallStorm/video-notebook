@@ -119,6 +119,39 @@ function idCount(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+
+function looksLikeBriefTitle(title: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  if (t.includes("\n") && t.length > 40) return true;
+  const head = t.slice(0, 120);
+  return ["受众", "结构建议", "页数", "主题：", "主题:", "要点：", "要点:"].some((m) => head.includes(m));
+}
+
+function shortTitleFromBriefish(title: string, maxLen = 24): string {
+  const t = title.trim();
+  for (const line of t.split("\n")) {
+    const s = line.trim();
+    for (const prefix of ["主题：", "主题:"]) {
+      if (s.startsWith(prefix)) {
+        const theme = s.slice(prefix.length).trim();
+        if (theme) return theme.length > maxLen ? theme.slice(0, maxLen) + "…" : theme;
+      }
+    }
+  }
+  const first = t.split("\n").map((l) => l.trim()).find((l) => l && !/^(受众|结构建议|页数|要点|结论)/.test(l));
+  const base = (first || t).replace(/\s+/g, " ");
+  return base.length > maxLen ? base.slice(0, maxLen) + "…" : base;
+}
+
+/** List/rail label: never show a pasted brief as the card title. */
+export function displayStudioTaskTitle(title: string | null | undefined): string {
+  const raw = (title || "").trim() || "未命名";
+  if (looksLikeBriefTitle(raw)) return shortTitleFromBriefish(raw);
+  if (raw.length > 40) return raw.slice(0, 24) + "…";
+  return raw;
+}
+
 function capabilityIcon(capabilities: Capability[] | undefined, task: StudioTask): string | null {
   return capabilities?.find((item) => item.id === task.capability_id)?.icon ?? null;
 }
@@ -242,7 +275,8 @@ export function StudioCollapsedRail({
             isStudioOpenableFormat(task.format_key);
           const icon = capabilityIcon(capabilities.data, task);
           const chip = taskStatusChip(task.status);
-          const tip = chip ? `${task.title} · ${chip.label}` : task.title;
+          const shown = displayStudioTaskTitle(task.title);
+          const tip = chip ? `${shown} · ${chip.label}` : shown;
           return (
             <button
               key={task.id}
@@ -511,7 +545,7 @@ export function StudioPanel({
                       if (openable) onOpenTask?.(task.id, task.format_key);
                     }}
                   >
-                    <div className="line-clamp-2 text-[13px] font-medium leading-snug">{task.title}</div>
+                    <div className="line-clamp-2 text-[13px] font-medium leading-snug">{displayStudioTaskTitle(task.title)}</div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       {chip ? <span className={chip.className}>{chip.label}</span> : null}
                       {task.status === "failed" && errorLabel ? (
@@ -554,11 +588,11 @@ export function StudioPanel({
                       className="line-clamp-2 text-left text-[13px] font-medium leading-snug hover:underline"
                       onClick={() => onOpenTask?.(task.id, task.format_key)}
                     >
-                      {task.title}
+                      {displayStudioTaskTitle(task.title)}
                     </button>
                   ) : (
                     <div className="line-clamp-2 text-[13px] font-medium leading-snug">
-                      {task.title}
+                      {displayStudioTaskTitle(task.title)}
                     </div>
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

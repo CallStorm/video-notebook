@@ -22,12 +22,62 @@ const SLIDE_WIDTH = 960;
 const SLIDE_HEIGHT = 540;
 const SCROLL_GAP = 16;
 
+export type SlideField = { key?: string; label?: string; value?: string };
+
+function fieldMap(fields: SlideField[] | undefined | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const item of fields ?? []) {
+    if (item && typeof item.key === "string" && typeof item.value === "string" && item.key) {
+      out[item.key] = item.value;
+    }
+  }
+  return out;
+}
+
+function matchBriefLine(brief: string, prefixes: string[]): string | null {
+  for (const line of brief.split("\n")) {
+    const s = line.trim();
+    for (const prefix of prefixes) {
+      if (s.startsWith(prefix)) {
+        const v = s.slice(prefix.length).trim();
+        if (v) return v;
+      }
+    }
+  }
+  return null;
+}
+
+export function parseSlideMetaChips(fields: SlideField[] | undefined | null): string[] {
+  try {
+    const fmap = fieldMap(fields);
+    const brief = fmap.brief || "";
+    const chips: string[] = [];
+    const audience = (fmap.audience || "").trim() || matchBriefLine(brief, ["受众：", "受众:"]);
+    const pages = (fmap.page_count || fmap.pages || "").trim() || matchBriefLine(brief, ["页数：", "页数:"]);
+    const structure =
+      (fmap.structure || "").trim() || matchBriefLine(brief, ["结构建议：", "结构建议:", "结构：", "结构:"]);
+    if (audience) chips.push(audience);
+    if (pages) {
+      const shortPages = pages.split(/[（(]/)[0]?.trim() || pages;
+      chips.push(shortPages.length > 24 ? shortPages.slice(0, 24) + "…" : shortPages);
+    }
+    if (structure) {
+      chips.push(structure.length > 36 ? structure.slice(0, 36) + "…" : structure);
+    }
+    return chips;
+  } catch {
+    return [];
+  }
+}
+
+
 export function StudioSlides({
   access,
   taskId,
   title,
   crumb,
   artifacts,
+  fields,
   pending,
   notice,
   videos,
@@ -43,6 +93,7 @@ export function StudioSlides({
   title: string;
   crumb: string;
   artifacts: SlideArtifact[];
+  fields?: SlideField[] | null;
   pending?: boolean;
   notice?: string | null;
   videos: SlideSource[];
@@ -66,6 +117,7 @@ export function StudioSlides({
   const [failed, setFailed] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourceCount = videos.length + notes.length;
+  const metaChips = parseSlideMetaChips(fields);
   const mode = presenting ? "present" : expanded ? "expand" : "scroll";
   const shell =
     expanded || presenting
@@ -259,6 +311,19 @@ export function StudioSlides({
             <h2 className={expanded ? "text-2xl font-semibold tracking-tight" : "text-lg font-semibold tracking-tight"}>
               {title}
             </h2>
+            {metaChips.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {metaChips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="max-w-full truncate rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[11px] text-muted-foreground"
+                    title={chip}
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {sourceCount > 0 ? (
               <div className="relative mt-3">
                 <button

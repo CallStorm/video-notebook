@@ -17,6 +17,7 @@ import { GeneratedCover } from "@/components/generated-cover";
 import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
 import { CollectionCardMenu } from "@/components/collection-card-menu";
 import { CollectionEditDialog } from "@/components/collection-edit-dialog";
+import { AutoOrganizeDialog } from "@/components/auto-organize-dialog";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -140,6 +141,7 @@ export default function HomePage() {
   const [collectionDialog, setCollectionDialog] = useState<
     { mode: "create" | "edit"; id: number | null } | null
   >(null);
+  const [autoOrganizeOpen, setAutoOrganizeOpen] = useState(false);
   const [addToCollectionId, setAddToCollectionId] = useState<number | null>(null);
   const [generatingCoverId, setGeneratingCoverId] = useState<number | null>(null);
 
@@ -392,6 +394,7 @@ export default function HomePage() {
             collections={collections.data ?? []}
             isLoading={collections.isLoading}
             onCreate={() => setCollectionDialog({ mode: "create", id: null })}
+            onAutoOrganize={() => setAutoOrganizeOpen(true)}
             onEdit={(id) => setCollectionDialog({ mode: "edit", id })}
             onDelete={(id) => {
               if (confirm("删除这个集合？")) removeCollection.mutate(id);
@@ -436,6 +439,13 @@ export default function HomePage() {
         access={token}
         onClose={() => setCollectionDialog(null)}
         onSaved={() => qc.invalidateQueries({ queryKey: ["collections"] })}
+      />
+
+      <AutoOrganizeDialog
+        open={autoOrganizeOpen}
+        access={token}
+        onClose={() => setAutoOrganizeOpen(false)}
+        onApplied={() => qc.invalidateQueries({ queryKey: ["collections"] })}
       />
 
       {addNotebook ? (
@@ -547,6 +557,7 @@ function CollectionsSection({
   collections,
   isLoading,
   onCreate,
+  onAutoOrganize,
   onEdit,
   onDelete,
   onOpen,
@@ -556,6 +567,7 @@ function CollectionsSection({
   collections: Collection[];
   isLoading: boolean;
   onCreate: () => void;
+  onAutoOrganize: () => void;
   onEdit: (id: number) => void;
   onDelete: (id: number) => void;
   onOpen: (id: number) => void;
@@ -564,7 +576,16 @@ function CollectionsSection({
 }) {
   return (
     <section>
-      <header className="mb-4 flex justify-end">
+      <header className="mb-4 flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onAutoOrganize}
+          className="rounded-full px-4"
+        >
+          <Sparkles className="h-4 w-4" />
+          <span className="ml-1">自动整理</span>
+        </Button>
         <Button onClick={onCreate} className="rounded-full px-5">
           <Plus className="h-4 w-4" />
           <span className="ml-1">新建集合</span>
@@ -592,10 +613,21 @@ function CollectionsSection({
           <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
             新建集合后，把相关笔记本加进去即可。
           </p>
-          <Button onClick={onCreate} className="rounded-full px-5">
-            <Plus className="h-4 w-4" />
-            <span className="ml-1">新建集合</span>
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onAutoOrganize}
+              className="rounded-full px-4"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span className="ml-1">自动整理</span>
+            </Button>
+            <Button onClick={onCreate} className="rounded-full px-5">
+              <Plus className="h-4 w-4" />
+              <span className="ml-1">新建集合</span>
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">

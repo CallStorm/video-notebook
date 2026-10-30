@@ -33,6 +33,7 @@ import { KnowledgePanel } from "@/components/knowledge-panel";
 import { RightPanelTabs } from "@/components/right-panel-tabs";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
+import { displayStudioTaskTitle } from "@/components/studio-panel";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
 import { Check, Copy, Pencil, StickyNote, X } from "lucide-react";
@@ -886,9 +887,10 @@ export default function NotebookPage() {
                 <StudioSlides
                   access={token}
                   taskId={previewTaskId}
-                  title={preview.data?.title || "幻灯片"}
+                  title={displayStudioTaskTitle(preview.data?.title) || "幻灯片"}
                   crumb={nb.title}
                   artifacts={preview.data?.artifacts ?? []}
+                  fields={preview.data?.params_json?.fields ?? null}
                   pending={!preview.data && !preview.isError}
                   notice={
                     preview.isError
@@ -1160,6 +1162,7 @@ interface StudioTaskDetail {
   params_json?: {
     video_ids?: unknown;
     note_ids?: unknown;
+    fields?: { key?: string; label?: string; value?: string }[];
   };
 }
 

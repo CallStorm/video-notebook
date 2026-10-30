@@ -8,6 +8,9 @@ from app.core.deps import get_current_active_user
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.collection import (
+    AutoOrganizeApplyRequest,
+    AutoOrganizeApplyResponse,
+    AutoOrganizePreviewResponse,
     CollectionCreate,
     CollectionDetail,
     CollectionNotebooksPut,
@@ -35,6 +38,31 @@ async def create_collection(
 ):
     return await svc.create_collection(session, user.id, name=body.name, icon=body.icon, cover_url=body.cover_url)
 
+
+
+
+@router.post("/auto-organize/preview", response_model=AutoOrganizePreviewResponse)
+async def auto_organize_preview(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """Analyze notebook titles/descriptions and suggest a full collection plan."""
+    return await svc.preview_auto_organize(session, user.id)
+
+
+@router.post("/auto-organize/apply", response_model=AutoOrganizeApplyResponse)
+async def auto_organize_apply(
+    body: AutoOrganizeApplyRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """Replace all collections with the confirmed plan (notebooks are kept)."""
+    collections = await svc.apply_auto_organize(
+        session,
+        user.id,
+        [c.model_dump() for c in body.collections],
+    )
+    return {"collections": collections}
 
 @router.get("/{collection_id}", response_model=CollectionDetail)
 async def get_collection(

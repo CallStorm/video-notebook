@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import os
 import shutil
 import signal
@@ -68,14 +69,71 @@ def _safe_skill_name(name: str) -> str:
     return cleaned
 
 
+def _looks_like_brief(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if chr(10) in t and len(t) > 40:
+        return True
+    head = t[:120]
+    markers = ("受众", "结构建议", "页数", "主题：", "主题:", "要点：", "要点:", "原句摘要")
+    return any(m in head for m in markers)
+
+
+def _short_title_from_brief(brief: str, *, max_len: int = 20) -> str | None:
+    text = (brief or "").strip()
+    if not text:
+        return None
+    for raw in text.splitlines():
+        line = raw.strip()
+        for prefix in ("主题：", "主题:"):
+            if line.startswith(prefix):
+                theme = line[len(prefix) :].strip()
+                if theme:
+                    return theme[:max_len]
+    # first non-meta non-empty line
+    meta_prefixes = ("受众", "结构建议", "页数", "要点", "结论", "原句")
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if any(line.startswith(p) for p in meta_prefixes):
+            continue
+        if line[0].isdigit() and ("." in line[:3] or "、" in line[:3]):
+            # numbered point — take text after marker
+            body = re.split(r"^[\d]+[\.、\)]\s*", line, maxsplit=1)
+            line = body[-1].strip() if body else line
+        if line:
+            return line[:max_len]
+    return text[:max_len] if text else None
+
+
 def _choose_title(manifest_title: str | None, fields: list, capability_name: str) -> str:
-    candidates: list[object] = [manifest_title]
-    if fields and isinstance(fields[0], dict):
-        candidates.append(fields[0].get("value"))
-    candidates.append(capability_name)
+    fmap = _field_map(fields)
+    candidates: list[str] = []
+    if isinstance(manifest_title, str) and manifest_title.strip():
+        candidates.append(manifest_title.strip())
+    for key in ("title", "topic"):
+        value = (fmap.get(key) or "").strip()
+        if value:
+            candidates.append(value)
+    brief = (fmap.get("brief") or "").strip()
+    extracted = _short_title_from_brief(brief)
+    if extracted:
+        candidates.append(extracted)
+    if capability_name:
+        candidates.append(capability_name)
+
+    # Prefer clean short titles; do not let a brief-looking MANIFEST beat fields.title.
     for item in candidates:
-        if isinstance(item, str) and item.strip():
-            return item.strip()[:255]
+        if item and not _looks_like_brief(item):
+            return item[:255]
+    for item in candidates:
+        if not item:
+            continue
+        short = _short_title_from_brief(item)
+        if short:
+            return short[:255]
     return (capability_name or "studio")[:255]
 
 
@@ -125,11 +183,31 @@ def _topic_hard_constraints(format_key: str, fields: list) -> str | None:
     return "\n".join(lines)
 
 
+def _slides_hard_constraints(fields: list) -> str | None:
+    """Keep brief metadata off the slide canvas; prefer short titles."""
+    fmap = _field_map(fields)
+    title = (fmap.get("title") or "").strip()
+    lines = [
+        "## 幻灯片呈现硬约束",
+        "- 禁止把 brief 里的「受众 / 结构建议 / 页数 / 主题 / 要点 / 原句摘要」元数据块原样铺进幻灯片页面。",
+        "- 封面：短标题（优先 fields.title）；不要贴整段 brief。",
+        "- 内容页：短标题 + 至多 3–5 条短 bullet，留白；禁止长段落。",
+        "- MANIFEST.title 必须是短主题名（≤20 字），不要用 brief。",
+    ]
+    if title:
+        lines.insert(1, f"- 演示短标题：{title}")
+    return chr(10).join(lines)
+
+
 def _prompt(format_key: str, system_prompt: str, fields: list | None = None) -> str:
     parts = [get_format(format_key).instructions]
     hard = _topic_hard_constraints(format_key, fields or [])
     if hard:
         parts.append(hard)
+    if format_key == "slides":
+        slides_hard = _slides_hard_constraints(fields or [])
+        if slides_hard:
+            parts.append(slides_hard)
     if isinstance(system_prompt, str) and system_prompt.strip():
         parts.append(system_prompt)
     parts.append(_FIXED_PROMPT)

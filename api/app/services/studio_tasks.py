@@ -178,13 +178,21 @@ async def create_task(
             {"key": key, "label": field.get("label") or "", "value": value}
         )
 
+    initial_title = cap.name
+    for item in snapshot_fields:
+        key = item.get("key")
+        value = item.get("value")
+        if key in {"title", "topic"} and isinstance(value, str) and value.strip():
+            initial_title = value.strip()[:255]
+            break
+
     task = StudioTask(
         notebook_id=notebook_id,
         owner_id=owner_id,
         capability_id=cap.id,
         agent_id=None,
         format_key=cap.format_key,
-        title=cap.name,
+        title=initial_title,
         status="queued",
         params_json={
             "language": body.language,

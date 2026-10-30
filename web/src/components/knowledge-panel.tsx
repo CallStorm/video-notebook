@@ -226,6 +226,22 @@ function buildSlidesBrief(draft: KnowledgeDraft, points: DraftPoint[]): string {
   return parts.join("\n");
 }
 
+
+function shortSlideTitle(draft: KnowledgeDraft, points: DraftPoint[]): string {
+  const theme = (draft.content.theme || "").trim();
+  if (theme) return truncateText(theme, 24);
+  const first = points.find((p) => p.text.trim())?.text.trim();
+  if (first) return truncateText(first, 24);
+  return "知识要点";
+}
+
+function buildSlidesFields(draft: KnowledgeDraft, points: DraftPoint[]): Record<string, string> {
+  return {
+    title: shortSlideTitle(draft, points),
+    brief: buildSlidesBrief(draft, points),
+  };
+}
+
 function resolveSourceIds(
   draft: KnowledgeDraft,
   sources: KnowledgeSource[],
@@ -378,7 +394,7 @@ export function KnowledgePanel({
     const fields =
       formatKey === "mind_map"
         ? buildMindMapFields(draft, points)
-        : { brief: buildSlidesBrief(draft, points) };
+        : buildSlidesFields(draft, points);
     setStudioAction(formatKey);
     createStudioTask.mutate({
       capability_id: cap.id,
