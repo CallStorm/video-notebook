@@ -1,53 +1,48 @@
 # video-notebook
 
-Web 版 NotebookLM 风格的**视频知识工作台**：把视频抓进来、出字幕、可对话、可做思维导图 / PPT。系统内部使用。
+把视频变成可检索、可对话、可产出的**知识笔记本**（NotebookLM 风格，偏内部使用）。
 
-## 功能
+![笔记本列表](docs/images/home.png)
 
-- [笔记本与来源](docs/features.md#笔记本与来源) — 上传 / URL 抓取、字幕、概览
-- [对话](docs/features.md#对话) — 基于勾选来源的问答（含引用）
-- [Studio](docs/features.md#studio) — 思维导图、幻灯片（Skills / Agents）
-- [发现与聚合搜索](docs/features.md#发现与聚合搜索) — 站内发现、跨平台搜视频
-- [集合与权限](docs/features.md#集合与权限) — Collections、账号、外观皮肤
-- [管理后台](docs/features.md#管理后台) — 模型、抓取与网络、向量、账号
+系统架构见 [架构](docs/architecture.md)。
 
-更细的产品说明见 [需求文档](docs/requirements.md)。
+## 核心能力
 
-## 快速开始
+- **笔记本与来源** — URL / 上传入库，字幕与概览；网页搜索（B 站 / YouTube）加片
+- **标签** — Chip 筛选、管理标签、AI 自动整理
+- **对话** — 勾选来源问答，引用回到字幕时间点
+- **知识底稿** — 抽要点，一键生成思维导图 / 幻灯片
+- **发现** — 站内关键词与语义检索；笔记本可公开
+- **管理后台** — 模型、抓取与网络、向量、账号与观测
 
-### Docker 一键（推荐）
+细节见 [功能说明](docs/features.md)、[需求](docs/requirements.md)。
 
-```bash
-cp .env.example .env          # 已有 .env 勿覆盖；改掉默认密码与密钥
-docker compose up -d --build  # 或 make up
-```
-
-- Web：http://127.0.0.1:8080
-- API 文档：http://127.0.0.1:8000/docs
-
-首次登录用 `.env` 里的 `SEED_ADMIN_*`。完整说明见 [部署](docs/deployment.md)。
-
-### 本地开发
+## 快速开始（本地）
 
 ```bash
-cp .env.example .env
-make middleware    # mysql + redis + qdrant
+cp .env.example .env   # 改掉默认密码与密钥
+make middleware        # MySQL / Redis / Qdrant（本机端口）
+cd api && uv sync && cd ..
+cd web && npm install && cd ..
 make migrate
-make api           # :8000
-make web           # :5173
-make media-worker  # 抓取 / 字幕 / 向量
-make worker        # Studio
+make api               # :8000
+make web               # :5173
+make media-worker      # 抓取 / 字幕 / 向量
+make worker            # 导图 / PPT（需本机 Claude CLI）
 ```
 
-前置与细节见 [开发环境](docs/development.md)。
+- Web：http://127.0.0.1:5173  
+- API：http://127.0.0.1:8000/docs  
+
+首次登录用 `.env` 的 `SEED_ADMIN_*`。完整步骤与前置：[本地部署与开发](docs/development.md)。
+
+> 全栈 Docker Compose 部署稍后补充；当前以本地进程为主。
 
 ## 文档
 
 | 文档 | 内容 |
 |------|------|
-| [功能说明](docs/features.md) | 按功能点介绍现状 |
-| [架构](docs/architecture.md) | 组件、数据流、双 Worker |
-| [部署](docs/deployment.md) | Compose 拓扑、环境变量、卷、FAQ |
-| [开发](docs/development.md) | Makefile、依赖、本地启动 |
-| [需求](docs/requirements.md) | 产品功能面与 SaaS 子需求 |
-| [设计规格](docs/superpowers/specs/2026-10-16-video-notebook-design.md) | 详细设计（历史规格，部分已演进） |
+| [功能说明](docs/features.md) | 现行能力 |
+| [架构](docs/architecture.md) | 组件与数据流 |
+| [本地部署与开发](docs/development.md) | 中间件、进程、环境变量 |
+| [需求](docs/requirements.md) | 产品范围与边界 |

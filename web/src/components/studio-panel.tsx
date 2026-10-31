@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SourceRenameDialog } from "@/components/source-row-menu";
+import { isStudioFormatVisible, isStudioOpenableFormat, isTextStudioFormat } from "@/studio/plugins/registry";
 
 const ERROR_LABELS: Record<string, string> = {
   timeout: "超时",
@@ -55,6 +56,7 @@ interface Capability {
   id: number;
   name: string;
   icon: string | null;
+  format_key: string;
   form_json: FormField[];
 }
 
@@ -117,6 +119,39 @@ function idCount(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+
+function looksLikeBriefTitle(title: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  if (t.includes("\n") && t.length > 40) return true;
+  const head = t.slice(0, 120);
+  return ["受众", "结构建议", "页数", "主题：", "主题:", "要点：", "要点:"].some((m) => head.includes(m));
+}
+
+function shortTitleFromBriefish(title: string, maxLen = 24): string {
+  const t = title.trim();
+  for (const line of t.split("\n")) {
+    const s = line.trim();
+    for (const prefix of ["主题：", "主题:"]) {
+      if (s.startsWith(prefix)) {
+        const theme = s.slice(prefix.length).trim();
+        if (theme) return theme.length > maxLen ? theme.slice(0, maxLen) + "…" : theme;
+      }
+    }
+  }
+  const first = t.split("\n").map((l) => l.trim()).find((l) => l && !/^(受众|结构建议|页数|要点|结论)/.test(l));
+  const base = (first || t).replace(/\s+/g, " ");
+  return base.length > maxLen ? base.slice(0, maxLen) + "…" : base;
+}
+
+/** List/rail label: never show a pasted brief as the card title. */
+export function displayStudioTaskTitle(title: string | null | undefined): string {
+  const raw = (title || "").trim() || "未命名";
+  if (looksLikeBriefTitle(raw)) return shortTitleFromBriefish(raw);
+  if (raw.length > 40) return raw.slice(0, 24) + "…";
+  return raw;
+}
+
 function capabilityIcon(capabilities: Capability[] | undefined, task: StudioTask): string | null {
   return capabilities?.find((item) => item.id === task.capability_id)?.icon ?? null;
 }
@@ -124,6 +159,25 @@ function capabilityIcon(capabilities: Capability[] | undefined, task: StudioTask
 function sourceLabel(task: StudioTask): string {
   const count = idCount(task.params_json?.video_ids) + idCount(task.params_json?.note_ids);
   return count === 1 ? "1 个来源" : `${count} 个来源`;
+}
+
+function formatShortLabel(formatKey: string): string {
+  if (formatKey === "slides") return "幻";
+  if (formatKey === "four_panel") return "漫";
+  if (formatKey === "file") return "文";
+  return "导";
+}
+
+function deleteConfirmLabel(formatKey: string): string {
+  if (formatKey === "slides") return "删除这个幻灯片？";
+  if (formatKey === "four_panel") return "删除这个四格漫？";
+  return "删除这个导图？";
+}
+
+function renameHeading(formatKey: string): string {
+  if (formatKey === "slides") return "重命名幻灯片";
+  if (formatKey === "four_panel") return "重命名四格漫";
+  return "重命名导图";
 }
 
 
@@ -151,13 +205,11 @@ export function StudioCollapsedRail({
   access,
   notebookId,
   onExpand,
-  onOpenCapability,
   onOpenTask,
 }: {
   access: string;
   notebookId: number;
   onExpand: () => void;
-  onOpenCapability: (capabilityId: number) => void;
   onOpenTask: (taskId: number, formatKey: string) => void;
 }) {
   const capabilities = useQuery({
@@ -176,8 +228,7 @@ export function StudioCollapsedRail({
     },
   });
 
-  const caps = capabilities.data ?? [];
-  const taskRows = tasks.data ?? [];
+  const taskRows = (tasks.data ?? []).filter((t) => isStudioFormatVisible(t.format_key));
 
   return (
     <div className="panel-rail">
@@ -185,35 +236,14 @@ export function StudioCollapsedRail({
         size="icon"
         variant="ghost"
         className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary"
-        title="展开 Studio"
-        aria-label="展开 Studio"
+        title="展开产物"
+        aria-label="展开产物"
         onClick={onExpand}
       >
         <PanelRightOpen className="h-4 w-4" />
       </Button>
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto pb-2">
-        <span className="pt-1 text-[9px] font-medium tracking-wide text-muted-foreground">能力</span>
-        {caps.length === 0 && !capabilities.isLoading ? (
-          <span className="px-1 text-center text-[9px] leading-tight text-muted-foreground/80">暂无</span>
-        ) : null}
-        {caps.map((capability) => (
-          <button
-            key={capability.id}
-            type="button"
-            className="panel-rail-icon"
-            title={capability.name}
-            aria-label={capability.name}
-            onClick={() => onOpenCapability(capability.id)}
-          >
-            {capability.icon ? (
-              <span className="text-base leading-none">{capability.icon}</span>
-            ) : (
-              <span className="text-[10px] font-semibold text-primary">AI</span>
-            )}
-          </button>
-        ))}
-        <div className="my-1.5 h-px w-7 shrink-0 bg-border/70" />
-        <span className="text-[9px] font-medium tracking-wide text-muted-foreground">产出</span>
+        <span className="pt-1 text-[9px] font-medium tracking-wide text-muted-foreground">产物</span>
         {taskRows.length === 0 && !tasks.isLoading ? (
           <span className="px-1 text-center text-[9px] leading-tight text-muted-foreground/80">暂无</span>
         ) : null}
@@ -221,10 +251,11 @@ export function StudioCollapsedRail({
           const busy = task.status === "queued" || task.status === "running";
           const openable =
             task.status === "succeeded" &&
-            (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file");
+            isStudioOpenableFormat(task.format_key);
           const icon = capabilityIcon(capabilities.data, task);
           const chip = taskStatusChip(task.status);
-          const tip = chip ? `${task.title} · ${chip.label}` : task.title;
+          const shown = displayStudioTaskTitle(task.title);
+          const tip = chip ? `${shown} · ${chip.label}` : shown;
           return (
             <button
               key={task.id}
@@ -241,7 +272,7 @@ export function StudioCollapsedRail({
                 <span className="text-base leading-none">{icon}</span>
               ) : (
                 <span className="text-[10px] font-semibold text-muted-foreground">
-                  {task.format_key === "slides" ? "幻" : task.format_key === "file" ? "文" : "导"}
+                  {formatShortLabel(task.format_key)}
                 </span>
               )}
               {busy ? (
@@ -267,6 +298,7 @@ export function StudioPanel({
   sources,
   notes,
   onOpenTask,
+  onGoKnowledge,
   pendingCapabilityId = null,
   onPendingCapabilityHandled,
 }: {
@@ -275,6 +307,7 @@ export function StudioPanel({
   sources: StudioSource[];
   notes: StudioNote[];
   onOpenTask?: (taskId: number, formatKey: string) => void;
+  onGoKnowledge?: () => void;
   pendingCapabilityId?: number | null;
   onPendingCapabilityHandled?: () => void;
 }) {
@@ -351,12 +384,32 @@ export function StudioPanel({
     link.remove();
   }
 
+  async function downloadFourPanel(task: StudioTask) {
+    const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
+      access,
+    });
+    if (!detail.text_content) {
+      setFormError("没有可下载的四格漫内容");
+      return;
+    }
+    const blob = new Blob([detail.text_content], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${detail.title || task.title}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+
   async function downloadMindMap(task: StudioTask) {
     const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
       access,
     });
     if (!detail.text_content) {
-      setFormError("没有导图内容");
+      setFormError("没有可下载的文本内容");
       return;
     }
     const blob = new Blob([detail.text_content], { type: "text/markdown;charset=utf-8" });
@@ -388,7 +441,7 @@ export function StudioPanel({
   useEffect(() => {
     if (pendingCapabilityId == null) return;
     const capability = (capabilities.data ?? []).find((item) => item.id === pendingCapabilityId);
-    if (!capability) {
+    if (!capability || !isStudioFormatVisible(capability.format_key)) {
       if (capabilities.isFetched) onPendingCapabilityHandled?.();
       return;
     }
@@ -421,60 +474,42 @@ export function StudioPanel({
     });
   }
 
-  const taskRows = tasks.data ?? [];
+  const taskRows = (tasks.data ?? []).filter((t) => isStudioFormatVisible(t.format_key));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="px-3.5 pt-3">
-        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">能力</p>
-        <div className="grid grid-cols-2 gap-2">
-          {(capabilities.data ?? []).map((capability) => (
-            <button
-              key={capability.id}
-              type="button"
-              className="studio-tile text-xs"
-              onClick={() => openCapability(capability)}
-            >
-              {capability.icon ? (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base leading-none">
-                  {capability.icon}
-                </span>
-              ) : (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">
-                  AI
-                </span>
-              )}
-              <span className="line-clamp-2 font-medium leading-snug">{capability.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
       {capabilities.error instanceof ApiError ? (
-        <p className="px-4 text-xs text-destructive">{capabilities.error.message}</p>
+        <p className="px-4 pt-3 text-xs text-destructive">{capabilities.error.message}</p>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-3.5 pb-1 pt-4">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">产出</p>
-        </div>
         {taskRows.length === 0 && !tasks.isLoading ? (
-          <div className="empty-panel mx-3 mb-3 py-8">
-            <p className="text-sm font-medium text-foreground">还没有产出</p>
+          <div className="empty-panel mx-3 mb-3 mt-6 py-8">
+            <p className="text-sm font-medium text-foreground">还没有产物</p>
             <p className="mt-1.5 max-w-[16rem] text-xs leading-relaxed text-muted-foreground">
-              点上方能力，生成导图、幻灯片或文件。
+              在知识里勾选要点后生成导图或幻灯片。
             </p>
+            {onGoKnowledge ? (
+              <button
+                type="button"
+                className="mt-3 text-xs font-medium text-primary hover:underline"
+                onClick={onGoKnowledge}
+              >
+                去知识
+              </button>
+            ) : null}
           </div>
         ) : null}
-        <div className="pb-3">
+        <div className="pb-3 pt-2">
           {taskRows.map((task) => {
             const busy = task.status === "queued" || task.status === "running";
             const errorLabel =
               task.status === "failed" ? failureLabel(task) : null;
             const openable =
               task.status === "succeeded" &&
-              (task.format_key === "mind_map" || task.format_key === "slides" || task.format_key === "file") &&
+              (isStudioOpenableFormat(task.format_key)) &&
               !!onOpenTask;
             const icon = capabilityIcon(capabilities.data, task);
-            if (task.format_key === "mind_map" || task.format_key === "slides") {
+            if (isTextStudioFormat(task.format_key) || task.format_key === "slides") {
               const when = relativeTime(task.created_at);
               const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
               const chip = taskStatusChip(task.status);
@@ -492,7 +527,7 @@ export function StudioPanel({
                       if (openable) onOpenTask?.(task.id, task.format_key);
                     }}
                   >
-                    <div className="line-clamp-2 text-[13px] font-medium leading-snug">{task.title}</div>
+                    <div className="line-clamp-2 text-[13px] font-medium leading-snug">{displayStudioTaskTitle(task.title)}</div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       {chip ? <span className={chip.className}>{chip.label}</span> : null}
                       {task.status === "failed" && errorLabel ? (
@@ -505,13 +540,18 @@ export function StudioPanel({
                   <TaskMenu
                     onRename={() => setRenameTask(task)}
                     onRemove={() => {
-                      const label = task.format_key === "slides" ? "删除这个幻灯片？" : "删除这个导图？";
+                      const label = deleteConfirmLabel(task.format_key);
                       if (window.confirm(label)) removeTask.mutate(task.id);
                     }}
                     onDownload={
                       task.status !== "succeeded"
                         ? undefined
-                        : () => void (task.format_key === "slides" ? downloadSlides(task) : downloadMindMap(task))
+                        : () =>
+                        void (task.format_key === "slides"
+                          ? downloadSlides(task)
+                          : task.format_key === "four_panel"
+                            ? downloadFourPanel(task)
+                            : downloadMindMap(task))
                     }
                   />
                 </div>
@@ -532,11 +572,11 @@ export function StudioPanel({
                       className="line-clamp-2 text-left text-[13px] font-medium leading-snug hover:underline"
                       onClick={() => onOpenTask?.(task.id, task.format_key)}
                     >
-                      {task.title}
+                      {displayStudioTaskTitle(task.title)}
                     </button>
                   ) : (
                     <div className="line-clamp-2 text-[13px] font-medium leading-snug">
-                      {task.title}
+                      {displayStudioTaskTitle(task.title)}
                     </div>
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -564,7 +604,7 @@ export function StudioPanel({
       <SourceRenameDialog
         open={renameTask !== null}
         title={renameTask?.title || ""}
-        heading={renameTask?.format_key === "slides" ? "重命名幻灯片" : "重命名导图"}
+        heading={renameTask ? renameHeading(renameTask.format_key) : "重命名"}
         pending={rename.isPending}
         error={rename.error instanceof ApiError ? rename.error.message : null}
         onClose={() => {

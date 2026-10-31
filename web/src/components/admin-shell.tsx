@@ -35,8 +35,8 @@ export function AdminSectionCard({
   contentClassName,
   action,
 }: {
-  title?: string;
-  description?: string;
+  title?: ReactNode;
+  description?: ReactNode;
   children: ReactNode;
   className?: string;
   headerClassName?: string;

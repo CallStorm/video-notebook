@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.notebook import NotebookSource, SubtitleLine, Video
 from app.subtitles.store import load_subtitle
 
-# 大约按字符估。仅用于总预算；勾选来源本身超限时由 service 报错，不在此截断。
+# 默认上下文字符预算；运行时以 chat_settings_config.max_context_chars 为准。
 MAX_CONTEXT_CHARS = 60_000
 _CITE_RE = re.compile(r"\[(\d+)\]")
 
@@ -104,7 +104,12 @@ def parse_citations(text: str, lines: dict[int, CitedLine]) -> list[dict]:
 
 
 def strip_citations(text: str) -> str:
-    return _CITE_RE.sub("", text).strip()
+    """去掉正文里的 [n] 引用标记，并理顺留下的空白。"""
+    cleaned = _CITE_RE.sub("", text)
+    cleaned = re.sub(r"[ \t]+([，。！？、；：,.!?])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    return cleaned.strip()
 
 
 def _source_block(

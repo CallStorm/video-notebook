@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Pencil,
-  FolderPlus,
+  Tags,
   Pin,
   PinOff,
   Trash2,
@@ -21,7 +21,7 @@ interface NotebookCardMenuProps {
   indexStatus?: string | null;
   /** 触发「Edit Notebook」全屏弹窗。父级在收到回调时打开 dialog。 */
   onRequestEdit: (id: number) => void;
-  onAddToCollection?: (id: number) => void;
+  onEditTags?: (id: number) => void;
   onTogglePin: (id: number) => void;
   onToggleShare?: (id: number) => void;
   onReindex?: (id: number) => void;
@@ -54,7 +54,7 @@ export function NotebookCardMenu({
   hasNotification,
   indexStatus,
   onRequestEdit,
-  onAddToCollection,
+  onEditTags,
   onTogglePin,
   onToggleShare,
   onReindex,
@@ -165,14 +165,14 @@ export function NotebookCardMenu({
                       编辑
                     </Item>
                     <Item
-                      icon={<FolderPlus className="h-3.5 w-3.5" />}
-                      disabled={!onAddToCollection}
+                      icon={<Tags className="h-3.5 w-3.5" />}
+                      disabled={!onEditTags}
                       onClick={() => {
                         setOpen(false);
-                        onAddToCollection?.(notebookId);
+                        onEditTags?.(notebookId);
                       }}
                     >
-                      Add to collection
+                      编辑标签
                     </Item>
                     <Item
                       icon={

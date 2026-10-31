@@ -1,4 +1,4 @@
-"""/api/admin/chat-settings — 对话历史轮数。"""
+"""/api/admin/chat-settings — 对话历史轮数与上下文预算。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

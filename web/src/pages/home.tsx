@@ -1,11 +1,10 @@
-import React, { useMemo, useState } from "react";
+﻿import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Search, LayoutGrid, List, Pin, Trash2, Clapperboard, MessageSquareText, Sparkles, FolderKanban, Library, Layers } from "lucide-react";
+import { Plus, Search, LayoutGrid, List, Pin, Trash2, Clapperboard, MessageSquareText, Sparkles, Settings2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import { isRemoteCover } from "@/lib/cover-gen";
-import { generateCover } from "@/lib/generate-cover";
 import { NewNotebookDialog } from "@/components/new-notebook-dialog";
 import { EditNotebookDialog } from "@/components/edit-notebook-dialog";
 import { AppHeader } from "@/components/app-header";
@@ -14,28 +13,17 @@ import { UserMenu } from "@/components/user-menu";
 import { formatDateZh } from "@/lib/utils";
 import { NotebookBookCard } from "@/components/notebook-book-card";
 import { GeneratedCover } from "@/components/generated-cover";
-import { GeneratedFolderIcon } from "@/components/generated-folder-icon";
-import { CollectionCardMenu } from "@/components/collection-card-menu";
-import { CollectionEditDialog } from "@/components/collection-edit-dialog";
-import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
+import { AutoOrganizeDialog } from "@/components/auto-organize-dialog";
+import { ManageTagsDialog } from "@/components/manage-tags-dialog";
+import { EditNotebookTagsDialog } from "@/components/edit-notebook-tags-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-interface CollectionNotebookPreview {
-  id: number;
-  title: string;
-  cover_url?: string | null;
-}
-
-interface Collection {
+interface TagBrief {
   id: number;
   name: string;
-  icon: string | null;
-  cover_url?: string | null;
-  notebook_count: number;
-  preview_notebooks?: CollectionNotebookPreview[];
-  created_at: string | null;
-  updated_at: string | null;
+  color: string | null;
+  notebook_count?: number;
 }
 
 interface Notebook {
@@ -51,6 +39,7 @@ interface Notebook {
   index_status?: string | null;
   indexed_at?: string | null;
   index_error?: string | null;
+  tags?: TagBrief[];
   created_at: string | null;
   updated_at: string | null;
 }
@@ -67,7 +56,7 @@ async function fetchNotebooks(
   search: string,
 ): Promise<NotebookListResponse> {
   return api<NotebookListResponse>(
-    `/notebooks?search=${encodeURIComponent(search)}`,
+    `/notebooks?search=${encodeURIComponent(search)}&size=100`,
     { access },
   );
 }
@@ -102,7 +91,7 @@ async function reindexNotebook(access: string, id: number): Promise<void> {
 }
 
 type View = "grid" | "list";
-type Tab = "mine" | "discover" | "collections";
+type Tab = "mine" | "discover";
 
 function formatDate(iso: string | null): string {
   return formatDateZh(iso);
@@ -114,7 +103,7 @@ function formatSources(n: number): string {
 
 function initialTab(params: URLSearchParams): Tab {
   const raw = params.get("tab");
-  if (raw === "collections" || raw === "discover" || raw === "mine") return raw;
+  if (raw === "discover") return "discover";
   return "mine";
 }
 
@@ -137,11 +126,15 @@ export default function HomePage() {
     }
     setTab(next);
   }, [searchParams, navigate]);
-  const [collectionDialog, setCollectionDialog] = useState<
-    { mode: "create" | "edit"; id: number | null } | null
-  >(null);
-  const [addToCollectionId, setAddToCollectionId] = useState<number | null>(null);
-  const [generatingCoverId, setGeneratingCoverId] = useState<number | null>(null);
+  const [autoOrganizeOpen, setAutoOrganizeOpen] = useState(false);
+  const [manageTagsOpen, setManageTagsOpen] = useState(false);
+  const [editTagsNotebookId, setEditTagsNotebookId] = useState<number | null>(null);
+  const [selectedTagId, setSelectedTagId] = useState<number | null>(() => {
+    const raw = searchParams.get("tag");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  });
 
   const list = useQuery({
     queryKey: ["notebooks", search],
@@ -149,38 +142,11 @@ export default function HomePage() {
     enabled: !!token,
   });
 
-  const collections = useQuery({
-    queryKey: ["collections"],
-    queryFn: () => api<Collection[]>("/collections", { access: token }),
-    enabled: !!token && tab === "collections",
+  const tags = useQuery({
+    queryKey: ["tags"],
+    queryFn: () => api<TagBrief[]>("/tags", { access: token }),
+    enabled: !!token,
   });
-
-  const removeCollection = useMutation({
-    mutationFn: (id: number) => api(`/collections/${id}`, { method: "DELETE", access: token, raw: true }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["collections"] }),
-  });
-
-  async function generateCollectionCover(id: number) {
-    if (!token || generatingCoverId != null) return;
-    const target = (collections.data ?? []).find((c) => c.id === id);
-    if (!target) return;
-    setGeneratingCoverId(id);
-    try {
-      const result = await generateCover(token, target.name);
-      await api(`/collections/${id}`, {
-        method: "PATCH",
-        access: token,
-        body: { cover_url: result.cover_url },
-      });
-      await qc.invalidateQueries({ queryKey: ["collections"] });
-    } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : "生成图标失败，请重试";
-      window.alert(msg);
-    } finally {
-      setGeneratingCoverId(null);
-    }
-  }
 
   const create = useMutation({
     mutationFn: (body: { title: string; description: string; cover_url: string }) =>
@@ -248,21 +214,23 @@ export default function HomePage() {
   });
 
   const items = list.data?.items ?? [];
-  const visible = useMemo(
-    () =>
-      [...items].sort(
-        (a, b) =>
-          Number(b.is_pinned) - Number(a.is_pinned) ||
-          new Date(b.updated_at ?? 0).getTime() -
-            new Date(a.updated_at ?? 0).getTime(),
-      ),
-    [items],
-  );
+  const visible = useMemo(() => {
+    const sorted = [...items].sort(
+      (a, b) =>
+        Number(b.is_pinned) - Number(a.is_pinned) ||
+        new Date(b.updated_at ?? 0).getTime() -
+          new Date(a.updated_at ?? 0).getTime(),
+    );
+    if (selectedTagId == null) return sorted;
+    return sorted.filter((n) => (n.tags ?? []).some((t) => t.id === selectedTagId));
+  }, [items, selectedTagId]);
 
-  const addNotebook =
-    addToCollectionId != null
-      ? (items.find((n) => n.id === addToCollectionId) ?? null)
+  const editTagsNotebook =
+    editTagsNotebookId != null
+      ? (items.find((n) => n.id === editTagsNotebookId) ?? null)
       : null;
+
+  const tagRows = tags.data ?? [];
 
   // Edit dialog 状态
   const [editing, setEditing] = useState<Notebook | null>(null);
@@ -303,7 +271,7 @@ export default function HomePage() {
   return (
     <div className="page-ambient min-h-screen">
       <AppHeader
-        active={tab === "collections" ? "collections" : "mine"}
+        active="mine"
         afterNav={
           tab === "mine" ? (
             <div className="flex justify-end">
@@ -360,8 +328,12 @@ export default function HomePage() {
             notebooks={visible}
             isLoading={list.isLoading}
             view={view}
+            tags={tagRows}
+            selectedTagId={selectedTagId}
+            onSelectTag={setSelectedTagId}
+            onManageTags={() => setManageTagsOpen(true)}
+            onAutoOrganize={() => setAutoOrganizeOpen(true)}
             onCreate={() => setShowNew(true)}
-            onSearch={() => navigate("/search")}
             onEdit={(id) => {
               const nb = items.find((n) => n.id === id);
               if (nb) setEditing(nb);
@@ -382,25 +354,11 @@ export default function HomePage() {
             onReindex={(id) => {
               if (confirm("重新索引这本笔记本？")) reindex.mutate(id);
             }}
-            onAddToCollection={setAddToCollectionId}
+            onEditTags={setEditTagsNotebookId}
           />
         )}
         {tab === "discover" && (
           <DiscoverRedirect />
-        )}
-        {tab === "collections" && (
-          <CollectionsSection
-            collections={collections.data ?? []}
-            isLoading={collections.isLoading}
-            onCreate={() => setCollectionDialog({ mode: "create", id: null })}
-            onEdit={(id) => setCollectionDialog({ mode: "edit", id })}
-            onDelete={(id) => {
-              if (confirm("删除这个集合？")) removeCollection.mutate(id);
-            }}
-            onOpen={(id) => navigate(`/collections/${id}`)}
-            onGenerateCover={(id) => void generateCollectionCover(id)}
-            generatingCoverId={generatingCoverId}
-          />
         )}
       </div>
 
@@ -430,23 +388,29 @@ export default function HomePage() {
       />
 
 
-      <CollectionEditDialog
-        open={collectionDialog !== null}
-        mode={collectionDialog?.mode ?? "create"}
-        collectionId={collectionDialog?.id ?? null}
+      <AutoOrganizeDialog
+        open={autoOrganizeOpen}
         access={token}
-        onClose={() => setCollectionDialog(null)}
-        onSaved={() => qc.invalidateQueries({ queryKey: ["collections"] })}
+        onClose={() => setAutoOrganizeOpen(false)}
+        onApplied={() => {
+          qc.invalidateQueries({ queryKey: ["tags"] });
+          qc.invalidateQueries({ queryKey: ["notebooks"] });
+        }}
       />
 
-      {addNotebook ? (
-        <AddToCollectionDialog
+      <ManageTagsDialog
+        open={manageTagsOpen}
+        access={token}
+        onClose={() => setManageTagsOpen(false)}
+      />
+
+      {editTagsNotebook ? (
+        <EditNotebookTagsDialog
           open
           access={token}
-          notebookId={addNotebook.id}
-          notebookTitle={addNotebook.title}
-          notebookIcon={addNotebook.icon}
-          onClose={() => setAddToCollectionId(null)}
+          notebookId={editTagsNotebook.id}
+          notebookTitle={editTagsNotebook.title}
+          onClose={() => setEditTagsNotebookId(null)}
         />
       ) : null}
     </div>
@@ -457,35 +421,104 @@ function MyNotebooksSection({
   notebooks,
   isLoading,
   view,
+  tags,
+  selectedTagId,
+  onSelectTag,
+  onManageTags,
+  onAutoOrganize,
   onTogglePin,
   onToggleShare,
   onDelete,
   onReindex,
   onCreate,
-  onSearch,
   onEdit,
-  onAddToCollection,
+  onEditTags,
 }: {
   notebooks: Notebook[];
   isLoading: boolean;
   view: View;
+  tags: TagBrief[];
+  selectedTagId: number | null;
+  onSelectTag: (id: number | null) => void;
+  onManageTags: () => void;
+  onAutoOrganize: () => void;
   onTogglePin: (id: number, is_pinned: boolean) => void;
   onToggleShare: (id: number, share_all: boolean) => void;
   onDelete: (id: number) => void;
   onReindex: (id: number) => void;
   onEdit: (id: number) => void;
   onCreate: () => void;
-  onSearch: () => void;
-  onAddToCollection: (id: number) => void;
+  onEditTags: (id: number) => void;
 }) {
   return (
     <section>
-      <header className="mb-4 flex justify-end">
-        <Button onClick={onCreate} className="rounded-full px-5">
-          <Plus className="h-4 w-4" />
-          <span className="ml-1">新建笔记本</span>
-        </Button>
-      </header>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onSelectTag(null)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              selectedTagId == null
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "bg-muted/80 text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            全部
+          </button>
+          {tags
+            .filter(
+              (t) =>
+                (t.notebook_count ?? 0) > 0 || selectedTagId === t.id,
+            )
+            .map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onSelectTag(t.id)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                selectedTagId === t.id
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted/80 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  backgroundColor:
+                    selectedTagId === t.id ? "currentColor" : t.color || "#2F6B4F",
+                }}
+              />
+              {t.name}
+              {typeof t.notebook_count === "number" ? (
+                <span className="opacity-70">{t.notebook_count}</span>
+              ) : null}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={onManageTags}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-border/80 px-2.5 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground"
+          >
+            <Settings2 className="h-3 w-3" />
+            管理标签
+          </button>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onAutoOrganize}
+            className="rounded-full px-4"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="ml-1">自动整理</span>
+          </Button>
+          <Button onClick={onCreate} className="rounded-full px-5">
+            <Plus className="h-4 w-4" />
+            <span className="ml-1">新建笔记本</span>
+          </Button>
+        </div>
+      </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
@@ -503,28 +536,32 @@ function MyNotebooksSection({
             </span>
           </div>
           <p className="mb-1 text-lg font-semibold tracking-tight text-foreground">
-            还没有笔记本
+            {selectedTagId != null ? "这个标签下还没有笔记本" : "还没有笔记本"}
           </p>
           <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
-            先新建一本，或去聚合搜索找视频再加进来。
+            {selectedTagId != null
+              ? "换个标签看看，或用「自动整理」重新归类。"
+              : "先新建一本，再在笔记本里用「网页搜索」找视频加进来。"}
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2.5">
-            <Button onClick={onCreate} className="rounded-full px-5">
-              <Plus className="h-4 w-4" />
-              <span className="ml-1">新建笔记本</span>
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-full border-border/70 px-5"
-              onClick={onSearch}
-            >
-              <Search className="h-4 w-4" />
-              <span className="ml-1">去聚合搜索</span>
-            </Button>
+            {selectedTagId != null ? (
+              <Button
+                variant="outline"
+                onClick={() => onSelectTag(null)}
+                className="rounded-full px-5"
+              >
+                查看全部
+              </Button>
+            ) : (
+              <Button onClick={onCreate} className="rounded-full px-5">
+                <Plus className="h-4 w-4" />
+                <span className="ml-1">新建笔记本</span>
+              </Button>
+            )}
           </div>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
           {notebooks.map((nb) => (
             <NotebookBookCard
               key={nb.id}
@@ -534,7 +571,7 @@ function MyNotebooksSection({
               onToggleShare={() => onToggleShare(nb.id, nb.share_all)}
               onReindex={() => onReindex(nb.id)}
               onDelete={() => onDelete(nb.id)}
-              onAddToCollection={onAddToCollection}
+              onEditTags={onEditTags}
             />
           ))}
         </div>
@@ -554,78 +591,6 @@ function MyNotebooksSection({
   );
 }
 
-function CollectionsSection({
-  collections,
-  isLoading,
-  onCreate,
-  onEdit,
-  onDelete,
-  onOpen,
-  onGenerateCover,
-  generatingCoverId,
-}: {
-  collections: Collection[];
-  isLoading: boolean;
-  onCreate: () => void;
-  onEdit: (id: number) => void;
-  onDelete: (id: number) => void;
-  onOpen: (id: number) => void;
-  onGenerateCover: (id: number) => void;
-  generatingCoverId: number | null;
-}) {
-  return (
-    <section>
-      <header className="mb-4 flex justify-end">
-        <Button onClick={onCreate} className="rounded-full px-5">
-          <Plus className="h-4 w-4" />
-          <span className="ml-1">新建集合</span>
-        </Button>
-      </header>
-
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">加载中…</p>
-      ) : collections.length === 0 ? (
-        <div className="empty-hero">
-          <div className="icon-cluster">
-            <span className="bg-primary/10 text-primary">
-              <FolderKanban className="h-5 w-5" />
-            </span>
-            <span className="bg-[hsl(172_50%_94%)] text-[hsl(var(--success))]">
-              <Library className="h-5 w-5" />
-            </span>
-            <span className="bg-[hsl(258_80%_96%)] text-[hsl(var(--violet))]">
-              <Layers className="h-5 w-5" />
-            </span>
-          </div>
-          <p className="mb-1 text-lg font-semibold tracking-tight text-foreground">
-            还没有集合
-          </p>
-          <p className="mx-auto mb-7 max-w-md text-sm leading-relaxed text-muted-foreground">
-            新建集合后，把相关笔记本加进去即可。
-          </p>
-          <Button onClick={onCreate} className="rounded-full px-5">
-            <Plus className="h-4 w-4" />
-            <span className="ml-1">新建集合</span>
-          </Button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-          {collections.map((c) => (
-            <CollectionCard
-              key={c.id}
-              collection={c}
-              onOpen={() => onOpen(c.id)}
-              onEdit={() => onEdit(c.id)}
-              onDelete={() => onDelete(c.id)}
-              onGenerateCover={() => onGenerateCover(c.id)}
-              generatingCover={generatingCoverId === c.id}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
 
 function DiscoverRedirect() {
   const navigate = useNavigate();
@@ -636,81 +601,6 @@ function DiscoverRedirect() {
     <section>
       <p className="text-sm text-muted-foreground">正在打开发现…</p>
     </section>
-  );
-}
-
-/** 集合卡片：大目录样式 + AI 目录图标 */
-function CollectionCard({
-  collection: c,
-  onOpen,
-  onEdit,
-  onDelete,
-  onGenerateCover,
-  generatingCover,
-}: {
-  collection: Collection;
-  onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onGenerateCover: () => void;
-  generatingCover?: boolean;
-}) {
-  const iconToken = (c.cover_url ?? "").trim() || null;
-  const countLabel =
-    c.notebook_count === 0
-      ? "空目录"
-      : c.notebook_count === 1
-        ? "1 本笔记本"
-        : `${c.notebook_count} 本笔记本`;
-
-  return (
-    <article className="collection-card collection-dir-card group soft-tile soft-tile-hover">
-      <button
-        type="button"
-        className="flex w-full flex-col text-left"
-        onClick={onOpen}
-        aria-label={`打开集合 ${c.name}`}
-      >
-        <div className="collection-folder">
-          <GeneratedFolderIcon
-            title={c.name}
-            coverUrl={iconToken}
-            variant={c.id}
-            className="collection-folder-icon"
-          />
-          {generatingCover ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-card/70 text-[10px] font-medium text-foreground backdrop-blur-[1px]">
-              生成图标中…
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex items-start gap-1.5 px-2.5 pb-2.5 pt-0.5">
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-[12px] font-semibold leading-snug tracking-tight text-foreground sm:text-[13px]">
-              {c.name}
-            </h3>
-            <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
-                {countLabel}
-              </span>
-              {c.updated_at ? (
-                <span className="truncate">更新于 {formatDate(c.updated_at)}</span>
-              ) : null}
-            </p>
-          </div>
-        </div>
-      </button>
-
-      <div className="absolute right-1.5 top-1.5 z-10 opacity-70 transition-opacity group-hover:opacity-100">
-        <CollectionCardMenu
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onGenerateCover={onGenerateCover}
-          generatingCover={generatingCover}
-        />
-      </div>
-    </article>
   );
 }
 

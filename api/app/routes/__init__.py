@@ -16,14 +16,20 @@ from app.routes import (
     admin_fetch_settings,
     admin_subtitle_slice_settings,
     admin_overview_settings,
+    admin_cover_settings,
     admin_chat_settings,
     admin_vector_settings,
+    admin_observability,
+    admin_stats,
     admin_models,
     admin_skills,
     admin_studio,
+    admin_draft_strategies,
+    knowledge_draft,
     auth,
     chat,
     collections,
+    tags,
     covers,
     health,
     icons,
@@ -51,20 +57,26 @@ api_router.include_router(admin_fetch_network.router)
 api_router.include_router(admin_fetch_settings.router)
 api_router.include_router(admin_subtitle_slice_settings.router)
 api_router.include_router(admin_overview_settings.router)
+api_router.include_router(admin_cover_settings.router)
 api_router.include_router(admin_chat_settings.router)
 api_router.include_router(admin_vector_settings.router)
+api_router.include_router(admin_observability.router)
+api_router.include_router(admin_stats.router)
 api_router.include_router(admin_studio.router)
+api_router.include_router(admin_draft_strategies.router)
 # 公共 provider 元数据
 api_router.include_router(providers.router)
 # Phase 4：notebook / source
 api_router.include_router(notebooks.router)
 api_router.include_router(collections.router)
+api_router.include_router(tags.router)
 api_router.include_router(icons.router)
 api_router.include_router(covers.router)
 api_router.include_router(sources.router)
 api_router.include_router(search.router)
 api_router.include_router(chat.router)
 api_router.include_router(studio.router)
+api_router.include_router(knowledge_draft.router)
 
 # /api/storage/{key} 视频代理（签发 token 校验后流式回写）
 from app.routes import storage_proxy  # noqa: E402

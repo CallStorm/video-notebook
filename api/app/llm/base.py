@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
+from app.llm.usage import TokenUsage
+
 
 class LlmProvider(ABC):
     """provider = 一次构造对应一个 (provider_name, base_url, api_key, model_name)。"""
@@ -23,6 +25,7 @@ class LlmProvider(ABC):
         self.model_name = model_name or config_like.get("model_name", "")
         self.provider_name = config_like.get("provider", "")
         self.params_json = params_json or config_like.get("params_json") or {}
+        self.last_usage: TokenUsage | None = None
 
     @abstractmethod
     async def complete(self, prompt: str, *, system: str | None = None, **kwargs: Any) -> str:

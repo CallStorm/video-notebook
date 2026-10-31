@@ -158,6 +158,11 @@ def _map_row(row: dict[str, Any]) -> SearchResultItem | None:
         view_count = int(view_count) if view_count is not None else None
     except (TypeError, ValueError):
         view_count = None
+    comment_count = row.get("review")
+    try:
+        comment_count = int(comment_count) if comment_count is not None else None
+    except (TypeError, ValueError):
+        comment_count = None
     pic = row.get("pic")
     if isinstance(pic, str) and pic.startswith("//"):
         pic = "https:" + pic
@@ -173,6 +178,7 @@ def _map_row(row: dict[str, Any]) -> SearchResultItem | None:
             f"https://space.bilibili.com/{row['mid']}" if row.get("mid") is not None else None
         ),
         view_count=view_count,
+        comment_count=comment_count,
         description=_strip_html(str(row.get("description") or "")) or None,
     )
 

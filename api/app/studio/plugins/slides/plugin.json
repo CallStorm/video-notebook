@@ -1,0 +1,39 @@
+{
+  "id": "slides",
+  "name": "PPT",
+  "icon": "📊",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "timeout_seconds": 1800,
+  "skill": "officecli-pptx",
+  "extensions": [
+    ".pptx"
+  ],
+  "preferred_names": [
+    "deck.pptx"
+  ],
+  "form": [
+    {
+      "type": "language"
+    },
+    {
+      "type": "sources"
+    },
+    {
+      "type": "text",
+      "key": "title",
+      "label": "短标题",
+      "placeholder": "列表与封面用，如：审核 AI 代码",
+      "required": false,
+      "multiline": false
+    },
+    {
+      "type": "text",
+      "key": "brief",
+      "label": "描述",
+      "placeholder": "写明受众、结构和期望页数（仅作生成输入，不要整段贴进幻灯片）",
+      "required": true,
+      "multiline": true
+    }
+  ]
+}

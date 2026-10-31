@@ -10,9 +10,7 @@ from sqlalchemy import select
 
 from app.models.notebook import Note, Notebook, Subtitle, SubtitleLine, Video
 from app.models.studio import (
-    Agent,
     ClaudeCodeConfig,
-    Skill,
     StudioArtifact,
     StudioCapability,
     StudioTask,
@@ -42,7 +40,6 @@ async def _seed(
     *,
     format_key: str = "mind_map",
     status: str = "queued",
-    skill_path: str | None = None,
     with_sources: bool = True,
 ) -> tuple[StudioTask, Video | None, Note | None]:
     user = await _user(db_session)
@@ -50,29 +47,6 @@ async def _seed(
     db_session.add(notebook)
     await db_session.flush()
 
-    skill_id = None
-    if skill_path is not None:
-        skill = Skill(
-            name="导图技能",
-            storage_path=skill_path,
-            file_count=1,
-            size_bytes=1,
-            uploaded_by=user.id,
-        )
-        db_session.add(skill)
-        await db_session.flush()
-        skill_id = skill.id
-
-    agent = Agent(
-        name="导图智能体",
-        system_prompt="写出导图",
-        timeout_seconds=600,
-        is_active=True,
-        updated_by=user.id,
-        skill_id=skill_id,
-    )
-    db_session.add(agent)
-    await db_session.flush()
     config = await db_session.get(ClaudeCodeConfig, 1)
     if config is None:
         config = ClaudeCodeConfig(id=1)
@@ -81,11 +55,16 @@ async def _seed(
     config.base_url = None
     config.set_api_key("sk-test")
     await db_session.flush()
+    cap_name = {
+        "mind_map": "思维导图",
+        "slides": "PPT",
+        "structured_notes": "结构化笔记",
+    }.get(format_key, format_key)
     cap = StudioCapability(
-        name="思维导图" if format_key == "mind_map" else "PPT",
+        name=cap_name,
         icon="🧠",
         format_key=format_key,
-        agent_id=agent.id,
+        agent_id=None,
         enabled=True,
         is_builtin=True,
         form_json=[],
@@ -151,7 +130,7 @@ async def _seed(
         notebook_id=notebook.id,
         owner_id=user.id,
         capability_id=cap.id,
-        agent_id=agent.id,
+        agent_id=None,
         format_key=format_key,
         title=cap.name,
         status=status,
@@ -235,7 +214,7 @@ async def test_fake_claude_stores_markdown(db_session, tmp_path):
     assert "outputs/MANIFEST.json" in stdin
     assert "inputs.json" in stdin
     assert _FIXED in stdin
-    assert "写出导图" in stdin
+    assert "思维导图专家" in stdin
     assert "本次主题硬约束" in stdin
     assert "根节点必须是：灭佛" in stdin
     cwd = Path((capture / "cwd.txt").read_text(encoding="utf-8").strip())
@@ -423,15 +402,28 @@ async def test_pdf_error_keeps_success(db_session, tmp_path):
     assert all(row.role != "side" for row in rows)
 
 
-async def test_missing_skill_dir_is_process_failed(db_session, tmp_path):
+async def test_missing_skill_dir_is_process_failed(db_session, tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from app.studio import runner as runner_module
+    from app.studio.plugins import registry as plugins_registry
+
     marker = tmp_path / "started"
     script = tmp_path / "claude"
     _script(script, f"#!/bin/sh\ntouch '{marker}'\n")
-    task, _, _ = await _seed(
-        db_session,
-        with_sources=False,
-        skill_path=str(tmp_path / "missing-skill"),
-    )
+    task, _, _ = await _seed(db_session, with_sources=False)
+    real_get = plugins_registry.get_plugin
+
+    def broken_skill(plugin_id: str):
+        plugin = real_get(plugin_id)
+        return replace(
+            plugin,
+            skill_name="gone",
+            skill_dir=tmp_path / "missing-skill",
+        )
+
+    monkeypatch.setattr(plugins_registry, "get_plugin", broken_skill)
+    monkeypatch.setattr(runner_module, "get_plugin", broken_skill)
     await execute_studio_task(task.id, claude_bin=str(script))
     await db_session.refresh(task)
     assert task.status == "failed"

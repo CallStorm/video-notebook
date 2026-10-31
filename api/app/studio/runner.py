@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import os
 import shutil
 import signal
@@ -19,16 +20,17 @@ from sqlalchemy import select, update
 from app.db.session import get_sessionmaker
 from app.models.notebook import Note, Video
 from app.models.studio import (
-    Agent,
     ClaudeCodeConfig,
-    Skill,
     StudioArtifact,
     StudioCapability,
     StudioTask,
 )
 from app.storage import get_storage
 from app.studio.formats import FormatMismatch, NoOutput, accept_outputs, get_format
+from app.studio.four_panel_comic import write_comic_outputs
+from app.studio.plugins.registry import get_plugin
 from app.subtitles.store import load_subtitle
+from app.observability.llm_trace import end_llm_trace, llm_span, start_llm_trace
 
 _FIXED_PROMPT = (
     "阅读 inputs.json。若存在 .claude/skills 则使用其中的技能。"
@@ -68,14 +70,71 @@ def _safe_skill_name(name: str) -> str:
     return cleaned
 
 
+def _looks_like_brief(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if chr(10) in t and len(t) > 40:
+        return True
+    head = t[:120]
+    markers = ("受众", "结构建议", "页数", "主题：", "主题:", "要点：", "要点:", "原句摘要")
+    return any(m in head for m in markers)
+
+
+def _short_title_from_brief(brief: str, *, max_len: int = 20) -> str | None:
+    text = (brief or "").strip()
+    if not text:
+        return None
+    for raw in text.splitlines():
+        line = raw.strip()
+        for prefix in ("主题：", "主题:"):
+            if line.startswith(prefix):
+                theme = line[len(prefix) :].strip()
+                if theme:
+                    return theme[:max_len]
+    # first non-meta non-empty line
+    meta_prefixes = ("受众", "结构建议", "页数", "要点", "结论", "原句")
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if any(line.startswith(p) for p in meta_prefixes):
+            continue
+        if line[0].isdigit() and ("." in line[:3] or "、" in line[:3]):
+            # numbered point — take text after marker
+            body = re.split(r"^[\d]+[\.、\)]\s*", line, maxsplit=1)
+            line = body[-1].strip() if body else line
+        if line:
+            return line[:max_len]
+    return text[:max_len] if text else None
+
+
 def _choose_title(manifest_title: str | None, fields: list, capability_name: str) -> str:
-    candidates: list[object] = [manifest_title]
-    if fields and isinstance(fields[0], dict):
-        candidates.append(fields[0].get("value"))
-    candidates.append(capability_name)
+    fmap = _field_map(fields)
+    candidates: list[str] = []
+    if isinstance(manifest_title, str) and manifest_title.strip():
+        candidates.append(manifest_title.strip())
+    for key in ("title", "topic"):
+        value = (fmap.get(key) or "").strip()
+        if value:
+            candidates.append(value)
+    brief = (fmap.get("brief") or "").strip()
+    extracted = _short_title_from_brief(brief)
+    if extracted:
+        candidates.append(extracted)
+    if capability_name:
+        candidates.append(capability_name)
+
+    # Prefer clean short titles; do not let a brief-looking MANIFEST beat fields.title.
     for item in candidates:
-        if isinstance(item, str) and item.strip():
-            return item.strip()[:255]
+        if item and not _looks_like_brief(item):
+            return item[:255]
+    for item in candidates:
+        if not item:
+            continue
+        short = _short_title_from_brief(item)
+        if short:
+            return short[:255]
     return (capability_name or "studio")[:255]
 
 
@@ -125,11 +184,31 @@ def _topic_hard_constraints(format_key: str, fields: list) -> str | None:
     return "\n".join(lines)
 
 
+def _slides_hard_constraints(fields: list) -> str | None:
+    """Keep brief metadata off the slide canvas; prefer short titles."""
+    fmap = _field_map(fields)
+    title = (fmap.get("title") or "").strip()
+    lines = [
+        "## 幻灯片呈现硬约束",
+        "- 禁止把 brief 里的「受众 / 结构建议 / 页数 / 主题 / 要点 / 原句摘要」元数据块原样铺进幻灯片页面。",
+        "- 封面：短标题（优先 fields.title）；不要贴整段 brief。",
+        "- 内容页：短标题 + 至多 3–5 条短 bullet，留白；禁止长段落。",
+        "- MANIFEST.title 必须是短主题名（≤20 字），不要用 brief。",
+    ]
+    if title:
+        lines.insert(1, f"- 演示短标题：{title}")
+    return chr(10).join(lines)
+
+
 def _prompt(format_key: str, system_prompt: str, fields: list | None = None) -> str:
     parts = [get_format(format_key).instructions]
     hard = _topic_hard_constraints(format_key, fields or [])
     if hard:
         parts.append(hard)
+    if format_key == "slides":
+        slides_hard = _slides_hard_constraints(fields or [])
+        if slides_hard:
+            parts.append(slides_hard)
     if isinstance(system_prompt, str) and system_prompt.strip():
         parts.append(system_prompt)
     parts.append(_FIXED_PROMPT)
@@ -284,37 +363,35 @@ async def _sources(session, params: dict) -> list[dict]:
 
 
 async def _prepare(session, task: StudioTask) -> _Prepared:
-    agent = await session.get(Agent, task.agent_id)
-    if agent is None:
-        raise RuntimeError("agent missing")
+    """Load Claude config + plugin skill/system (no Agent row required)."""
+    try:
+        plugin = get_plugin(task.format_key)
+    except KeyError as exc:
+        raise RuntimeError(f"studio plugin missing: {task.format_key}") from exc
     cap = await session.get(StudioCapability, task.capability_id)
     params = task.params_json or {}
-    skill_src: Path | None = None
-    skill_dirname: str | None = None
-    skill_missing = False
-    if agent.skill_id is not None:
-        skill = await session.get(Skill, agent.skill_id)
-        path = Path(skill.storage_path) if skill is not None else None
-        if skill is None or path is None or not path.is_dir():
-            skill_missing = True
-        else:
-            skill_src = path
-            skill_dirname = _safe_skill_name(skill.name)
+    skill_src: Path | None = plugin.skill_dir
+    skill_dirname: str | None = (
+        _safe_skill_name(plugin.skill_name) if plugin.skill_name else None
+    )
+    skill_missing = bool(plugin.skill_name) and (
+        skill_src is None or not skill_src.is_dir()
+    )
     config = await session.get(ClaudeCodeConfig, 1)
     return _Prepared(
         model_name=(config.model_name if config is not None else "").strip(),
         api_key=config.get_api_key().strip() if config is not None else "",
         base_url=(config.base_url or "").strip() or None if config is not None else None,
-        system_prompt=agent.system_prompt or "",
+        system_prompt=plugin.system_prompt or "",
         format_key=task.format_key,
         language=params.get("language"),
         fields=list(params.get("fields") or []),
         sources=await _sources(session, params),
-        capability_name=cap.name if cap is not None else task.title,
+        capability_name=(cap.name if cap is not None else None) or plugin.name or task.title,
         skill_src=skill_src,
         skill_dirname=skill_dirname,
         skill_missing=skill_missing,
-        agent_timeout=agent.timeout_seconds,
+        agent_timeout=plugin.timeout_seconds,
     )
 
 
@@ -787,7 +864,7 @@ async def _store_success(
     main_key, data = _store_main(accepted_path, accepted_mime)
     stored_keys.append(main_key)
     text_content: str | None = None
-    if prepared.format_key == "mind_map":
+    if prepared.format_key in {"mind_map", "structured_notes", "four_panel"}:
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:
@@ -900,35 +977,93 @@ async def execute_studio_task(
     pdf_timeout_seconds: float | None = None,
 ) -> None:
     factory = get_sessionmaker()
+    notebook_id: int | None = None
+    format_key: str | None = None
+    capability_name: str | None = None
+    model_name: str | None = None
     async with factory() as session:
         task = await session.get(StudioTask, task_id)
         if task is None or task.status != "queued":
             return
+        notebook_id = task.notebook_id
+        format_key = task.format_key
         try:
             prepared = await _prepare(session, task)
         except RuntimeError as exc:
             await _fail_if_queued(session, task_id, str(exc))
             return
+        capability_name = prepared.capability_name
+        model_name = prepared.model_name or None
         limit = prepared.agent_timeout if timeout_seconds is None else timeout_seconds
         if not await _claim_running(session, task_id):
             return
+
+    trace_id = start_llm_trace(
+        kind="studio",
+        notebook_id=notebook_id,
+        provider="claude_code",
+        model_name=model_name,
+    )
+    t0 = time.perf_counter()
+    trace_status = "ok"
+    trace_error: str | None = None
 
     stored_keys: list[str] = []
     work: Path | None = None
     try:
         work = Path(tempfile.mkdtemp(prefix=f"studio_{task_id}_"))
         prompt = _write_workspace(work, prepared)
+        llm_span(
+            trace_id,
+            "task_meta",
+            content=json.dumps(
+                {
+                    "task_id": task_id,
+                    "format_key": format_key,
+                    "capability": capability_name,
+                },
+                ensure_ascii=False,
+            ),
+            role="meta",
+        )
+        llm_span(trace_id, "prompt", content=prompt, role="user")
         if prepared.skill_missing:
             await _mark_failed(factory, task_id, "process_failed", "技能目录不存在", work)
+            trace_status, trace_error = "failed", "技能目录不存在"
+            return
+        # four_panel MVP: deterministic local JSON (no Claude). Keeps UI online without LLM.
+        if prepared.format_key == "four_panel":
+            outputs = work / "outputs"
+            write_comic_outputs(outputs, prepared.fields)
+            try:
+                accepted = accept_outputs(get_format(prepared.format_key), outputs)
+            except (FormatMismatch, NoOutput):
+                await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
+                trace_status, trace_error = "failed", "format mismatch"
+                return
+            await _store_success(
+                factory,
+                task_id,
+                prepared=prepared,
+                accepted_path=accepted.path,
+                accepted_mime=accepted.mime,
+                accepted_title=accepted.title,
+                pdf_convert=pdf_convert,
+                pdf_timeout_seconds=pdf_timeout_seconds,
+                work=work,
+                stored_keys=stored_keys,
+            )
             return
         if not prepared.api_key or not prepared.model_name:
             await _mark_failed(factory, task_id, "process_failed", "还没有配置 Claude Code", work)
+            trace_status, trace_error = "failed", "还没有配置 Claude Code"
             return
 
         try:
             resolved_bin = resolve_claude_bin(claude_bin)
         except FileNotFoundError as exc:
             await _mark_failed(factory, task_id, "process_failed", str(exc), work)
+            trace_status, trace_error = "failed", str(exc)
             return
 
         outcome, code, stderr = await _run_claude(
@@ -944,6 +1079,7 @@ async def execute_studio_task(
         )
         if outcome == "canceled" or await _stopped(factory, task_id):
             shutil.rmtree(work, ignore_errors=True)
+            trace_status = "canceled"
             return
         outputs = work / "outputs"
         if outcome == "timeout":
@@ -956,6 +1092,7 @@ async def execute_studio_task(
                 if tail:
                     msg = f"{msg}\n{tail}"
                 await _mark_failed(factory, task_id, "timeout", msg, work)
+                trace_status, trace_error = "timeout", msg
                 return
             await _store_success(
                 factory,
@@ -976,14 +1113,18 @@ async def execute_studio_task(
         except FormatMismatch:
             if code != 0:
                 await _mark_failed(factory, task_id, "process_failed", fail_detail, work)
+                trace_status, trace_error = "failed", fail_detail
             else:
                 await _mark_failed(factory, task_id, "format_mismatch", "format mismatch", work)
+                trace_status, trace_error = "failed", "format mismatch"
             return
         except NoOutput:
             if code != 0:
                 await _mark_failed(factory, task_id, "process_failed", fail_detail, work)
+                trace_status, trace_error = "failed", fail_detail
             else:
                 await _mark_failed(factory, task_id, "no_output", "no output", work)
+                trace_status, trace_error = "failed", "no output"
             return
 
         await _store_success(
@@ -999,7 +1140,7 @@ async def execute_studio_task(
             stored_keys=stored_keys,
         )
     except Exception as exc:  # noqa: BLE001
-        detail = str(exc).strip() or f"{exc.__class__.__name__}: studio runner crashed"
+        detail = f"{exc.__class__.__name__}: {exc}".strip() or f"{exc.__class__.__name__}: studio runner crashed"
         if work is not None:
             try:
                 (work / "runner_exception.txt").write_text(
@@ -1008,3 +1149,11 @@ async def execute_studio_task(
             except OSError:
                 pass
         await _abandon_attempt(factory, task_id, detail, work, stored_keys)
+        trace_status, trace_error = "failed", detail
+    finally:
+        end_llm_trace(
+            trace_id,
+            status=trace_status,
+            error_text=trace_error,
+            t0=t0,
+        )

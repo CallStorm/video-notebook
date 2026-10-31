@@ -1,0 +1,43 @@
+{
+  "id": "structured_notes",
+  "name": "结构化笔记",
+  "icon": "📝",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "timeout_seconds": 600,
+  "skill": "structured-notes",
+  "extensions": [
+    ".json",
+    ".md",
+    ".markdown"
+  ],
+  "preferred_names": [
+    "notes.json",
+    "notes.md",
+    "notes.markdown"
+  ],
+  "form": [
+    {
+      "type": "language"
+    },
+    {
+      "type": "sources"
+    },
+    {
+      "type": "text",
+      "key": "focus",
+      "label": "聚焦",
+      "placeholder": "可选：想吸收的问题，如：如何从零跑到十公里",
+      "required": false,
+      "multiline": false
+    },
+    {
+      "type": "text",
+      "key": "extra_constraints",
+      "label": "额外约束",
+      "placeholder": "可选：例如只要概念卡、时间戳尽量密、不要行动清单…",
+      "required": false,
+      "multiline": true
+    }
+  ]
+}

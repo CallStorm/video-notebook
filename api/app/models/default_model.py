@@ -1,7 +1,8 @@
 """DefaultModel 表：每个 role 选哪个 model。
 
-role 集合：chat / tts / stt / logo / embedding。
+role 集合：chat / tts / stt / logo / embedding / cover_image。
 logo：按名称生成 emoji 图标（绑定 language 模型）。
+cover_image：笔记本封面文生图（OpenAI-compatible images API）。
 embedding：语义检索向量模型。
 """
 from __future__ import annotations
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
 
-DEFAULT_MODEL_ROLES = ("chat", "tts", "stt", "logo", "embedding")
+DEFAULT_MODEL_ROLES = ("chat", "tts", "stt", "logo", "embedding", "cover_image")
 
 
 class DefaultModel(Base, TimestampMixin):

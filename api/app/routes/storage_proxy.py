@@ -18,7 +18,7 @@ async def stream_storage(
     storage = get_storage()
     if not token:
         raise UnauthorizedError("Missing signed token")
-    if not storage.verify_signed_token(key, token, max_age_seconds=3600):
+    if not storage.verify_signed_token(key, token, max_age_seconds=8 * 24 * 3600):
         raise UnauthorizedError("token 无效或已过期")
     try:
         info = storage.head(key)
@@ -35,6 +35,12 @@ async def stream_storage(
             content_type = "video/webm"
         elif key.endswith(".mov"):
             content_type = "video/quicktime"
+        elif key.endswith(".png"):
+            content_type = "image/png"
+        elif key.endswith((".jpg", ".jpeg")):
+            content_type = "image/jpeg"
+        elif key.endswith(".webp"):
+            content_type = "image/webp"
         else:
             content_type = "application/octet-stream"
 

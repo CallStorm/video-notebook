@@ -11,7 +11,7 @@ from app.chat import service as chat_svc
 from app.core.deps import get_current_active_user
 from app.db.session import get_session
 from app.models.user import User
-from app.schemas.chat import ChatRequest, SourceSelection
+from app.schemas.chat import ChatRequest, DeleteChatMessagesRequest, SourceSelection
 from app.schemas.notebook import NoteRename
 from app.services.notes import delete_note, rename_note, save_message_as_note, set_note_selected
 
@@ -32,6 +32,33 @@ async def get_chat(
         session, owner_id=user.id, notebook_id=notebook_id
     )
     return {"messages": messages}
+
+
+@router.delete("/notebooks/{notebook_id}/chat", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat(
+    notebook_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    await chat_svc.delete_chat(session, owner_id=user.id, notebook_id=notebook_id)
+    return None
+
+
+
+@router.post("/notebooks/{notebook_id}/chat/messages/delete")
+async def delete_chat_messages(
+    notebook_id: int,
+    body: DeleteChatMessagesRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    deleted = await chat_svc.delete_messages(
+        session,
+        owner_id=user.id,
+        notebook_id=notebook_id,
+        message_ids=body.message_ids,
+    )
+    return {"deleted_ids": deleted}
 
 
 @router.post("/notebooks/{notebook_id}/chat")
@@ -77,7 +104,13 @@ async def patch_note(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    return await rename_note(session, owner_id=user.id, note_id=note_id, title=body.title)
+    return await rename_note(
+        session,
+        owner_id=user.id,
+        note_id=note_id,
+        title=body.title,
+        content_text=body.content_text,
+    )
 
 
 @router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)

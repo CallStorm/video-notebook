@@ -8,11 +8,17 @@ import pytest_asyncio
 from httpx import AsyncClient
 
 from app.chat.context import CitedLine, parse_citations
+from app.chat.service import _SYSTEM_WITH_NOTES as _NOTES_SYSTEM
 from app.core.security import create_access_token
 from app.llm.config_service import LlmResolved
 from app.models.notebook import Note, Notebook, NotebookSource, Subtitle, SubtitleLine, Video
 from app.models.user import User
 
+def test_strip_citations_removes_markers_and_tidies_space():
+    from app.chat.context import strip_citations
+
+    assert strip_citations('财政在收缩[1]。继续[2] 说') == '财政在收缩。继续 说'
+    assert '[1]' not in strip_citations('只有[1]')
 
 def test_parse_citations_keeps_first_seen_order():
     lines = {
@@ -23,21 +29,12 @@ def test_parse_citations_keeps_first_seen_order():
     assert [item["n"] for item in found] == [2, 1]
     assert found[0]["line_no"] == 8
 
-
 _SUBTITLE_ONLY_SYSTEM = (
     "你是视频笔记助手。只能根据这次给出的字幕回答，不要编造字幕里没有的事实。"
     "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
     "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
     "用中文回答。"
 )
-_NOTES_SYSTEM = (
-    "你是视频笔记助手。可以根据这次给出的字幕和笔记回答，不要编造两者里都没有的事实。"
-    "依据某句字幕时，在句末用它前面的编号引用，例如 [1]。"
-    "编号必须来自这次字幕，不要沿用历史回答里的编号，也不要自己发明。"
-    "笔记没有编号，不要给笔记编造 [n]。"
-    "用中文回答。"
-)
-
 
 class _Provider:
     def __init__(self) -> None:
@@ -52,7 +49,6 @@ class _Provider:
         yield "财政在收缩"
         yield "[1]"
 
-
 async def _user(db_session, phone: str) -> tuple[User, str]:
     user = User(phone=phone, name=phone, role="user", status="active")
     user.set_password("userpw1234")
@@ -61,7 +57,6 @@ async def _user(db_session, phone: str) -> tuple[User, str]:
     await db_session.refresh(user)
     token, _ = create_access_token(user.id, role="user")
     return user, token
-
 
 async def _notebook_with_lines(db_session, user: User) -> tuple[int, int, int]:
     notebook = Notebook(owner_id=user.id, title="笔记", is_pinned=False, share_all=False)
@@ -133,7 +128,6 @@ async def _notebook_with_lines(db_session, user: User) -> tuple[int, int, int]:
     await db_session.commit()
     return notebook.id, selected.id, ignored.id
 
-
 def _patch_llm(monkeypatch, provider: _Provider) -> None:
     async def fake_llm(_session):
         return LlmResolved(
@@ -146,7 +140,6 @@ def _patch_llm(monkeypatch, provider: _Provider) -> None:
 
     monkeypatch.setattr("app.chat.service.get_active_llm", fake_llm)
     monkeypatch.setattr("app.chat.service.make_provider", lambda **kwargs: provider)
-
 
 @pytest.mark.asyncio
 async def test_chat_uses_selected_subtitles_and_saves_citation(
@@ -193,7 +186,6 @@ async def test_chat_uses_selected_subtitles_and_saves_citation(
     assert [item["role"] for item in messages] == ["user", "assistant"]
     assert messages[1]["citations"][0]["line_no"] == 4
 
-
 @pytest.mark.asyncio
 async def test_chat_rejects_when_nothing_selected(client: AsyncClient, db_session, monkeypatch):
     user, token = await _user(db_session, "13800000902")
@@ -215,7 +207,6 @@ async def test_chat_rejects_when_nothing_selected(client: AsyncClient, db_sessio
     assert response.status_code == 400
     assert "勾选" in response.json()["message"]
 
-
 @pytest.mark.asyncio
 async def test_save_answer_as_note_once(client: AsyncClient, db_session, monkeypatch):
     user, token = await _user(db_session, "13800000904")
@@ -234,12 +225,19 @@ async def test_save_answer_as_note_once(client: AsyncClient, db_session, monkeyp
     history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
     answer = next(item for item in history.json()["messages"] if item["role"] == "assistant")
     assert answer["note_id"] is None
+    # Chat keeps inline markers + citation metadata for badges / jump.
+    assert "[1]" in answer["content_text"]
+    assert answer["citations"] and answer["citations"][0]["n"] == 1
+    chat_text_before = answer["content_text"]
+    chat_citations_before = answer["citations"]
 
     saved = await client.post(f"/api/messages/{answer['id']}/save_as_note", headers=headers)
     assert saved.status_code == 200, saved.text
     note = saved.json()
     assert note["message_id"] == answer["id"]
     assert "财政在收缩" in note["content_text"]
+    assert "[1]" not in note["content_text"]
+    assert note["citations"] == []
     again = await client.post(f"/api/messages/{answer['id']}/save_as_note", headers=headers)
     assert again.json()["id"] == note["id"]
 
@@ -249,12 +247,25 @@ async def test_save_answer_as_note_once(client: AsyncClient, db_session, monkeyp
     history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
     answer = next(item for item in history.json()["messages"] if item["role"] == "assistant")
     assert answer["note_id"] == note["id"]
+    # Saving a note must not mutate the chat message.
+    assert answer["content_text"] == chat_text_before
+    assert "[1]" in answer["content_text"]
+    assert answer["citations"] == chat_citations_before
 
     renamed = await client.patch(
         f"/api/notes/{note['id']}", headers=headers, json={"title": "灭佛之源"}
     )
     assert renamed.status_code == 200
     assert renamed.json()["title"] == "灭佛之源"
+
+    edited = await client.patch(
+        f"/api/notes/{note['id']}",
+        headers=headers,
+        json={"content_text": "更新后的笔记正文"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["content_text"] == "更新后的笔记正文"
+    assert edited.json()["title"] == "灭佛之源"
 
     removed = await client.delete(f"/api/notes/{note['id']}", headers=headers)
     assert removed.status_code == 204
@@ -263,7 +274,6 @@ async def test_save_answer_as_note_once(client: AsyncClient, db_session, monkeyp
     history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
     answer = next(item for item in history.json()["messages"] if item["role"] == "assistant")
     assert answer["note_id"] is None
-
 
 @pytest.mark.asyncio
 async def test_select_all_sources(client: AsyncClient, db_session):
@@ -280,12 +290,10 @@ async def test_select_all_sources(client: AsyncClient, db_session):
     flags = {item["video_id"]: item["selected_for_chat"] for item in detail.json()["sources"]}
     assert flags[ignored_id] is True
 
-
 @pytest_asyncio.fixture
 async def user(db_session) -> User:
     row, _token = await _user(db_session, "13800000910")
     return row
-
 
 @pytest.mark.asyncio
 async def test_chat_without_note_ids_stays_on_videos(client, db_session, user, monkeypatch):
@@ -314,7 +322,6 @@ async def test_chat_without_note_ids_stays_on_videos(client, db_session, user, m
         json={"message": "在说什么？", "source_ids": [selected_id]},
     )
     assert "笔记里的句子" not in captured["prompt"]
-
 
 @pytest.mark.asyncio
 async def test_chat_with_note_ids_appends_note_after_subtitles(
@@ -361,8 +368,51 @@ async def test_chat_with_note_ids_appends_note_after_subtitles(
     assert prompt.index("问题：") > note_index
     assert list(captured["citations"]) == [1]
 
+@pytest.mark.asyncio
 
 @pytest.mark.asyncio
+async def test_chat_note_body_citations_stripped_in_prompt(
+    client, db_session, user, monkeypatch
+):
+    """Notes may still store old [n]; prompt injection must strip them so chat cites stay on subtitles."""
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=user.id,
+        title="旁注",
+        content_text="旧笔记带引用[9]和[10]",
+        selected_for_chat=True,
+    )
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+    captured: dict = {}
+
+    async def fake_stream(prepared):
+        captured["prompt"] = prepared.prompt
+        yield {"type": "done", "message_id": None, "citations": []}
+
+    monkeypatch.setattr("app.chat.service.stream_answer", fake_stream)
+    _patch_llm(monkeypatch, _Provider())
+    token, _ = create_access_token(user.id, role=user.role)
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "message": "在说什么？",
+            "source_ids": [selected_id],
+            "note_ids": [note.id],
+        },
+    )
+    assert response.status_code == 200, response.text
+    prompt = captured["prompt"]
+    assert "旧笔记带引用和" in prompt
+    assert "[9]" not in prompt
+    assert "[10]" not in prompt
+    # Subtitle context still uses numbered lines like [1]
+    assert "[1]" in prompt
+
+
 async def test_chat_note_not_in_notebook_returns_404(client, db_session, user, monkeypatch):
     notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
     other = Notebook(owner_id=user.id, title="另一本", is_pinned=False, share_all=False)
@@ -396,7 +446,6 @@ async def test_chat_note_not_in_notebook_returns_404(client, db_session, user, m
         },
     )
     assert response.status_code == 404
-
 
 @pytest.mark.asyncio
 async def test_chat_notes_without_videos_skips_subtitle_requirement(
@@ -436,7 +485,6 @@ async def test_chat_notes_without_videos_skips_subtitle_requirement(
     )
     assert response.status_code == 200, response.text
     assert "笔记：旁注\n笔记里的句子" in captured["prompt"]
-
 
 @pytest.mark.asyncio
 async def test_chat_multiple_notes_separated_by_blank_line(
@@ -482,7 +530,6 @@ async def test_chat_multiple_notes_separated_by_blank_line(
     assert response.status_code == 200, response.text
     assert "笔记：旁注\n笔记里的句子\n\n笔记：另一篇\n第二句" in captured["prompt"]
 
-
 @pytest.mark.asyncio
 async def test_chat_system_prompt_allows_notes_only_when_note_ids_present(
     client, db_session, user, monkeypatch
@@ -524,3 +571,196 @@ async def test_chat_system_prompt_allows_notes_only_when_note_ids_present(
     )
     assert response.status_code == 200, response.text
     assert with_notes.systems == [_NOTES_SYSTEM]
+
+@pytest.mark.asyncio
+async def test_delete_chat_clears_messages_keeps_notes(client: AsyncClient, db_session, monkeypatch):
+    user, token = await _user(db_session, "13800000988")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    _patch_llm(monkeypatch, _Provider())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=headers,
+        json={"message": "在说什么？", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    messages = history.json()["messages"]
+    assert len(messages) == 2
+    answer = next(item for item in messages if item["role"] == "assistant")
+    saved = await client.post(f"/api/messages/{answer['id']}/save_as_note", headers=headers)
+    assert saved.status_code == 200
+    note_id = saved.json()["id"]
+
+    cleared = await client.delete(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    assert cleared.status_code == 204
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    assert history.json()["messages"] == []
+
+    # 幂等：再删一次仍 204
+    again = await client.delete(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    assert again.status_code == 204
+
+    # 已保存笔记仍在
+    from app.models.notebook import Note
+
+    db_session.expire_all()
+    note = await db_session.get(Note, note_id)
+    assert note is not None and note.deleted_at is None
+    assert note.message_id is None
+
+@pytest.mark.asyncio
+async def test_delete_chat_rejects_non_owner(client: AsyncClient, db_session, monkeypatch):
+    owner, _token = await _user(db_session, "13800000989")
+    other, other_token = await _user(db_session, "13800000990")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, owner)
+    _patch_llm(monkeypatch, _Provider())
+    owner_headers = {"Authorization": f"Bearer {_token}"}
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=owner_headers,
+        json={"message": "hi", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    response = await client.delete(
+        f"/api/notebooks/{notebook_id}/chat",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert response.status_code == 404
+
+def test_expand_ids_to_turn_message_ids_pairs_user_assistant():
+    from types import SimpleNamespace
+    from app.chat.service import expand_ids_to_turn_message_ids
+
+    rows = [
+        SimpleNamespace(id=1, role="user"),
+        SimpleNamespace(id=2, role="assistant"),
+        SimpleNamespace(id=3, role="user"),
+        SimpleNamespace(id=4, role="assistant"),
+    ]
+    # selecting only assistant expands to whole turn
+    assert expand_ids_to_turn_message_ids(rows, {2}) == {1, 2}
+    # selecting only user expands to whole turn
+    assert expand_ids_to_turn_message_ids(rows, {3}) == {3, 4}
+    # multi turns
+    assert expand_ids_to_turn_message_ids(rows, {1, 4}) == {1, 2, 3, 4}
+
+
+def test_expand_ids_to_turn_message_ids_orphan_assistant():
+    from types import SimpleNamespace
+    from app.chat.service import expand_ids_to_turn_message_ids
+
+    rows = [
+        SimpleNamespace(id=10, role="assistant"),
+        SimpleNamespace(id=11, role="user"),
+    ]
+    assert expand_ids_to_turn_message_ids(rows, {10}) == {10}
+    assert expand_ids_to_turn_message_ids(rows, {11}) == {11}
+
+
+@pytest.mark.asyncio
+async def test_delete_selected_messages_expands_turn_keeps_notes(client: AsyncClient, db_session, monkeypatch):
+    user, token = await _user(db_session, "13800000991")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    _patch_llm(monkeypatch, _Provider())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for _ in range(2):
+        async with client.stream(
+            "POST",
+            f"/api/notebooks/{notebook_id}/chat",
+            headers=headers,
+            json={"message": "在说什么？", "source_ids": [selected_id]},
+        ) as response:
+            assert response.status_code == 200
+            await response.aread()
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    messages = history.json()["messages"]
+    assert len(messages) == 4
+    first_assistant = next(item for item in messages if item["role"] == "assistant")
+    saved = await client.post(f"/api/messages/{first_assistant['id']}/save_as_note", headers=headers)
+    assert saved.status_code == 200
+    note_id = saved.json()["id"]
+
+    # delete first turn by assistant id only — should expand to user+assistant
+    deleted = await client.post(
+        f"/api/notebooks/{notebook_id}/chat/messages/delete",
+        headers=headers,
+        json={"message_ids": [first_assistant["id"]]},
+    )
+    assert deleted.status_code == 200, deleted.text
+    deleted_ids = set(deleted.json()["deleted_ids"])
+    assert first_assistant["id"] in deleted_ids
+    assert len(deleted_ids) == 2
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=headers)
+    left = history.json()["messages"]
+    assert len(left) == 2
+    assert all(item["id"] not in deleted_ids for item in left)
+
+    from app.models.notebook import Note
+
+    db_session.expire_all()
+    note = await db_session.get(Note, note_id)
+    assert note is not None and note.deleted_at is None
+    assert note.message_id is None
+
+
+@pytest.mark.asyncio
+async def test_delete_selected_messages_rejects_non_owner(client: AsyncClient, db_session, monkeypatch):
+    owner, owner_token = await _user(db_session, "13800000992")
+    _other, other_token = await _user(db_session, "13800000993")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, owner)
+    _patch_llm(monkeypatch, _Provider())
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=owner_headers,
+        json={"message": "hi", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    history = await client.get(f"/api/notebooks/{notebook_id}/chat", headers=owner_headers)
+    msg_id = history.json()["messages"][0]["id"]
+
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat/messages/delete",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={"message_ids": [msg_id]},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_selected_messages_rejects_foreign_ids(client: AsyncClient, db_session, monkeypatch):
+    user, token = await _user(db_session, "13800000994")
+    notebook_id, selected_id, _ignored = await _notebook_with_lines(db_session, user)
+    _patch_llm(monkeypatch, _Provider())
+    headers = {"Authorization": f"Bearer {token}"}
+    async with client.stream(
+        "POST",
+        f"/api/notebooks/{notebook_id}/chat",
+        headers=headers,
+        json={"message": "hi", "source_ids": [selected_id]},
+    ) as response:
+        assert response.status_code == 200
+        await response.aread()
+
+    response = await client.post(
+        f"/api/notebooks/{notebook_id}/chat/messages/delete",
+        headers=headers,
+        json={"message_ids": [999999]},
+    )
+    assert response.status_code == 400
+

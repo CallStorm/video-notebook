@@ -92,6 +92,13 @@ def _map_entry(entry: dict[str, Any], *, platform: Platform) -> SearchResultItem
         except (TypeError, ValueError):
             view_count = None
 
+    comment_count = entry.get("comment_count")
+    if comment_count is not None:
+        try:
+            comment_count = int(comment_count)
+        except (TypeError, ValueError):
+            comment_count = None
+
     return SearchResultItem(
         id=video_id,
         title=title[:500],
@@ -102,6 +109,7 @@ def _map_entry(entry: dict[str, Any], *, platform: Platform) -> SearchResultItem
         uploader=(entry.get("uploader") or entry.get("channel") or None),
         uploader_url=entry.get("uploader_url") or entry.get("channel_url"),
         view_count=view_count,
+        comment_count=comment_count,
         description=(entry.get("description") or None),
     )
 

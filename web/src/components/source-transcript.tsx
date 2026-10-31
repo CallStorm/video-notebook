@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, Sparkles } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
@@ -80,6 +80,8 @@ export function SourceTranscript({
   overviewText,
   overviewError,
   focusLineNo,
+  seekTimeSec,
+  seekNonce,
   onBack,
 }: {
   access: string;
@@ -90,9 +92,14 @@ export function SourceTranscript({
   overviewText: string | null;
   overviewError: string | null;
   focusLineNo?: number | null;
+  /** Absolute seek target in seconds; changes trigger player seek+play. */
+  seekTimeSec?: number | null;
+  /** Bumps when the same timestamp is requested again. */
+  seekNonce?: number | null;
   onBack: () => void;
 }) {
   const [guideOpen, setGuideOpen] = useState(true);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const subtitle = useQuery({
     queryKey: ["subtitle", videoId],
     queryFn: () => fetchSubtitle(access, videoId),
@@ -120,6 +127,27 @@ export function SourceTranscript({
     if (focusLineNo == null || lines.length === 0) return;
     document.getElementById(`cue-${focusLineNo}`)?.scrollIntoView({ block: "center" });
   }, [focusLineNo, lines.length, videoId]);
+
+  useEffect(() => {
+    if (seekTimeSec == null || Number.isNaN(seekTimeSec)) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const token = seekTimeSec;
+    const apply = () => {
+      try {
+        video.currentTime = Math.max(0, token);
+        void video.play().catch(() => {});
+      } catch {
+        /* ignore seek races while metadata loads */
+      }
+    };
+    if (video.readyState >= 1) apply();
+    else {
+      const onReady = () => apply();
+      video.addEventListener("loadedmetadata", onReady, { once: true });
+      return () => video.removeEventListener("loadedmetadata", onReady);
+    }
+  }, [seekTimeSec, seekNonce, videoId, play.data?.url]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3">
@@ -164,6 +192,7 @@ export function SourceTranscript({
         {hasFile && play.data?.url ? (
           <video
             key={play.data.url}
+            ref={videoRef}
             className="aspect-video w-full bg-player accent-primary"
             controls
             playsInline
@@ -226,13 +255,21 @@ export function SourceTranscript({
                     focusLineNo === line.line_no ? "bg-accent text-foreground ring-1 ring-primary/25" : ""
                   }`}
                 >
-                  <span
-                    className={`mr-2 text-[10px] ${
+                  <button
+                    type="button"
+                    className={`mr-2 rounded px-1 font-mono text-[10px] hover:bg-primary/10 hover:text-primary ${
                       focusLineNo === line.line_no ? "font-medium text-primary" : "text-muted-foreground"
                     }`}
+                    title="跳转到此处"
+                    onClick={() => {
+                      const video = videoRef.current;
+                      if (!video) return;
+                      video.currentTime = Math.max(0, line.start_ms / 1000);
+                      void video.play().catch(() => {});
+                    }}
                   >
                     {fmtClock(line.start_ms)}
-                  </span>
+                  </button>
                   {line.text}
                 </p>
               ))}
