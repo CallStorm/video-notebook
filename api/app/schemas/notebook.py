@@ -97,6 +97,21 @@ class SourceSummary(BaseModel):
     video: VideoRead
 
 
+class NoteAssistRequest(BaseModel):
+    action: Literal["write", "translate", "explain"]
+    selection: str = Field(min_length=1, max_length=8000)
+    instruction: str | None = Field(default=None, max_length=2000)
+    prior: str | None = Field(default=None, max_length=8000)
+    source_ids: list[int] | None = None
+    note_ids: list[int] | None = None
+
+
+class NoteCreate(BaseModel):
+    """空白笔记。标题可空，空则用「未命名笔记」。"""
+
+    title: str | None = Field(default=None, max_length=255)
+
+
 class NoteRename(BaseModel):
     """更新笔记：可改标题、正文，至少一项。"""
 

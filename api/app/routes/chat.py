@@ -12,8 +12,15 @@ from app.core.deps import get_current_active_user
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.chat import ChatRequest, DeleteChatMessagesRequest, SourceSelection
-from app.schemas.notebook import NoteRename
-from app.services.notes import delete_note, rename_note, save_message_as_note, set_note_selected
+from app.schemas.notebook import NoteAssistRequest, NoteCreate, NoteRename
+from app.services.note_assist import prepare_note_assist, stream_note_assist
+from app.services.notes import (
+    create_blank_note,
+    delete_note,
+    rename_note,
+    save_message_as_note,
+    set_note_selected,
+)
 
 router = APIRouter(tags=["chat"])
 
@@ -85,6 +92,54 @@ async def post_chat(
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/notebooks/{notebook_id}/notes/assist")
+async def post_note_assist(
+    notebook_id: int,
+    body: NoteAssistRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    prepared = await prepare_note_assist(
+        session,
+        owner_id=user.id,
+        notebook_id=notebook_id,
+        action=body.action,
+        selection=body.selection,
+        instruction=body.instruction,
+        prior=body.prior,
+        source_ids=body.source_ids,
+        note_ids=body.note_ids,
+    )
+    llm, system, prompt = prepared
+
+    async def events():
+        async for event in stream_note_assist(
+            llm, notebook_id=notebook_id, system=system, prompt=prompt
+        ):
+            yield _sse(event)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/notebooks/{notebook_id}/notes", status_code=status.HTTP_201_CREATED)
+async def post_blank_note(
+    notebook_id: int,
+    body: NoteCreate | None = None,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await create_blank_note(
+        session,
+        owner_id=user.id,
+        notebook_id=notebook_id,
+        title=None if body is None else body.title,
     )
 
 

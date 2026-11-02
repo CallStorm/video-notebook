@@ -27,14 +27,15 @@ import { SourceRenameDialog, SourceRowMenu } from "@/components/source-row-menu"
 import { NotebookChat, readChatStream, type ChatCitation, type ChatMessage, type ChatRelay } from "@/components/notebook-chat";
 import { MarkdownMessage } from "@/components/chat-markdown";
 import { NoteRichEditor, getMarkdown } from "@/components/note-editor";
+import { NoteAssist, type AssistSelection } from "@/components/note-assist";
 import type { Editor } from "@tiptap/react";
 import { StudioCollapsedRail, StudioPanel } from "@/components/studio-panel";
 import { KnowledgePanel } from "@/components/knowledge-panel";
 import { RightPanelTabs } from "@/components/right-panel-tabs";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
-import { StudioComic } from "@/components/studio-comic";
 import { displayStudioTaskTitle } from "@/components/studio-panel";
+import { isStudioFormatVisible } from "@/studio/plugins/registry";
 import { StudioFile } from "@/components/studio-file";
 import { UserMenu } from "@/components/user-menu";
 import { Check, Copy, Pencil, StickyNote, X } from "lucide-react";
@@ -249,42 +250,6 @@ export default function NotebookPage() {
     enabled: !!token && previewTaskId != null,
   });
 
-  const regenerateComic = useMutation({
-    mutationFn: async () => {
-      const task = preview.data;
-      if (!task?.capability_id) throw new Error("缺少能力信息，无法重新生成");
-      const fields: Record<string, string> = {};
-      for (const item of task.params_json?.fields ?? []) {
-        if (item && typeof item.key === "string" && typeof item.value === "string" && item.key) {
-          fields[item.key] = item.value;
-        }
-      }
-      const language =
-        task.params_json?.language === "English" || task.params_json?.language === "中文"
-          ? task.params_json.language
-          : "中文";
-      return api<{ id: number; format_key: string }>(`/notebooks/${notebookId}/studio/tasks`, {
-        method: "POST",
-        access: token,
-        body: {
-          capability_id: task.capability_id,
-          language,
-          video_ids: idList(task.params_json?.video_ids),
-          note_ids: idList(task.params_json?.note_ids),
-          fields,
-        },
-      });
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
-      setPreviewTaskId(null);
-      setPreviewFormat(null);
-      setPreviewExpanded(false);
-      setRightCollapsed(false);
-      setRightMode("studio");
-    },
-  });
-
   useEffect(() => {
     setPreviewTaskId(null);
     setPreviewFormat(null);
@@ -366,6 +331,29 @@ export default function NotebookPage() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+    },
+  });
+
+  const createNote = useMutation({
+    mutationFn: () =>
+      api<NoteRead>(`/notebooks/${notebookId}/notes`, { method: "POST", access: token, body: {} }),
+    onSuccess: (note) => {
+      qc.setQueryData<NotebookDetail>(["notebook", notebookId], (current) => {
+        if (!current) return current;
+        const notes = current.notes ?? [];
+        if (notes.some((item) => item.id === note.id)) return current;
+        return {
+          ...current,
+          notes: [note, ...notes],
+          note_count: current.note_count + 1,
+        };
+      });
+      setSelectedVideoId(null);
+      setPreviewTaskId(null);
+      setPreviewFormat(null);
+      setOpenNoteId(note.id);
+      setRightCollapsed(false);
+      void qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
     },
   });
 
@@ -697,11 +685,12 @@ export default function NotebookPage() {
               variant="outline"
               size="sm"
               className="min-w-0 flex-1 rounded-full border-border/70 px-2"
-              onClick={() => alert("笔记功能即将上线")}
-              title="即将上线"
+              onClick={() => createNote.mutate()}
+              disabled={createNote.isPending}
+              title="新建一条空白笔记"
             >
               <Plus className="mr-1 h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">新建笔记</span>
+              <span className="truncate">{createNote.isPending ? "创建中…" : "新建笔记"}</span>
             </Button>
           </div>
           ) : browsingList ? (
@@ -709,11 +698,16 @@ export default function NotebookPage() {
               这是公开分享的笔记本，可浏览来源与字幕；添加与管理仅主人可用。
             </div>
           ) : null}
+          {createNote.error ? (
+            <p className="border-b border-border/40 px-3 py-2 text-[11px] text-destructive">
+              {createNote.error instanceof ApiError ? createNote.error.message : "创建笔记失败"}
+            </p>
+          ) : null}
 
           {/* 工具栏：filter + select all */}
           <div className={browsingList ? "flex items-center justify-between border-b border-border/40 px-3.5 py-2 text-xs text-muted-foreground" : "hidden"}>
             <span className="text-[11px]">
-              已选 {nb.sources.filter((s) => s.selected_for_chat).length}/{nb.sources.length}
+              已选 {nb.sources.filter((s) => s.selected_for_chat).length + notes.filter((n) => n.selected_for_chat).length}/{nb.sources.length + notes.length}
             </span>
             {isOwner ? (
               <SelectAll
@@ -900,10 +894,15 @@ export default function NotebookPage() {
               {openNote ? (
                 <StudioNote
                   note={openNote}
+                  access={token}
+                  notebookId={notebookId}
+                  sourceIds={nb.sources.filter((source) => source.selected_for_chat).map((source) => source.video_id)}
+                  noteIds={notes.filter((item) => item.selected_for_chat && item.id !== openNote.id).map((item) => item.id)}
                   saving={updateNote.isPending}
                   onSaveContent={(content_text) =>
                     updateNote.mutateAsync({ noteId: openNote.id, content_text })
                   }
+                  onSaveTitle={(title) => renameNote.mutateAsync({ noteId: openNote.id, title })}
                   onOpenStudio={() => setOpenNoteId(null)}
                   onJump={(videoId, lineNo) => {
                     setLeftCollapsed(false);
@@ -948,23 +947,23 @@ export default function NotebookPage() {
                     setOpenNoteId(noteId);
                   }}
                 />
-              ) : previewTaskId != null && previewFormat === "four_panel" ? (
-                <StudioComic
-                  title={displayStudioTaskTitle(preview.data?.title) || "四格漫"}
-                  crumb={nb.title}
-                  text={comicNotice(preview.isLoading, preview.isError, preview.error, preview.data) ? null : (preview.data?.text_content ?? null)}
-                  notice={comicNotice(preview.isLoading, preview.isError, preview.error, preview.data)}
-                  noticeError={preview.isError}
-                  regenerating={regenerateComic.isPending}
-                  expanded={previewExpanded}
-                  onBack={() => {
-                    setPreviewTaskId(null);
-                    setPreviewFormat(null);
-                    setPreviewExpanded(false);
-                  }}
-                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
-                  onRegenerate={() => regenerateComic.mutate()}
-                />
+              ) : previewTaskId != null && previewFormat && !isStudioFormatVisible(previewFormat) ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+                  <p className="text-sm font-medium">此产物格式已停用</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => {
+                      setPreviewTaskId(null);
+                      setPreviewFormat(null);
+                      setPreviewExpanded(false);
+                    }}
+                  >
+                    返回产物
+                  </Button>
+                </div>
               ) : previewTaskId != null && previewFormat === "file" ? (
                 <StudioFile
                   access={token}
@@ -1240,27 +1239,6 @@ function snapshotNotes(ids: number[], notes: NoteRead[]): { id: number; title: s
 }
 
 
-function comicNotice(
-  loading: boolean,
-  failed: boolean,
-  error: unknown,
-  task: StudioTaskDetail | undefined,
-): string | null {
-  const emptyLabel = "没有四格漫内容";
-  const loadingLabel = "加载四格漫…";
-  if (!task) {
-    if (loading) return loadingLabel;
-    if (error instanceof ApiError) return error.message;
-    if (failed) return "加载失败";
-    return loadingLabel;
-  }
-  if (task.status === "queued" || task.status === "running") return "四格漫生成中…";
-  if (task.status === "failed") return "生成失败";
-  if (task.text_content == null) return emptyLabel;
-  return null;
-}
-
-
 function mindMapNotice(
   loading: boolean,
   failed: boolean,
@@ -1280,28 +1258,66 @@ function mindMapNotice(
   return null;
 }
 
+function assistContent(result: string): string | { type: string; content: { type: string; text: string }[] }[] {
+  const blocks = result
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  if (blocks.length <= 1) return result.replace(/\s*\n+\s*/g, " ").trim();
+  return blocks.map((text) => ({
+    type: "paragraph",
+    content: [{ type: "text", text: text.replace(/\s*\n+\s*/g, " ").trim() }],
+  }));
+}
+
 function StudioNote({
   note,
+  access,
+  notebookId,
+  sourceIds,
+  noteIds,
   saving,
   onSaveContent,
+  onSaveTitle,
   onOpenStudio,
   onJump,
 }: {
   note: NoteRead;
+  access: string;
+  notebookId: number;
+  sourceIds: number[];
+  noteIds: number[];
   saving?: boolean;
   onSaveContent: (content_text: string) => Promise<unknown>;
+  onSaveTitle: (title: string) => Promise<unknown>;
   onOpenStudio: () => void;
   onJump: (videoId: number, lineNo: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => !note.content_text.trim());
   const [editError, setEditError] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState(note.title);
   const editorRef = useRef<Editor | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const titleFocused = useRef(false);
 
   useEffect(() => {
-    setEditing(false);
+    setEditing(!note.content_text.trim());
     setEditError(null);
-    editorRef.current = null;
+  }, [note.id]);
+
+  useEffect(() => {
+    if (!titleFocused.current) setTitleDraft(note.title);
+  }, [note.id, note.title]);
+
+  useEffect(() => {
+    if (note.content_text.trim()) return;
+    const timer = window.setTimeout(() => {
+      titleRef.current?.focus();
+      titleRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [note.id]);
 
   async function copyNote() {
@@ -1331,6 +1347,43 @@ function StudioNote({
     setEditing(false);
     setEditError(null);
     editorRef.current = null;
+  }
+
+  async function commitTitle(raw: string) {
+    const next = raw.trim() || "未命名笔记";
+    if (next !== titleDraft) setTitleDraft(next);
+    if (next === note.title) return;
+    setEditError(null);
+    try {
+      await onSaveTitle(next);
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "标题保存失败");
+    }
+  }
+
+  async function applyAssist(mode: "replace" | "insert", result: string, selection: AssistSelection) {
+    const editor = editorRef.current;
+    if (editor && selection.from != null && selection.to != null) {
+      const snapshot = editor.getJSON();
+      const at = mode === "replace" ? { from: selection.from, to: selection.to } : selection.to;
+      editor.chain().focus().insertContentAt(at, assistContent(result)).run();
+      try {
+        await onSaveContent(getMarkdown(editor));
+      } catch (err) {
+        editor.commands.setContent(snapshot);
+        throw err;
+      }
+      return;
+    }
+    const body = note.content_text;
+    const at = body.indexOf(selection.text);
+    if (at < 0) throw new Error("这段在正文里对不上，请进入编辑后再替换");
+    const end = at + selection.text.length;
+    const next =
+      mode === "replace"
+        ? body.slice(0, at) + result + body.slice(end)
+        : `${body.slice(0, end)}\n\n${result}${body.slice(end)}`;
+    await onSaveContent(next);
   }
 
   return (
@@ -1395,22 +1448,59 @@ function StudioNote({
         </div>
       </header>
       <div className="flex shrink-0 items-start gap-2 px-4 pb-2 pt-3">
-        <h2 className="min-w-0 flex-1 text-base font-semibold leading-6 tracking-tight">{note.title}</h2>
+        <input
+          ref={titleRef}
+          value={titleDraft}
+          aria-label="笔记标题"
+          onChange={(event) => setTitleDraft(event.target.value)}
+          onFocus={() => {
+            titleFocused.current = true;
+          }}
+          onBlur={(event) => {
+            titleFocused.current = false;
+            void commitTitle(event.currentTarget.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+          className="min-w-0 flex-1 bg-transparent text-base font-semibold leading-6 tracking-tight outline-none"
+        />
       </div>
       {editError ? <p className="px-4 pb-2 text-xs text-destructive">{editError}</p> : null}
-      {editing ? (
-        <NoteRichEditor
-          key={`edit-${note.id}`}
-          initialMarkdown={note.content_text}
-          onEditor={(ed) => {
-            editorRef.current = ed;
-          }}
-        />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-          <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
-        </div>
-      )}
+      <div
+        ref={bodyRef}
+        className="flex min-h-0 flex-1 flex-col"
+        onMouseDownCapture={() => {
+          const title = titleRef.current;
+          if (title && document.activeElement === title) title.blur();
+        }}
+      >
+        {editing ? (
+          <NoteRichEditor
+            key={`edit-${note.id}`}
+            initialMarkdown={note.content_text}
+            onEditor={(ed) => {
+              editorRef.current = ed;
+            }}
+          />
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+            <MarkdownMessage text={note.content_text} citations={note.citations ?? []} onJump={onJump} />
+          </div>
+        )}
+      </div>
+      <NoteAssist
+        access={access}
+        notebookId={notebookId}
+        sourceIds={sourceIds}
+        noteIds={noteIds}
+        rootRef={bodyRef}
+        editorRef={editorRef}
+        onApply={applyAssist}
+      />
     </div>
   );
 }

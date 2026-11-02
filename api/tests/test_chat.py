@@ -275,6 +275,44 @@ async def test_save_answer_as_note_once(client: AsyncClient, db_session, monkeyp
     answer = next(item for item in history.json()["messages"] if item["role"] == "assistant")
     assert answer["note_id"] is None
 
+
+@pytest.mark.asyncio
+async def test_create_blank_note(client: AsyncClient, db_session):
+    user, token = await _user(db_session, "13800000991")
+    notebook = Notebook(owner_id=user.id, title="空笔记", is_pinned=False, share_all=False)
+    outsider = User(phone="13800000992", name="outsider", role="user", status="active")
+    outsider.set_password("userpw1234")
+    db_session.add_all([notebook, outsider])
+    await db_session.commit()
+    await db_session.refresh(notebook)
+    await db_session.refresh(outsider)
+    headers = {"Authorization": f"Bearer {token}"}
+    other_token, _ = create_access_token(outsider.id, role="user")
+    created = await client.post(f"/api/notebooks/{notebook.id}/notes", headers=headers, json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["message_id"] is None
+    assert body["title"] == "未命名笔记"
+    assert body["content_text"] == ""
+    assert body["selected_for_chat"] is True
+    named = await client.post(
+        f"/api/notebooks/{notebook.id}/notes",
+        headers=headers,
+        json={"title": "会议纪要"},
+    )
+    assert named.status_code == 201, named.text
+    assert named.json()["id"] != body["id"]
+    assert named.json()["title"] == "会议纪要"
+    assert named.json()["message_id"] is None
+    detail = await client.get(f"/api/notebooks/{notebook.id}", headers=headers)
+    assert detail.json()["note_count"] == 2
+    hidden = await client.post(
+        f"/api/notebooks/{notebook.id}/notes",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={},
+    )
+    assert hidden.status_code == 404
+
 @pytest.mark.asyncio
 async def test_select_all_sources(client: AsyncClient, db_session):
     user, token = await _user(db_session, "13800000903")

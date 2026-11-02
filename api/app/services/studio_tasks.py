@@ -265,6 +265,58 @@ async def _require_notebook_notes(
         raise BadRequestError("来源不属于该笔记本")
 
 
+async def retry_task(
+    session: AsyncSession, *, owner_id: int, task_id: int
+) -> StudioTask:
+    task = await session.get(StudioTask, task_id)
+    if task is None or task.deleted_at is not None or task.owner_id != owner_id:
+        raise NotFoundError("任务不存在")
+    if task.format_key in _HIDDEN_FORMATS:
+        raise BadRequestError("该产物格式已停用")
+    if task.status != "failed":
+        raise BadRequestError("只能重试失败的任务")
+    artifacts = (
+        await session.execute(
+            select(StudioArtifact).where(StudioArtifact.task_id == task.id)
+        )
+    ).scalars().all()
+    storage = get_storage()
+    for artifact in artifacts:
+        key = artifact.storage_key
+        if key:
+            other = await session.scalar(
+                select(StudioArtifact.id).where(
+                    StudioArtifact.storage_key == key,
+                    StudioArtifact.task_id != task.id,
+                ).limit(1)
+            )
+            if other is None:
+                storage.delete(key)
+        await session.delete(artifact)
+    task.status = "queued"
+    task.error_code = None
+    task.error_message = None
+    task.started_at = None
+    task.finished_at = None
+    task.result_json = None
+    session.add(task)
+    await session.commit()
+    await session.refresh(task)
+    try:
+        enqueue_studio_task(task.id)
+    except Exception as exc:  # noqa: BLE001 — surface broker/worker wiring failures
+        task.status = "failed"
+        task.error_code = "process_failed"
+        task.error_message = (
+            f"任务入队失败：{exc}" if str(exc).strip() else "任务入队失败，请检查 Celery studio worker"
+        )[-2000:]
+        task.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        session.add(task)
+        await session.commit()
+        await session.refresh(task)
+    return task
+
+
 async def rename_task(
     session: AsyncSession, *, owner_id: int, task_id: int, body: TaskRename
 ) -> StudioTask:

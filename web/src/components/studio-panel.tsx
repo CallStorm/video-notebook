@@ -15,16 +15,23 @@ const ERROR_LABELS: Record<string, string> = {
   format_mismatch: "格式不对",
 };
 
+function shortenMessage(message: string): string {
+  const one = message.replace(/\s+/g, " ").trim();
+  if (!one) return "";
+  return one.length > 72 ? `${one.slice(0, 72)}…` : one;
+}
+
 function failureLabel(task: { error_code: string | null; error_message?: string | null }): string | null {
-  if (!task.error_code) return null;
-  const base = ERROR_LABELS[task.error_code] ?? task.error_code;
-  const msg = (task.error_message || "").trim();
+  const msg = shortenMessage(task.error_message || "");
   if (task.error_code === "timeout") {
-    const m = msg.match(/超时上限\s*(\d+)\s*秒/);
-    if (m) return `超时（已达 ${m[1]} 秒上限）`;
-    return "超时（可在后台智能体提高超时）";
+    const matched = msg.match(/超时上限\s*(\d+)\s*秒/);
+    const base = matched ? `超时（已达 ${matched[1]} 秒上限）` : "超时（可在后台智能体提高超时）";
+    if (msg && !base.includes(msg)) return `${base}：${msg}`;
+    return base;
   }
-  return base;
+  const base = task.error_code ? (ERROR_LABELS[task.error_code] ?? task.error_code) : "";
+  if (base && msg) return `${base}：${msg}`;
+  return base || msg || null;
 }
 
 
@@ -365,44 +372,51 @@ export function StudioPanel({
     },
   });
 
-  async function downloadSlides(task: StudioTask) {
+  const retryTask = useMutation({
+    mutationFn: (taskId: number) => api(`/studio/tasks/${taskId}/retry`, { method: "POST", access }),
+    onSuccess: () => {
+      setFormError(null);
+      void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
+    },
+    onError: (error) => {
+      setFormError(error instanceof ApiError ? error.message : "重试失败");
+    },
+  });
+
+  async function downloadMainFile(task: StudioTask, fallbackName: string) {
     const detail = await api<{
       title: string;
       artifacts?: { id: number; role: string; filename: string }[];
     }>(`/studio/tasks/${task.id}`, { access });
-    const artifact = detail.artifacts?.find((item) => item.role === "main");
+    const artifact = detail.artifacts?.find((item) => item.role === "main") ?? detail.artifacts?.[0];
     if (!artifact) {
-      setFormError("没有幻灯片文件");
+      setFormError("没有可下载的文件");
       return;
     }
     const signed = await api<{ url: string }>(`/studio/tasks/${task.id}/artifacts/${artifact.id}`, { access });
     const link = document.createElement("a");
     link.href = signed.url;
-    link.download = artifact.filename || `${detail.title || task.title}.pptx`;
+    link.download = artifact.filename || fallbackName;
     document.body.appendChild(link);
     link.click();
     link.remove();
   }
 
-  async function downloadFourPanel(task: StudioTask) {
-    const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
-      access,
-    });
-    if (!detail.text_content) {
-      setFormError("没有可下载的四格漫内容");
-      return;
+  async function downloadSlides(task: StudioTask) {
+    try {
+      await downloadMainFile(task, `${task.title}.pptx`);
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : "下载失败");
     }
-    const blob = new Blob([detail.text_content], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${detail.title || task.title}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
   }
 
+  async function downloadFile(task: StudioTask) {
+    try {
+      await downloadMainFile(task, task.title);
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : "下载失败");
+    }
+  }
 
   async function downloadMindMap(task: StudioTask) {
     const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
@@ -481,6 +495,9 @@ export function StudioPanel({
       {capabilities.error instanceof ApiError ? (
         <p className="px-4 pt-3 text-xs text-destructive">{capabilities.error.message}</p>
       ) : null}
+      {formError && !draft ? (
+        <p className="px-4 pt-3 text-xs text-destructive">{formError}</p>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {taskRows.length === 0 && !tasks.isLoading ? (
           <div className="empty-panel mx-3 mb-3 mt-6 py-8">
@@ -537,6 +554,16 @@ export function StudioPanel({
                     </div>
                   </button>
                   {busy ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" /> : null}
+                  {task.status === "failed" ? (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full px-2 py-1 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                      disabled={retryTask.isPending}
+                      onClick={() => retryTask.mutate(task.id)}
+                    >
+                      重试
+                    </button>
+                  ) : null}
                   <TaskMenu
                     onRename={() => setRenameTask(task)}
                     onRemove={() => {
@@ -549,8 +576,8 @@ export function StudioPanel({
                         : () =>
                         void (task.format_key === "slides"
                           ? downloadSlides(task)
-                          : task.format_key === "four_panel"
-                            ? downloadFourPanel(task)
+                          : task.format_key === "file"
+                            ? downloadFile(task)
                             : downloadMindMap(task))
                     }
                   />
@@ -587,6 +614,25 @@ export function StudioPanel({
                   </div>
                 </div>
                 {busy ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin status-busy" /> : null}
+                {task.status === "failed" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full px-2 py-1 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                    disabled={retryTask.isPending}
+                    onClick={() => retryTask.mutate(task.id)}
+                  >
+                    重试
+                  </button>
+                ) : null}
+                {task.status === "succeeded" && task.format_key === "file" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => void downloadFile(task)}
+                  >
+                    下载
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"

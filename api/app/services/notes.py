@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.context import strip_citations
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import ChatMessage, ChatThread, Note, Notebook
+from app.services.notebooks import get_notebook
 
 
 def note_dict(note: Note) -> dict:
@@ -65,6 +66,26 @@ async def note_ids_for_messages(session: AsyncSession, message_ids: list[int]) -
         )
     ).all()
     return {message_id: note_id for message_id, note_id in rows if message_id is not None}
+
+
+async def create_blank_note(
+    session: AsyncSession, *, owner_id: int, notebook_id: int, title: str | None = None
+) -> dict:
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    cleaned = (title or "").strip()[:255]
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=owner_id,
+        message_id=None,
+        title=cleaned or "未命名笔记",
+        content_text="",
+        citations_json=[],
+        selected_for_chat=True,
+    )
+    session.add(note)
+    await session.commit()
+    await session.refresh(note)
+    return note_dict(note)
 
 
 async def save_message_as_note(

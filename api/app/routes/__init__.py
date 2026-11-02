@@ -28,7 +28,6 @@ from app.routes import (
     knowledge_draft,
     auth,
     chat,
-    collections,
     tags,
     covers,
     health,
@@ -68,7 +67,6 @@ api_router.include_router(admin_draft_strategies.router)
 api_router.include_router(providers.router)
 # Phase 4：notebook / source
 api_router.include_router(notebooks.router)
-api_router.include_router(collections.router)
 api_router.include_router(tags.router)
 api_router.include_router(icons.router)
 api_router.include_router(covers.router)
