@@ -13,6 +13,8 @@ from app.schemas.knowledge_draft import (
     KnowledgeDraftPointAskRequest,
     KnowledgeDraftPointAskResponse,
     KnowledgeDraftRead,
+    KnowledgeDraftReviewRequest,
+    KnowledgeDraftReviewResponse,
     KnowledgeDraftUpdateRequest,
 )
 from app.services import knowledge_draft as svc
@@ -105,6 +107,21 @@ async def ask_knowledge_draft_point(
     user: User = Depends(get_current_active_user),
 ):
     return await svc.ask_about_point(
+        session, owner_id=user.id, notebook_id=notebook_id, body=body
+    )
+
+
+@router.post(
+    "/notebooks/{notebook_id}/knowledge-draft/review",
+    response_model=KnowledgeDraftReviewResponse,
+)
+async def review_knowledge_draft_conclusion(
+    notebook_id: int,
+    body: KnowledgeDraftReviewRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await svc.review_conclusion(
         session, owner_id=user.id, notebook_id=notebook_id, body=body
     )
 

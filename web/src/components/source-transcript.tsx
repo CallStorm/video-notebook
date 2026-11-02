@@ -179,10 +179,10 @@ export function SourceTranscript({
             ) : overviewStatus === "failed" ? (
               <div className="rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2 text-amber-900">
                 <p className="font-medium">概览生成失败</p>
-                <p className="mt-0.5 opacity-90">{overviewError || "可在来源菜单里点「重新生成」再试。"}</p>
+                <p className="mt-0.5 opacity-90">{overviewError || "可在来源菜单里点「重试概览」。"}</p>
               </div>
             ) : (
-              <p>还没有概览。字幕完成后通常会自动生成；也可在来源列表点「重新生成」重做字幕与概览。</p>
+              <p>还没有概览。字幕完成后通常会自动生成；字幕已就绪时，可在来源列表点「重试概览」。</p>
             )}
           </div>
         ) : null}

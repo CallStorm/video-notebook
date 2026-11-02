@@ -47,6 +47,17 @@ class NotebookRead(BaseModel):
     index_status: str | None = None
     indexed_at: str | None = None
     index_error: str | None = None
+    subtitle_ready: int = 0
+    subtitle_failed: int = 0
+    subtitle_processing: int = 0
+    subtitle_total: int = 0
+    subtitle_error: str | None = None
+    overview_ready: int = 0
+    overview_failed: int = 0
+    overview_processing: int = 0
+    overview_total: int = 0
+    overview_error: str | None = None
+    index_stale_reason: str | None = None
     tags: list[TagBrief] = []
     created_at: str | None
     updated_at: str | None

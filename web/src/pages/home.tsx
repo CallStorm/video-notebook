@@ -12,6 +12,7 @@ import { Brand } from "@/components/brand";
 import { UserMenu } from "@/components/user-menu";
 import { formatDateZh } from "@/lib/utils";
 import { NotebookBookCard } from "@/components/notebook-book-card";
+import { NotebookStatusLines } from "@/components/notebook-status";
 import { GeneratedCover } from "@/components/generated-cover";
 import { AutoOrganizeDialog } from "@/components/auto-organize-dialog";
 import { ManageTagsDialog } from "@/components/manage-tags-dialog";
@@ -39,6 +40,17 @@ interface Notebook {
   index_status?: string | null;
   indexed_at?: string | null;
   index_error?: string | null;
+  subtitle_ready?: number;
+  subtitle_failed?: number;
+  subtitle_processing?: number;
+  subtitle_total?: number;
+  subtitle_error?: string | null;
+  overview_ready?: number;
+  overview_failed?: number;
+  overview_processing?: number;
+  overview_total?: number;
+  overview_error?: string | null;
+  index_stale_reason?: string | null;
   tags?: TagBrief[];
   created_at: string | null;
   updated_at: string | null;
@@ -635,16 +647,41 @@ function NotebookRow({
         )}
       </Link>
       <Link to={`/notebooks/${nb.id}`} className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 truncate text-sm font-semibold">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
           {nb.is_pinned ? <Pin className="h-3 w-3 shrink-0 fill-amber-500 text-amber-500" /> : null}
-          {nb.title}
+          <span className="truncate">{nb.title}</span>
+          {nb.share_all ? (
+            <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+              公开
+            </span>
+          ) : null}
+          {(nb.tags ?? []).slice(0, 2).map((tag) => (
+            <span
+              key={tag.id}
+              className="inline-flex max-w-[7rem] shrink-0 items-center gap-1 truncate rounded-full bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
+            >
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: tag.color || "#2F6B4F" }}
+              />
+              <span className="truncate">{tag.name}</span>
+            </span>
+          ))}
+          {(nb.tags?.length ?? 0) > 2 ? (
+            <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
+              +{(nb.tags?.length ?? 0) - 2}
+            </span>
+          ) : null}
         </div>
         {nb.description ? (
           <div className="truncate text-xs text-muted-foreground">{nb.description}</div>
         ) : null}
+        <div className="mt-0.5">
+          <NotebookStatusLines notebook={nb} size="list" />
+        </div>
       </Link>
       <span className="hidden text-xs text-muted-foreground sm:inline">
-        {formatDate(nb.updated_at)} · {formatSources(nb.source_count)}
+        {formatDate(nb.updated_at)}
       </span>
       <div className="hidden gap-0.5 group-hover:flex">
         <Button size="icon" variant="ghost" onClick={onTogglePin} className="h-7 w-7 rounded-full">

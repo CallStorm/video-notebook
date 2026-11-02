@@ -8,6 +8,7 @@ export function SourceRowMenu({
   onRename,
   onRemove,
   onRegenerate,
+  onRetryOverview,
   onRetryFetch,
   onCancelFetch,
   alwaysVisible = false,
@@ -15,6 +16,7 @@ export function SourceRowMenu({
   onRename: () => void;
   onRemove: () => void;
   onRegenerate?: () => void;
+  onRetryOverview?: () => void;
   onRetryFetch?: () => void;
   onCancelFetch?: () => void;
   /** Keep the ⋮ control visible (e.g. while fetch is spinning). */
@@ -54,7 +56,13 @@ export function SourceRowMenu({
           const rect = triggerRef.current?.getBoundingClientRect();
           if (rect) {
             const menuWidth = 168;
-            const menuHeight = 200;
+            const itemCount =
+              2 +
+              Number(Boolean(onCancelFetch)) +
+              Number(Boolean(onRetryFetch)) +
+              Number(Boolean(onRegenerate)) +
+              Number(Boolean(onRetryOverview));
+            const menuHeight = itemCount * 36 + 8;
             const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
             const top =
               rect.bottom + 6 + menuHeight > window.innerHeight
@@ -124,7 +132,18 @@ export function SourceRowMenu({
                       onRegenerate();
                     }}
                   >
-                    重新生成
+                    重试字幕
+                  </MenuItem>
+                ) : null}
+                {onRetryOverview ? (
+                  <MenuItem
+                    icon={<RefreshCw className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setOpen(false);
+                      onRetryOverview();
+                    }}
+                  >
+                    重试概览
                   </MenuItem>
                 ) : null}
               </div>

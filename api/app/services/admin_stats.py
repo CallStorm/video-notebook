@@ -15,6 +15,7 @@ from app.models.observability import (
     PipelineRunEvent,
 )
 from app.models.studio import StudioTask
+from app.models.user import User
 from app.schemas.admin_stats import (
     AdminStatsResponse,
     CallCount,
@@ -25,10 +26,14 @@ from app.schemas.admin_stats import (
     ModelCallsStats,
     ObservabilityFlags,
     QueueStats,
+    ReadinessExceptionItem,
     ReadinessRate,
     ReadinessStats,
+    StageBreakdown,
     TokenStats,
+    VectorBreakdown,
 )
+from app.services import notebooks as notebook_svc
 from app.services import observability as obs_svc
 
 logger = logging.getLogger(__name__)
@@ -342,7 +347,58 @@ async def _queues(session: AsyncSession) -> QueueStats:
     )
 
 
-async def _readiness(session: AsyncSession) -> ReadinessStats:
+def _clip_error(text: str | None, limit: int = 80) -> str | None:
+    if not text:
+        return None
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    return flat[:limit] + "…"
+
+
+def _stage_pending(ready: int, failed: int, processing: int, total: int) -> int:
+    return max(0, total - ready - failed - processing)
+
+
+def _exception_error(
+    ready: dict,
+    *,
+    status: str,
+    index_error: str | None,
+) -> str | None:
+    if int(ready.get("subtitle_failed") or 0) > 0:
+        err = _clip_error(ready.get("subtitle_error"))
+        return f"字幕失败：{err}" if err else "字幕失败"
+    if int(ready.get("overview_failed") or 0) > 0:
+        err = _clip_error(ready.get("overview_error"))
+        return f"概览失败：{err}" if err else "概览失败"
+    if status == "failed":
+        err = _clip_error(index_error)
+        return f"索引失败：{err}" if err else "索引失败"
+    stale = ready.get("index_stale_reason")
+    if status == "ready" and stale:
+        return str(stale)
+    return None
+
+
+def _exception_rank(item: ReadinessExceptionItem) -> tuple[int, int, int]:
+    failed = item.subtitle_failed + item.overview_failed + (1 if item.index_status == "failed" else 0)
+    if failed:
+        rank = 0
+    elif item.index_stale:
+        rank = 1
+    elif (
+        item.subtitle_processing
+        or item.overview_processing
+        or item.index_status == "indexing"
+    ):
+        rank = 2
+    else:
+        rank = 3
+    return (rank, -failed, -item.notebook_id)
+
+
+async def _readiness(session: AsyncSession, *, viewer_id: int) -> ReadinessStats:
     # Scope videos to those still attached to undeleted notebooks
     active_video = (
         select(NotebookSource.video_id)
@@ -451,11 +507,131 @@ async def _readiness(session: AsyncSession) -> ReadinessStats:
         if bad == 0 and nid in ready_ids:
             complete += 1
 
+    status_rows = (
+        await session.execute(
+            select(Video.subtitle_status, Video.overview_status).where(
+                Video.id.in_(active_video)
+            )
+        )
+    ).all()
+    sub_detail = {"failed": 0, "processing": 0, "pending": 0}
+    ov_detail = {"failed": 0, "processing": 0, "pending": 0}
+
+    def _bump(bucket: dict[str, int], status: str | None) -> None:
+        if status == "failed":
+            bucket["failed"] += 1
+        elif status == "processing":
+            bucket["processing"] += 1
+        elif status != "ready":
+            bucket["pending"] += 1
+
+    for subtitle_status, overview_status in status_rows:
+        _bump(sub_detail, subtitle_status)
+        _bump(ov_detail, overview_status)
+
+    notebooks = list(
+        (
+            await session.execute(
+                select(Notebook).where(Notebook.deleted_at.is_(None))
+            )
+        ).scalars().all()
+    )
+    notebook_ids = [nb.id for nb in notebooks]
+    states = await notebook_svc.index_states_for_notebooks(session, notebook_ids)
+    ready_map = await notebook_svc.readiness_for_notebooks(
+        session,
+        notebook_ids,
+        states=states,
+        owner_flags={int(nid): True for nid in notebook_ids},
+    )
+    counts = await notebook_svc.counts_for_notebooks(session, notebook_ids)
+    owner_ids = sorted({int(nb.owner_id) for nb in notebooks})
+    owner_names: dict[int, str] = {}
+    if owner_ids:
+        name_rows = (
+            await session.execute(
+                select(User.id, User.name).where(User.id.in_(owner_ids))
+            )
+        ).all()
+        owner_names = {int(uid): name for uid, name in name_rows}
+
+    vector_detail = {"failed": 0, "indexing": 0, "stale": 0, "empty": 0}
+    exceptions: list[ReadinessExceptionItem] = []
+    for nb in notebooks:
+        source_count, note_count = counts.get(nb.id, (0, 0))
+        ready = ready_map.get(nb.id) or {}
+        state = states.get(nb.id)
+        status = state.status if state is not None else "pending"
+        stale = status == "ready" and bool(ready.get("index_stale_reason"))
+        empty = source_count == 0 and note_count == 0
+        if status == "failed":
+            vector_detail["failed"] += 1
+        elif status == "indexing":
+            vector_detail["indexing"] += 1
+        elif stale:
+            vector_detail["stale"] += 1
+        if empty:
+            vector_detail["empty"] += 1
+
+        sub_total = int(ready.get("subtitle_total") or 0)
+        sub_failed = int(ready.get("subtitle_failed") or 0)
+        sub_processing = int(ready.get("subtitle_processing") or 0)
+        sub_pending = _stage_pending(
+            int(ready.get("subtitle_ready") or 0),
+            sub_failed,
+            sub_processing,
+            sub_total,
+        )
+        ov_total = int(ready.get("overview_total") or 0)
+        ov_failed = int(ready.get("overview_failed") or 0)
+        ov_processing = int(ready.get("overview_processing") or 0)
+        ov_pending = _stage_pending(
+            int(ready.get("overview_ready") or 0),
+            ov_failed,
+            ov_processing,
+            ov_total,
+        )
+        media_gap = any(
+            (sub_failed, sub_processing, sub_pending, ov_failed, ov_processing, ov_pending)
+        )
+        index_gap = status != "ready" or stale
+        if not media_gap and not index_gap:
+            continue
+        exceptions.append(
+            ReadinessExceptionItem(
+                notebook_id=nb.id,
+                title=nb.title,
+                owner_name=owner_names.get(int(nb.owner_id)),
+                is_mine=int(nb.owner_id) == int(viewer_id),
+                subtitle_failed=sub_failed,
+                subtitle_processing=sub_processing,
+                subtitle_pending=sub_pending,
+                subtitle_total=sub_total,
+                overview_failed=ov_failed,
+                overview_processing=ov_processing,
+                overview_pending=ov_pending,
+                overview_total=ov_total,
+                index_status=status,
+                index_stale=stale,
+                error=_exception_error(
+                    ready,
+                    status=status,
+                    index_error=state.index_error if state is not None else None,
+                ),
+            )
+        )
+    exceptions.sort(key=_exception_rank)
+
     return ReadinessStats(
         subtitle=_rate(sub_ready, video_total),
         overview=_rate(ov_ready, video_total),
         vector=_rate(vec_ready, nb_total),
         complete_notebooks=_rate(complete, eligible),
+        subtitle_detail=StageBreakdown(**sub_detail),
+        overview_detail=StageBreakdown(**ov_detail),
+        vector_detail=VectorBreakdown(**vector_detail),
+        exceptions=exceptions[:30],
+        exception_total=len(exceptions),
     )
 
 
@@ -464,6 +640,7 @@ async def _failures(
 ) -> FailureStats:
     since = datetime.utcnow() - timedelta(hours=24)
     note = None
+    basis = "window"
     if not pipeline_enabled:
         note = "流水线日志未开启，失败 TOP 可能为空或不完整"
     rows = (
@@ -553,12 +730,16 @@ async def _failures(
             )
         extras.sort(key=lambda x: x.count, reverse=True)
         top = extras[:8]
-        if extras and note is None:
-            note = "近 24h 无流水线失败事件，以下为业务表当前失败存量"
-    return FailureStats(top=top, window_hours=24, note=note)
+        if extras:
+            basis = "stock"
+            if pipeline_enabled:
+                note = "近 24 小时没有流水线失败事件"
+            else:
+                note = "流水线日志未开启，以下为当前失败存量"
+    return FailureStats(top=top, window_hours=24, basis=basis, note=note)
 
 
-async def get_admin_stats(session: AsyncSession) -> AdminStatsResponse:
+async def get_admin_stats(session: AsyncSession, *, viewer_id: int) -> AdminStatsResponse:
     settings = await obs_svc.get_settings(session)
     flags = ObservabilityFlags(
         pipeline_logs_enabled=bool(settings.pipeline_logs_enabled),
@@ -571,7 +752,7 @@ async def get_admin_stats(session: AsyncSession) -> AdminStatsResponse:
         pipeline_enabled=flags.pipeline_logs_enabled,
     )
     queues = await _queues(session)
-    readiness = await _readiness(session)
+    readiness = await _readiness(session, viewer_id=viewer_id)
     failures = await _failures(
         session, pipeline_enabled=flags.pipeline_logs_enabled
     )

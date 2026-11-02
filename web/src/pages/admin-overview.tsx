@@ -68,7 +68,7 @@ export function AdminOverviewPage() {
 
       <AdminSectionCard
         title="自动生成"
-        description="开启后，每个来源在字幕首次成功（或仍为 pending/失败空文）时自动写概览。手动「重新生成」仍会重跑字幕并刷新概览。"
+        description="开启后，每个来源在字幕首次成功（或仍为 pending/失败空文）时自动写概览。手动「重试字幕」仍会重跑字幕并刷新概览；「重试概览」只在字幕就绪后重跑概览。"
       >
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-card/60 px-3 py-2.5">
           <input
@@ -82,7 +82,7 @@ export function AdminOverviewPage() {
               字幕完成后自动生成概览
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              默认开启。关闭后仅保留手动「重新生成」。已有 pending 概览不会自动回填，需点一次重新生成。
+              默认开启。关闭后仅保留手动重试。已有 pending 概览不会自动回填，需在字幕就绪后点一次「重试概览」。
             </span>
           </span>
         </label>

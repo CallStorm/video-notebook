@@ -49,7 +49,6 @@ export function AdminVectorPage() {
   const [indexDescription, setIndexDescription] = useState(true);
   const [indexOverview, setIndexOverview] = useState(true);
   const [indexSubtitles, setIndexSubtitles] = useState(false);
-  const [indexNotes, setIndexNotes] = useState(false);
 
   useEffect(() => {
     if (!config.data) return;
@@ -60,7 +59,6 @@ export function AdminVectorPage() {
     setIndexDescription(config.data.index_description);
     setIndexOverview(config.data.index_overview);
     setIndexSubtitles(config.data.index_subtitles);
-    setIndexNotes(config.data.index_notes);
     setQdrantApiKey("");
     setClearKey(false);
   }, [config.data]);
@@ -80,7 +78,7 @@ export function AdminVectorPage() {
           index_description: indexDescription,
           index_overview: indexOverview,
           index_subtitles: indexSubtitles,
-          index_notes: indexNotes,
+          index_notes: true,
         },
       }),
     onSuccess: (data) => {
@@ -103,7 +101,7 @@ export function AdminVectorPage() {
     <div className="space-y-5">
       <AdminPageHeader
         title="向量配置"
-        description="语义检索用：选向量后端（Qdrant）、连接地址，以及每本笔记本索引哪些字段。一期默认索引标题、描述、来源概览；字幕/笔记可开。改字段后需重新索引才生效。"
+        description="语义检索用：选向量后端（Qdrant）、连接地址，以及标题、描述、概览、字幕是否写入索引。笔记和「我的结论」始终进入检索。改字段后需重新索引才生效。"
       />
 
       {config.isLoading ? <AdminLoading /> : null}
@@ -185,7 +183,7 @@ export function AdminVectorPage() {
 
       <AdminSectionCard
         title="索引字段"
-        description="拼成一篇文档再 embedding。一期建议开：标题 + 描述 + 概览。字幕/笔记体量大，默认关。"
+        description="拼成一篇文档再 embedding。标题、描述、概览、字幕可开关。笔记和「我的结论」始终写入检索文档。"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Toggle
@@ -214,9 +212,10 @@ export function AdminVectorPage() {
           />
           <Toggle
             label="笔记"
-            checked={indexNotes}
-            onChange={setIndexNotes}
-            hint="保存的对话笔记"
+            checked
+            disabled
+            onChange={() => {}}
+            hint="笔记和「我的结论」始终进入检索，此开关不再生效。"
           />
         </div>
       </AdminSectionCard>
@@ -279,18 +278,25 @@ function Toggle({
   checked,
   onChange,
   hint,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
   hint?: string;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-card/60 px-3 py-2.5">
+    <label
+      className={`flex items-start gap-3 rounded-xl border border-border/60 bg-card/60 px-3 py-2.5 ${
+        disabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"
+      }`}
+    >
       <input
         type="checkbox"
         className="mt-1"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       <span>

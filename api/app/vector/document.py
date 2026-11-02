@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.knowledge_draft import NotebookKnowledgeDraft
 from app.models.notebook import (
     Note,
     Notebook,
@@ -93,23 +94,41 @@ async def build_notebook_document(
                             if "subtitles" not in parts:
                                 parts.append("subtitles")
 
-    if settings.index_notes:
-        notes = (
-            await session.execute(
-                select(Note)
-                .where(Note.notebook_id == notebook.id, Note.deleted_at.is_(None))
-                .order_by(Note.id.asc())
-                .limit(100)
+    notes = (
+        await session.execute(
+            select(Note)
+            .where(Note.notebook_id == notebook.id, Note.deleted_at.is_(None))
+            .order_by(Note.id.asc())
+            .limit(100)
+        )
+    ).scalars().all()
+    for note in notes:
+        title = (note.title or "").strip()
+        body = (note.content_text or "").strip()
+        piece = f"{title}\n{body}".strip()
+        if piece:
+            chunks.append(f"笔记：{piece[:8000]}")
+    if notes:
+        parts.append("notes")
+
+    draft = (
+        await session.execute(
+            select(NotebookKnowledgeDraft).where(
+                NotebookKnowledgeDraft.notebook_id == notebook.id
             )
-        ).scalars().all()
-        for n in notes:
-            title = (n.title or "").strip()
-            body = (n.content_text or "").strip()
-            piece = f"{title}\n{body}".strip()
-            if piece:
-                chunks.append(piece[:8000])
-        if notes:
-            parts.append("notes")
+        )
+    ).scalar_one_or_none()
+    if draft is not None:
+        raw = draft.content_json if isinstance(draft.content_json, dict) else {}
+        conclusions = raw.get("conclusions") if isinstance(raw, dict) else None
+        lines: list[str] = []
+        if isinstance(conclusions, list):
+            lines = [str(item).strip() for item in conclusions if str(item).strip()]
+        if not lines and (draft.conclusion or "").strip():
+            lines = [line.strip() for line in draft.conclusion.splitlines() if line.strip()]
+        if lines:
+            chunks.append("我的结论：\n" + "\n".join(lines))
+            parts.append("conclusions")
 
     text = "\n\n".join(c for c in chunks if c).strip()
     flags = (

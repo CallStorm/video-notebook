@@ -74,6 +74,8 @@ from app.models.studio import (  # noqa: E402,F401
     StudioCapability,
     StudioTask,
 )
+from app.models.knowledge_draft import NotebookKnowledgeDraft  # noqa: E402,F401
+from app.models.draft_strategy import DraftStrategy  # noqa: E402,F401
 from app.models.user import User  # noqa: F401,E402
 
 # 重要：清掉 lru_cache 让 .env override 生效
@@ -138,6 +140,8 @@ async def _clean_db():
             "notebook_tags",
             "tags",
             "notes",
+            "notebook_knowledge_drafts",
+            "draft_strategies",
             "chat_messages",
             "chat_threads",
             "subtitle_lines",

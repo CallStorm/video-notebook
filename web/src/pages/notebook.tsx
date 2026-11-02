@@ -138,6 +138,10 @@ async function regenerateSource(access: string, videoId: number): Promise<void> 
   await api(`/sources/${videoId}/subtitle/regenerate`, { method: "POST", access });
 }
 
+async function retryOverviewSource(access: string, videoId: number): Promise<VideoRead> {
+  return api<VideoRead>(`/sources/${videoId}/overview/retry`, { method: "POST", access });
+}
+
 async function retryFetchSource(access: string, videoId: number): Promise<VideoRead> {
   return api<VideoRead>(`/sources/${videoId}/retry-fetch`, { method: "POST", access });
 }
@@ -372,6 +376,11 @@ export default function NotebookPage() {
       qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
       qc.invalidateQueries({ queryKey: ["subtitle", videoId] });
     },
+  });
+
+  const retryOverview = useMutation({
+    mutationFn: (videoId: number) => retryOverviewSource(token, videoId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notebook", notebookId] }),
   });
 
   const retryFetch = useMutation({
@@ -784,6 +793,11 @@ export default function NotebookPage() {
                         ? () => regenerate.mutate(row.source.video_id)
                         : undefined
                     }
+                    onRetryOverview={
+                      row.source.video.status === "ready" && row.source.video.subtitle_status === "ready"
+                        ? () => retryOverview.mutate(row.source.video_id)
+                        : undefined
+                    }
                     onRetryFetch={
                       row.source.video.source_type === "url" &&
                       row.source.video.status !== "ready"
@@ -848,6 +862,11 @@ export default function NotebookPage() {
               videoId: source.video_id,
               title: source.video.title || source.video.source_url || `来源 ${source.video_id}`,
               selected: source.selected_for_chat,
+            }))}
+            notes={notes.map((note) => ({
+              id: note.id,
+              title: note.title,
+              selected: note.selected_for_chat,
             }))}
             onJump={(videoId, lineNo) => {
               setLeftCollapsed(false);
@@ -1056,6 +1075,7 @@ export default function NotebookPage() {
                     <KnowledgePanel
                       access={token}
                       notebookId={notebookId}
+                      notebookTitle={nb.title}
                       sources={nb.sources}
                       notes={notes}
                       embedded
@@ -1520,10 +1540,10 @@ function fetchLabel(video: VideoRead): string | null {
   return null;
 }
 
-function subtitleLabel(status: VideoRead["subtitle_status"]): string | null {
-  if (status === "pending") return "等待生成字幕";
-  if (status === "processing") return "正在生成字幕";
-  if (status === "failed") return "字幕失败";
+function subtitleLabel(video: VideoRead): string | null {
+  if (video.subtitle_status === "pending") return "等待生成字幕";
+  if (video.subtitle_status === "processing") return "正在生成字幕";
+  if (video.subtitle_status === "failed") return "字幕失败";
   return null;
 }
 
@@ -1564,6 +1584,7 @@ function SimpleSourceRow({
   onRename,
   onRemove,
   onRegenerate,
+  onRetryOverview,
   onRetryFetch,
   onCancelFetch,
   onToggleSelected,
@@ -1575,6 +1596,7 @@ function SimpleSourceRow({
   onRename: () => void;
   onRemove: () => void;
   onRegenerate?: () => void;
+  onRetryOverview?: () => void;
   onRetryFetch?: () => void;
   onCancelFetch?: () => void;
   onToggleSelected: (selected: boolean) => void;
@@ -1582,9 +1604,12 @@ function SimpleSourceRow({
   const v = source.video;
   const busy = sourceBusy(v);
   const failed = v.status === "failed";
+  const local = v.status === "ready";
   const TypeIcon = v.source_type === "upload" ? UploadIcon : Link2;
   const fetch = fetchLabel(v);
-  const sub = fetch ? null : subtitleLabel(v.subtitle_status);
+  const sub = fetch ? null : subtitleLabel(v);
+  const subtitleFailed = local && v.subtitle_status === "failed";
+  const overviewFailed = local && v.subtitle_status === "ready" && v.overview_status === "failed";
   const meta = !fetch
     ? [fmtDuration(v.duration_ms), v.width && v.height ? `${v.width}×${v.height}` : null, fmtSize(v.size_bytes)]
         .filter(Boolean)
@@ -1611,7 +1636,9 @@ function SimpleSourceRow({
           ) : failed ? (
             <span className="status-chip status-chip-fail">处理失败</span>
           ) : sub ? (
-            <span className="status-chip status-chip-busy">{sub}</span>
+            <span className={`status-chip ${subtitleFailed ? "status-chip-fail" : "status-chip-busy"}`}>{sub}</span>
+          ) : overviewFailed ? (
+            <span className="status-chip status-chip-fail">概览失败</span>
           ) : v.subtitle_status === "ready" ? (
             <span className="status-chip status-chip-ok">字幕就绪</span>
           ) : (
@@ -1621,7 +1648,7 @@ function SimpleSourceRow({
         </div>
         {failed ? (
           <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-amber-200/80 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-900">
-            <span className="min-w-0 flex-1 leading-snug">处理遇到问题，可重试或稍后再看。</span>
+            <span className="min-w-0 flex-1 leading-snug">{v.error_message?.trim() || "抓取失败，可重试。"}</span>
             {onRetryFetch ? (
               <button
                 type="button"
@@ -1631,7 +1658,41 @@ function SimpleSourceRow({
                   onRetryFetch();
                 }}
               >
-                重试
+                重新抓取
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {subtitleFailed ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-amber-200/80 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-900">
+            <span className="min-w-0 flex-1 leading-snug">{v.subtitle_error?.trim() || "字幕失败"}</span>
+            {onRegenerate ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium hover:bg-amber-200"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRegenerate();
+                }}
+              >
+                重试字幕
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {overviewFailed ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-amber-200/80 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-900">
+            <span className="min-w-0 flex-1 leading-snug">{v.overview_error?.trim() || "概览失败"}</span>
+            {onRetryOverview ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium hover:bg-amber-200"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRetryOverview();
+                }}
+              >
+                重试概览
               </button>
             ) : null}
           </div>
@@ -1643,9 +1704,10 @@ function SimpleSourceRow({
             onRename={onRename}
             onRemove={onRemove}
             onRegenerate={onRegenerate}
+            onRetryOverview={onRetryOverview}
             onRetryFetch={onRetryFetch}
             onCancelFetch={onCancelFetch}
-            alwaysVisible={busy || Boolean(onRetryFetch) || Boolean(onCancelFetch)}
+            alwaysVisible={busy || failed || subtitleFailed || overviewFailed || Boolean(onCancelFetch)}
           />
           {busy ? (
             <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin status-busy" />

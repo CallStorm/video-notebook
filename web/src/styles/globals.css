@@ -1898,6 +1898,101 @@
   font-size: 0.625rem;
   color: hsl(var(--muted-foreground));
 }
+.admin-dash-ring-break {
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  font-size: 0.625rem;
+  line-height: 1.3;
+  color: hsl(var(--muted-foreground));
+}
+.admin-dash-ring-break .is-bad {
+  color: hsl(var(--destructive));
+}
+.admin-dash-ring-break .is-warn {
+  color: hsl(38 70% 32%);
+}
+
+.admin-dash-ex {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.admin-dash-ex-head,
+.admin-dash-ex-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1.4fr) minmax(5.5rem, 0.8fr) minmax(5.5rem, 0.8fr) minmax(4.5rem, 0.7fr) minmax(8rem, 1.6fr);
+  gap: 0.75rem;
+  align-items: center;
+}
+.admin-dash-ex-head {
+  font-size: 0.6875rem;
+  font-weight: 550;
+  color: hsl(var(--muted-foreground));
+}
+.admin-dash-ex-row {
+  padding: 0.55rem 0.15rem;
+  border-top: 1px solid hsl(var(--border) / 0.55);
+  font-size: 0.75rem;
+}
+.admin-dash-ex-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+a.admin-dash-ex-title:hover {
+  color: hsl(var(--primary));
+}
+.admin-dash-ex-owner {
+  margin-top: 0.1rem;
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+}
+.admin-dash-ex-state.is-bad {
+  color: hsl(var(--destructive));
+  font-weight: 600;
+}
+.admin-dash-ex-state.is-warn {
+  color: hsl(38 70% 32%);
+  font-weight: 600;
+}
+.admin-dash-ex-state.is-ok {
+  color: hsl(152 55% 28%);
+  font-weight: 600;
+}
+.admin-dash-ex-state.is-run {
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+.admin-dash-ex-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+.admin-dash-ex-more {
+  margin: 0.35rem 0 0;
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+}
+@media (max-width: 800px) {
+  .admin-dash-ex-head {
+    display: none;
+  }
+  .admin-dash-ex-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .admin-dash-ex-row > :first-child {
+    grid-column: 1 / -1;
+  }
+}
 
 .admin-dash-fail-note {
   margin: 0 0 0.65rem;

@@ -95,7 +95,7 @@ def _now() -> datetime:
 def media_pipeline(
     self,
     video_id: int,
-    stage: Literal["full", "subtitle_only"] = "full",
+    stage: Literal["full", "subtitle_only", "overview_only"] = "full",
     force: bool = False,
     run_id: str | None = None,
     record_success: bool = True,
@@ -134,7 +134,7 @@ def media_pipeline(
 async def _run_pipeline(
     video_id: int,
     *,
-    stage: Literal["full", "subtitle_only"],
+    stage: Literal["full", "subtitle_only", "overview_only"],
     force: bool,
     run_id: str | None = None,
     record_success: bool = True,
@@ -174,6 +174,13 @@ async def _run_pipeline(
     status = "ok"
     err: str | None = None
     try:
+        if stage == "overview_only":
+            from app.subtitles.pipeline import run_overview_if_needed
+
+            await run_overview_if_needed(video_id, notebook_id=nb_id)
+            await _refresh_vector_indexes(video_id)
+            return
+
         if stage == "full":
             from app.sources.fetch import run_fetch_pipeline
 
@@ -242,7 +249,7 @@ async def _refresh_vector_indexes(video_id: int) -> None:
 
 
 async def _mark_timeout(
-    video_id: int, *, stage: Literal["full", "subtitle_only"]
+    video_id: int, *, stage: Literal["full", "subtitle_only", "overview_only"]
 ) -> None:
     msg = "任务超时，请重试或在后台「抓取设置」调高超时时间"
     async with get_sessionmaker()() as db:

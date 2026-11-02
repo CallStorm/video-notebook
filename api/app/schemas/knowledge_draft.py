@@ -127,3 +127,13 @@ class KnowledgeDraftPointAskResponse(BaseModel):
     point_id: str
     answer: str
 
+
+class KnowledgeDraftReviewRequest(BaseModel):
+    conclusion: str = Field(min_length=1, max_length=4000)
+
+
+class KnowledgeDraftReviewResponse(BaseModel):
+    verdict: Literal["supported", "broader", "missing"]
+    evidence: str = ""
+    gap: str = ""
+

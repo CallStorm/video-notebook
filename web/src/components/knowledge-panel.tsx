@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
   Check,
+  Copy,
   Loader2,
   Network,
   PanelRightClose,
@@ -180,6 +181,50 @@ function formatPointBlock(point: DraftPoint, index: number): string {
   return lines.join("\n");
 }
 
+type ConclusionReview = {
+  verdict: "supported" | "broader" | "missing";
+  evidence: string;
+  gap: string;
+};
+
+const VERDICT_LABEL: Record<ConclusionReview["verdict"], string> = {
+  supported: "有原句支撑",
+  broader: "说得比原片宽",
+  missing: "材料里没有这句",
+};
+
+function buildDraftExport(notebookTitle: string, draft: KnowledgeDraft, conclusions: string[]): string {
+  const lines: string[] = [(notebookTitle || "").trim() || "笔记本"];
+  const theme = (draft.content.theme || "").trim();
+  if (theme) lines.push(`主题：${theme}`);
+  lines.push("", "我的结论");
+  conclusions
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .forEach((text, index) => lines.push(`${index + 1}. ${text}`));
+  const { points } = pointsForExport(draft);
+  lines.push("", "要点");
+  points.forEach((point, index) => {
+    lines.push(`${index + 1}. ${point.text.trim()}`);
+    const time = (point.time || "").trim();
+    if (time) lines.push(`   时间：${time}`);
+    const evidence = pointEvidence(point);
+    const example = pointExample(point);
+    if (evidence) lines.push(`   原句：${evidence}`);
+    if (example) lines.push(`   例：${example}`);
+    const comment = (point.comment || "").trim();
+    if (comment) lines.push(`   我的评论：${comment}`);
+  });
+  const concepts = draft.content.concepts.filter((concept) => concept.term.trim());
+  if (concepts.length > 0) {
+    lines.push("", "概念");
+    concepts.forEach((concept) => {
+      lines.push(`- ${concept.term.trim()}：${(concept.definition || "").trim()}`);
+    });
+  }
+  return lines.join("\n");
+}
+
 function buildMindMapFields(draft: KnowledgeDraft, points: DraftPoint[]): Record<string, string> {
   const theme = (draft.content.theme || "").trim();
   const topic = truncateText(theme || "知识要点导图", TOPIC_MAX);
@@ -272,6 +317,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export function KnowledgePanel({
   access,
   notebookId,
+  notebookTitle = "",
   sources,
   notes,
   onCollapse,
@@ -282,6 +328,7 @@ export function KnowledgePanel({
 }: {
   access: string;
   notebookId: number;
+  notebookTitle?: string;
   sources: KnowledgeSource[];
   notes: KnowledgeNote[];
   onCollapse?: () => void;
@@ -296,6 +343,11 @@ export function KnowledgePanel({
   const [formError, setFormError] = useState<string | null>(null);
   const [conceptFilter, setConceptFilter] = useState<string | null>(null);
   const [conclusionsDraft, setConclusionsDraft] = useState<string[]>([]);
+  const [revealedDraftId, setRevealedDraftId] = useState<number | null>(null);
+  const [copiedDraft, setCopiedDraft] = useState(false);
+  const [reviews, setReviews] = useState<Record<number, ConclusionReview>>({});
+  const [reviewErrors, setReviewErrors] = useState<Record<number, string>>({});
+  const [reviewingIndex, setReviewingIndex] = useState<number | null>(null);
   const [editingPointId, setEditingPointId] = useState<string | null>(null);
   const [editingPointText, setEditingPointText] = useState("");
   const [commentEditingId, setCommentEditingId] = useState<string | null>(null);
@@ -507,16 +559,6 @@ export function KnowledgePanel({
     patch.mutate({ checked_point_ids: [...ids] });
   }
 
-  function toggleTakeaway(item: DraftTakeaway) {
-    if (!draft) return;
-    const ids = new Set(
-      draft.content.takeaways.filter((t) => t.checked).map((t) => t.id),
-    );
-    if (item.checked) ids.delete(item.id);
-    else ids.add(item.id);
-    patch.mutate({ checked_takeaway_ids: [...ids] });
-  }
-
   function savePointEdit() {
     if (!editingPointId) return;
     const text = editingPointText.trim();
@@ -655,10 +697,48 @@ export function KnowledgePanel({
   }
 
 
-  const checkedCount = draft
-    ? draft.content.points.filter((p) => p.checked).length +
-      draft.content.takeaways.filter((t) => t.checked).length
-    : 0;
+  const checkedCount = draft ? draft.content.points.filter((p) => p.checked).length : 0;
+  const savedConclusions = draft
+    ? normalizeConclusions(draft).map((line) => line.trim()).filter(Boolean)
+    : [];
+  const recall = Boolean(draft && savedConclusions.length > 0 && revealedDraftId !== draft.id);
+
+  async function copyDraft() {
+    if (!draft) return;
+    try {
+      await navigator.clipboard.writeText(buildDraftExport(notebookTitle, draft, conclusionsDraft));
+      setCopiedDraft(true);
+      window.setTimeout(() => setCopiedDraft(false), 1600);
+    } catch {
+      setFormError("复制失败");
+    }
+  }
+
+  async function reviewConclusion(index: number) {
+    const text = (conclusionsDraft[index] || "").trim();
+    if (!text || reviewingIndex != null) return;
+    setReviewingIndex(index);
+    setReviewErrors((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    try {
+      const result = await api<ConclusionReview>(`/notebooks/${notebookId}/knowledge-draft/review`, {
+        method: "POST",
+        access,
+        body: { conclusion: text },
+      });
+      setReviews((prev) => ({ ...prev, [index]: result }));
+    } catch (error) {
+      setReviewErrors((prev) => ({
+        ...prev,
+        [index]: error instanceof ApiError ? error.message : "评判失败",
+      }));
+    } finally {
+      setReviewingIndex(null);
+    }
+  }
 
   const filteredPoints = useMemo(() => {
     if (!draft) return [];
@@ -684,7 +764,7 @@ export function KnowledgePanel({
           <p className="min-w-0 truncate text-[10px] text-muted-foreground">
             {draft
               ? `已勾 ${checkedCount}${draft.strategy_title ? ` · ${draft.strategy_title}` : ""}`
-              : "从字幕提炼可勾选的要点与行动"}
+              : "从字幕提炼要点，写下你的结论"}
           </p>
         </div>
       ) : (
@@ -744,7 +824,7 @@ export function KnowledgePanel({
             <div className="space-y-1">
               <p className="text-sm font-medium">字幕就绪后生成知识底稿</p>
               <p className="max-w-[16rem] text-xs text-muted-foreground">
-                按策略抽出可勾选、可跳播的要点与收获；勾选后可一键生成导图或幻灯片。
+                按策略抽出可勾选、可跳播的要点。先写下你的结论，再对照原句。
               </p>
             </div>
             <Button className="rounded-full" onClick={openGenerate}>
@@ -754,6 +834,113 @@ export function KnowledgePanel({
         ) : (
           <>
             <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-3 pb-4">
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SectionLabel>我的结论</SectionLabel>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                    onClick={() => void copyDraft()}
+                  >
+                    <Copy className="h-3 w-3" />
+                    {copiedDraft ? "已复制" : "复制底稿"}
+                  </button>
+                </div>
+                <div className="space-y-1.5 rounded-2xl border border-border/55 bg-card p-2.5 shadow-sm">
+                  {conclusionsDraft.length === 0 ? (
+                    <p className="px-1 py-0.5 text-[11px] text-muted-foreground">
+                      还没有结论。写下你从材料带走的判断，失焦自动保存。
+                    </p>
+                  ) : null}
+                  {conclusionsDraft.map((line, cidx) => {
+                    const review = reviews[cidx];
+                    return (
+                      <div key={`c-${cidx}`} className="space-y-1">
+                        <div className="flex items-start gap-1.5">
+                          <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/55" />
+                          <textarea
+                            className="min-h-[2.4rem] flex-1 resize-y rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs leading-relaxed outline-none focus-visible:border-primary/35 focus-visible:ring-2 focus-visible:ring-ring/25"
+                            placeholder={`结论 ${cidx + 1}`}
+                            value={line}
+                            rows={2}
+                            onChange={(e) => {
+                              const next = [...conclusionsDraft];
+                              next[cidx] = e.target.value;
+                              setConclusionsDraft(next);
+                              setReviews((prev) => {
+                                if (!prev[cidx]) return prev;
+                                const cleared = { ...prev };
+                                delete cleared[cidx];
+                                return cleared;
+                              });
+                            }}
+                            onBlur={(e) => {
+                              const next = [...conclusionsDraft];
+                              next[cidx] = e.currentTarget.value;
+                              setConclusionsDraft(next);
+                              saveConclusions(next);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="mt-1 shrink-0 rounded-full px-2 py-1 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-40"
+                            disabled={!line.trim() || reviewingIndex != null}
+                            onClick={() => void reviewConclusion(cidx)}
+                          >
+                            {reviewingIndex === cidx ? "评判中…" : "评判"}
+                          </button>
+                          <button
+                            type="button"
+                            className="mt-1 rounded-full p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
+                            title="删除"
+                            aria-label="删除结论"
+                            onClick={() => {
+                              const next = conclusionsDraft.filter((_, i) => i !== cidx);
+                              setConclusionsDraft(next);
+                              setReviews({});
+                              setReviewErrors({});
+                              saveConclusions(next);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {review ? (
+                          <div className="ml-3 rounded-lg bg-muted/50 px-2.5 py-1.5 text-[11px] leading-relaxed">
+                            <p className="font-medium text-foreground">{VERDICT_LABEL[review.verdict]}</p>
+                            {review.evidence ? <p className="mt-0.5 text-muted-foreground">原句：{review.evidence}</p> : null}
+                            {review.gap ? <p className="mt-0.5 text-muted-foreground">{review.gap}</p> : null}
+                          </div>
+                        ) : null}
+                        {reviewErrors[cidx] ? (
+                          <p className="ml-3 text-[11px] text-destructive">{reviewErrors[cidx]}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] text-xs text-primary transition hover:bg-primary/10"
+                    onClick={() => setConclusionsDraft((prev) => [...prev, ""])}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    失焦自动保存 · + 添加
+                  </button>
+                </div>
+              </section>
+              {recall ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 w-full rounded-xl"
+                  onClick={() => setRevealedDraftId(draft.id)}
+                >
+                  对照要点
+                </Button>
+              ) : (
+              <>
               {/* 1. 主题 */}
               {draft.content.theme ? (
                 <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.09] via-primary/[0.03] to-transparent px-3.5 py-2.5 shadow-sm">
@@ -1059,102 +1246,11 @@ export function KnowledgePanel({
                   })
                 )}
               </section>
-
-              {/* 4. 可执行收获 */}
-              {draft.content.takeaways.length > 0 ? (
-                <section className="space-y-2">
-                  <SectionLabel>可执行收获</SectionLabel>
-                  {draft.content.takeaways.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={
-                        "flex w-full items-start gap-2 rounded-2xl border px-2.5 py-2 text-left text-xs shadow-sm " +
-                        (item.checked
-                          ? "border-primary/30 bg-primary/[0.05]"
-                          : "border-border/55 bg-card")
-                      }
-                      onClick={() => toggleTakeaway(item)}
-                    >
-                      <span
-                        className={
-                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border " +
-                          (item.checked
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-muted-foreground/40")
-                        }
-                      >
-                        {item.checked ? <Check className="h-3 w-3" /> : null}
-                      </span>
-                      <span className="leading-relaxed">{item.text}</span>
-                    </button>
-                  ))}
-                </section>
-              ) : null}
-
-              {/* 遗留问题 */}
-              {draft.content.open_questions.length > 0 ? (
-                <section className="space-y-1.5">
-                  <SectionLabel>遗留问题</SectionLabel>
-                  <ul className="list-inside list-disc space-y-1 rounded-2xl border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    {draft.content.open_questions.map((q) => (
-                      <li key={q}>{q}</li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {/* 5. 我的结论 —— 始终显示 */}
-              <section className="mt-1 space-y-2">
-                <SectionLabel>我的结论</SectionLabel>
-                <div className="space-y-1.5 rounded-2xl border border-border/55 bg-card p-2.5 shadow-sm">
-                  {conclusionsDraft.length === 0 ? (
-                    <p className="px-1 py-0.5 text-[11px] text-muted-foreground">
-                      还没有结论。写下你从材料带走的判断，失焦自动保存。
-                    </p>
-                  ) : null}
-                  {conclusionsDraft.map((line, cidx) => (
-                    <div key={`c-${cidx}`} className="flex items-start gap-1.5">
-                      <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/55" />
-                      <textarea
-                        className="min-h-[2.4rem] flex-1 resize-y rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs leading-relaxed outline-none focus-visible:border-primary/35 focus-visible:ring-2 focus-visible:ring-ring/25"
-                        placeholder={`结论 ${cidx + 1}`}
-                        value={line}
-                        rows={2}
-                        onChange={(e) => {
-                          const next = [...conclusionsDraft];
-                          next[cidx] = e.target.value;
-                          setConclusionsDraft(next);
-                        }}
-                        onBlur={() => saveConclusions()}
-                      />
-                      <button
-                        type="button"
-                        className="mt-1 rounded-full p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
-                        title="删除"
-                        aria-label="删除结论"
-                        onClick={() => {
-                          const next = conclusionsDraft.filter((_, i) => i !== cidx);
-                          setConclusionsDraft(next);
-                          saveConclusions(next);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] text-xs text-primary transition hover:bg-primary/10"
-                    onClick={() => setConclusionsDraft((prev) => [...prev, ""])}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    失焦自动保存 · + 添加
-                  </button>
-                </div>
-              </section>
+              </>
+              )}
             </div>
 
+            {recall ? null : (
             <div className="shrink-0 border-t border-border/60 bg-card/95 px-3 py-2.5 backdrop-blur">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="min-w-0 truncate text-[11px] text-muted-foreground">
@@ -1227,6 +1323,7 @@ export function KnowledgePanel({
                 </p>
               )}
             </div>
+            )}
           </>
         )}
       </div>

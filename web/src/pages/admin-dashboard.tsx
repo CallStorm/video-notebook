@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   BookOpen,
@@ -36,6 +37,37 @@ interface ReadinessRate {
   ready: number;
   total: number;
   rate: number | null;
+}
+
+interface StageBreakdown {
+  failed: number;
+  processing: number;
+  pending: number;
+}
+
+interface VectorBreakdown {
+  failed: number;
+  indexing: number;
+  stale: number;
+  empty: number;
+}
+
+interface ReadinessException {
+  notebook_id: number;
+  title: string;
+  owner_name: string | null;
+  is_mine: boolean;
+  subtitle_failed: number;
+  subtitle_processing: number;
+  subtitle_pending: number;
+  subtitle_total: number;
+  overview_failed: number;
+  overview_processing: number;
+  overview_pending: number;
+  overview_total: number;
+  index_status: string;
+  index_stale: boolean;
+  error: string | null;
 }
 
 interface AdminStats {
@@ -75,10 +107,16 @@ interface AdminStats {
     overview: ReadinessRate;
     vector: ReadinessRate;
     complete_notebooks: ReadinessRate;
+    subtitle_detail: StageBreakdown;
+    overview_detail: StageBreakdown;
+    vector_detail: VectorBreakdown;
+    exceptions: ReadinessException[];
+    exception_total: number;
   };
   failures: {
     top: { stage: string; count: number; label: string | null }[];
     window_hours: number;
+    basis: "window" | "stock";
     note: string | null;
   };
 }
@@ -300,7 +338,15 @@ function TokenBars({
   );
 }
 
-function RateRing({ label, rate }: { label: string; rate: ReadinessRate }) {
+function RateRing({
+  label,
+  rate,
+  lines,
+}: {
+  label: string;
+  rate: ReadinessRate;
+  lines: { text: string; tone: "bad" | "warn" | "muted" }[];
+}) {
   const pct = rate.rate == null ? 0 : Math.round(rate.rate * 100);
   const r = 30;
   const c = 2 * Math.PI * r;
@@ -328,8 +374,49 @@ function RateRing({ label, rate }: { label: string; rate: ReadinessRate }) {
       <div className="admin-dash-ring-sub tabular-nums">
         {rate.ready}/{rate.total}
       </div>
+      <ul className="admin-dash-ring-break">
+        {lines.map((line) => (
+          <li key={line.text} className={`is-${line.tone}`}>
+            {line.text}
+          </li>
+        ))}
+      </ul>
     </div>
   );
+}
+
+function countLine(label: string, count: number, tone: "bad" | "warn") {
+  return { text: `${label} ${count}`, tone: count > 0 ? tone : ("muted" as const) };
+}
+
+function stageLines(detail: StageBreakdown) {
+  return [
+    countLine("失败", detail.failed, "bad"),
+    countLine("生成中", detail.processing, "warn"),
+    countLine("未开始", detail.pending, "warn"),
+  ];
+}
+
+function mediaPhrase(
+  failed: number,
+  processing: number,
+  pending: number,
+  total: number,
+): { text: string; tone: "bad" | "run" | "muted" | "ok" } {
+  if (total <= 0) return { text: "无来源", tone: "muted" };
+  const ready = Math.max(0, total - failed - processing - pending);
+  if (failed > 0) return { text: `${failed}/${total} 失败`, tone: "bad" };
+  if (processing > 0) return { text: `${processing}/${total} 生成中`, tone: "run" };
+  if (pending > 0) return { text: `${pending}/${total} 未开始`, tone: "muted" };
+  return { text: `${ready}/${total}`, tone: "ok" };
+}
+
+function indexPhrase(status: string, stale: boolean): { text: string; tone: "bad" | "run" | "warn" | "ok" | "muted" } {
+  if (status === "failed") return { text: "索引失败", tone: "bad" };
+  if (status === "indexing") return { text: "入库中", tone: "run" };
+  if (status === "ready" && stale) return { text: "索引过期", tone: "warn" };
+  if (status === "ready") return { text: "已入库", tone: "ok" };
+  return { text: "未入库", tone: "muted" };
 }
 
 export function AdminDashboard() {
@@ -577,13 +664,37 @@ export function AdminDashboard() {
             </div>
           </div>
           <div className="admin-dash-rings">
-            <RateRing label="字幕" rate={data.readiness.subtitle} />
-            <RateRing label="概览" rate={data.readiness.overview} />
-            <RateRing label="向量" rate={data.readiness.vector} />
+            <RateRing
+              label="字幕"
+              rate={data.readiness.subtitle}
+              lines={stageLines(data.readiness.subtitle_detail)}
+            />
+            <RateRing
+              label="概览"
+              rate={data.readiness.overview}
+              lines={stageLines(data.readiness.overview_detail)}
+            />
+            <RateRing
+              label="向量"
+              rate={data.readiness.vector}
+              lines={[
+                countLine("失败", data.readiness.vector_detail.failed, "bad"),
+                countLine("入库中", data.readiness.vector_detail.indexing, "warn"),
+                countLine("过期", data.readiness.vector_detail.stale, "warn"),
+                countLine("空壳", data.readiness.vector_detail.empty, "warn"),
+              ]}
+            />
           </div>
         </Panel>
 
-        <Panel title="失败 TOP" hint={`近 ${data.failures.window_hours} 小时`}>
+        <Panel
+          title="失败 TOP"
+          hint={
+            data.failures.basis === "stock"
+              ? "当前失败存量"
+              : `近 ${data.failures.window_hours} 小时`
+          }
+        >
           {data.failures.note ? (
             <p className="admin-dash-fail-note">{data.failures.note}</p>
           ) : null}
@@ -609,7 +720,78 @@ export function AdminDashboard() {
           )}
         </Panel>
       </div>
+
+      <ReadinessExceptions
+        items={data.readiness.exceptions}
+        total={data.readiness.exception_total}
+      />
     </div>
+  );
+}
+
+function ReadinessExceptions({
+  items,
+  total,
+}: {
+  items: ReadinessException[];
+  total: number;
+}) {
+  const hidden = Math.max(0, total - items.length);
+  return (
+    <Panel
+      title="未就绪"
+      hint={total > 0 ? `${total} 本 · 失败优先，然后过期、生成中、未开始` : "当前没有未就绪的笔记本"}
+    >
+      {items.length === 0 ? (
+        <div className="admin-dash-chart-empty admin-dash-fail-empty">没有未就绪的笔记本</div>
+      ) : (
+        <div className="admin-dash-ex">
+          <div className="admin-dash-ex-head">
+            <span>笔记本</span>
+            <span>字幕</span>
+            <span>概览</span>
+            <span>索引</span>
+            <span>最后一条错误</span>
+          </div>
+          {items.map((item) => {
+            const subtitle = mediaPhrase(
+              item.subtitle_failed,
+              item.subtitle_processing,
+              item.subtitle_pending,
+              item.subtitle_total,
+            );
+            const overview = mediaPhrase(
+              item.overview_failed,
+              item.overview_processing,
+              item.overview_pending,
+              item.overview_total,
+            );
+            const index = indexPhrase(item.index_status, item.index_stale);
+            return (
+              <div key={item.notebook_id} className="admin-dash-ex-row">
+                <div className="min-w-0">
+                  {item.is_mine ? (
+                    <Link to={`/notebooks/${item.notebook_id}`} className="admin-dash-ex-title">
+                      {item.title}
+                    </Link>
+                  ) : (
+                    <div className="admin-dash-ex-title is-plain">{item.title}</div>
+                  )}
+                  {!item.is_mine && item.owner_name ? (
+                    <div className="admin-dash-ex-owner">{item.owner_name}</div>
+                  ) : null}
+                </div>
+                <span className={`admin-dash-ex-state is-${subtitle.tone}`}>{subtitle.text}</span>
+                <span className={`admin-dash-ex-state is-${overview.tone}`}>{overview.text}</span>
+                <span className={`admin-dash-ex-state is-${index.tone}`}>{index.text}</span>
+                <span className="admin-dash-ex-error">{item.error ?? "—"}</span>
+              </div>
+            );
+          })}
+          {hidden > 0 ? <p className="admin-dash-ex-more">还有 {hidden} 本</p> : null}
+        </div>
+      )}
+    </Panel>
   );
 }
 

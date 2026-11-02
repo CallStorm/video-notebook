@@ -1,6 +1,8 @@
 """Admin 运营总览大屏统计 schema。"""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -65,11 +67,51 @@ class ReadinessRate(BaseModel):
     rate: float | None = None  # 0~1；total=0 时为 null
 
 
+class StageBreakdown(BaseModel):
+    """来源上还没就绪的三档。pending 是未开始。"""
+
+    failed: int = 0
+    processing: int = 0
+    pending: int = 0
+
+
+class VectorBreakdown(BaseModel):
+    """向量环下面单独点名的四类。空壳不混进失败或入库中。"""
+
+    failed: int = 0
+    indexing: int = 0
+    stale: int = 0
+    empty: int = 0
+
+
+class ReadinessExceptionItem(BaseModel):
+    notebook_id: int
+    title: str
+    owner_name: str | None = None
+    is_mine: bool = False
+    subtitle_failed: int = 0
+    subtitle_processing: int = 0
+    subtitle_pending: int = 0
+    subtitle_total: int = 0
+    overview_failed: int = 0
+    overview_processing: int = 0
+    overview_pending: int = 0
+    overview_total: int = 0
+    index_status: str = "pending"
+    index_stale: bool = False
+    error: str | None = None
+
+
 class ReadinessStats(BaseModel):
     subtitle: ReadinessRate
     overview: ReadinessRate
     vector: ReadinessRate
     complete_notebooks: ReadinessRate
+    subtitle_detail: StageBreakdown = Field(default_factory=StageBreakdown)
+    overview_detail: StageBreakdown = Field(default_factory=StageBreakdown)
+    vector_detail: VectorBreakdown = Field(default_factory=VectorBreakdown)
+    exceptions: list[ReadinessExceptionItem] = Field(default_factory=list)
+    exception_total: int = 0
 
 
 class FailureTopItem(BaseModel):
@@ -81,6 +123,8 @@ class FailureTopItem(BaseModel):
 class FailureStats(BaseModel):
     top: list[FailureTopItem]
     window_hours: int = 24
+    # window = 近 24 小时流水线事件；stock = 业务表现有失败
+    basis: Literal["window", "stock"] = "window"
     note: str | None = None
 
 

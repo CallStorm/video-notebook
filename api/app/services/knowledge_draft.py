@@ -26,6 +26,8 @@ from app.schemas.knowledge_draft import (
     KnowledgeDraftUpdateRequest,
     KnowledgeDraftPointAskRequest,
     KnowledgeDraftPointAskResponse,
+    KnowledgeDraftReviewRequest,
+    KnowledgeDraftReviewResponse,
 )
 from app.services import notebooks as notebooks_svc
 from app.services.draft_strategy import (
@@ -770,4 +772,80 @@ async def ask_about_point(
     if not text:
         raise BadRequestError("模型未返回有效回答")
     return KnowledgeDraftPointAskResponse(point_id=body.point_id, answer=text)
+
+
+async def review_conclusion(
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    notebook_id: int,
+    body: KnowledgeDraftReviewRequest,
+) -> KnowledgeDraftReviewResponse:
+    """对照要点判断这句结论，不写回底稿。"""
+    await notebooks_svc.get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    row = (
+        await session.execute(
+            select(NotebookKnowledgeDraft).where(
+                NotebookKnowledgeDraft.notebook_id == notebook_id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise NotFoundError("尚未生成知识底稿")
+
+    content = _normalize_content(row.content_json if isinstance(row.content_json, dict) else {})
+    points = [p for p in content["points"] if p.get("checked")]
+    if not points:
+        points = list(content["points"])
+    blocks: list[str] = []
+    theme = str(content.get("theme") or "").strip()
+    if theme:
+        blocks.append(f"主题：{theme}")
+    for index, point in enumerate(points, start=1):
+        lines = [f"{index}. {str(point.get('text') or '').strip()}"]
+        evidence = str(point.get("evidence") or "").strip()
+        example = str(point.get("example") or "").strip()
+        if evidence:
+            lines.append(f"原句：{evidence}")
+        if example:
+            lines.append(f"例：{example}")
+        blocks.append("\n".join(lines))
+    if len(blocks) <= (1 if theme else 0):
+        raise BadRequestError("底稿还没有要点，暂时无法评判")
+
+    llm = await get_active_llm(session)
+    provider = make_provider(
+        provider_name=llm.provider,
+        api_key=llm.api_key,
+        base_url=llm.base_url,
+        model_name=llm.model_name,
+        params_json=llm.params_json,
+    )
+    system = (
+        "你只判断用户的结论有没有被给定要点撑住。"
+        "不要改写结论，不要给一段替代结论。"
+        "verdict 只能是 supported、broader、missing 之一："
+        "supported 表示原句能撑住这句；"
+        "broader 表示说得比原片宽；"
+        "missing 表示材料里没有这句。"
+        "evidence 引用对上的原句，没有就空字符串。"
+        "gap 只写缺口本身，例如原片只说到哪里、这句多出去什么。"
+        "只输出一个 JSON 对象，键为 verdict、evidence、gap。"
+    )
+    prompt = "材料：\n" + "\n\n".join(blocks) + f"\n\n用户结论：{body.conclusion.strip()}"
+    try:
+        raw = await provider.complete(prompt, system=system, max_tokens=600)
+    except Exception as exc:  # noqa: BLE001
+        raise BadRequestError(f"模型调用失败：{exc}") from exc
+    data, err = _extract_json(raw or "")
+    if data is None:
+        raise BadRequestError(err or "评判结果无法解析")
+    verdict = str(data.get("verdict") or "").strip()
+    if verdict not in {"supported", "broader", "missing"}:
+        raise BadRequestError("评判结果无法解析")
+    return KnowledgeDraftReviewResponse(
+        verdict=verdict,  # type: ignore[arg-type]
+        evidence=str(data.get("evidence") or "").strip(),
+        gap=str(data.get("gap") or "").strip(),
+    )
 
