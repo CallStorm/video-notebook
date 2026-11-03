@@ -172,18 +172,21 @@ function formatShortLabel(formatKey: string): string {
   if (formatKey === "slides") return "幻";
   if (formatKey === "four_panel") return "漫";
   if (formatKey === "file") return "文";
+  if (formatKey === "knowledge_draft") return "稿";
   return "导";
 }
 
 function deleteConfirmLabel(formatKey: string): string {
   if (formatKey === "slides") return "删除这个幻灯片？";
   if (formatKey === "four_panel") return "删除这个四格漫？";
+  if (formatKey === "knowledge_draft") return "删除这个底稿任务？";
   return "删除这个导图？";
 }
 
 function renameHeading(formatKey: string): string {
   if (formatKey === "slides") return "重命名幻灯片";
   if (formatKey === "four_panel") return "重命名四格漫";
+  if (formatKey === "knowledge_draft") return "重命名底稿";
   return "重命名导图";
 }
 
@@ -213,11 +216,13 @@ export function StudioCollapsedRail({
   notebookId,
   onExpand,
   onOpenTask,
+  onGoKnowledge,
 }: {
   access: string;
   notebookId: number;
   onExpand: () => void;
   onOpenTask: (taskId: number, formatKey: string) => void;
+  onGoKnowledge?: () => void;
 }) {
   const capabilities = useQuery({
     queryKey: ["studio-capabilities", notebookId],
@@ -271,6 +276,10 @@ export function StudioCollapsedRail({
               title={tip}
               aria-label={tip}
               onClick={() => {
+                if (task.format_key === "knowledge_draft" && task.status === "succeeded" && onGoKnowledge) {
+                  onGoKnowledge();
+                  return;
+                }
                 if (openable) onOpenTask(task.id, task.format_key);
                 else onExpand();
               }}
@@ -526,7 +535,9 @@ export function StudioPanel({
               (isStudioOpenableFormat(task.format_key)) &&
               !!onOpenTask;
             const icon = capabilityIcon(capabilities.data, task);
-            if (isTextStudioFormat(task.format_key) || task.format_key === "slides") {
+            const goKnowledge =
+              task.format_key === "knowledge_draft" && task.status === "succeeded" && !!onGoKnowledge;
+            if (isTextStudioFormat(task.format_key) || task.format_key === "slides" || task.format_key === "knowledge_draft") {
               const when = relativeTime(task.created_at);
               const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
               const chip = taskStatusChip(task.status);
@@ -539,8 +550,12 @@ export function StudioPanel({
                   ) : null}
                   <button
                     type="button"
-                    className={`min-w-0 flex-1 text-left ${openable ? "" : "cursor-default"}`}
+                    className={`min-w-0 flex-1 text-left ${openable || goKnowledge ? "" : "cursor-default"}`}
                     onClick={() => {
+                      if (goKnowledge) {
+                        onGoKnowledge?.();
+                        return;
+                      }
                       if (openable) onOpenTask?.(task.id, task.format_key);
                     }}
                   >
@@ -571,7 +586,7 @@ export function StudioPanel({
                       if (window.confirm(label)) removeTask.mutate(task.id);
                     }}
                     onDownload={
-                      task.status !== "succeeded"
+                      task.status !== "succeeded" || task.format_key === "knowledge_draft"
                         ? undefined
                         : () =>
                         void (task.format_key === "slides"

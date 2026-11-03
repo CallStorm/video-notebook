@@ -17,6 +17,7 @@ from pathlib import Path
 
 from sqlalchemy import select, update
 
+from app.core.errors import BadRequestError
 from app.db.session import get_sessionmaker
 from app.models.notebook import Note, Video
 from app.models.studio import (
@@ -184,6 +185,20 @@ def _topic_hard_constraints(format_key: str, fields: list) -> str | None:
     return "\n".join(lines)
 
 
+def _draft_hard_constraints(fields: list) -> str:
+    focus = (_field_map(fields).get("focus") or "").strip()
+    lines = [
+        "## 底稿硬约束",
+        "- 一条来源按精读；两条及以上按对比，相同点和不同点分开。",
+        "- 每条要点带 example。有可靠时间才写 time 和 evidence。",
+        "- 不要写用户结论，不要把字幕铺成长摘要。",
+        "- 只交 outputs/draft.json 与 MANIFEST.json。",
+    ]
+    if focus:
+        lines.append(f"- 用户聚焦：{focus}")
+    return "\n".join(lines)
+
+
 def _slides_hard_constraints(fields: list) -> str | None:
     """Keep brief metadata off the slide canvas; prefer short titles."""
     fmap = _field_map(fields)
@@ -209,6 +224,8 @@ def _prompt(format_key: str, system_prompt: str, fields: list | None = None) -> 
         slides_hard = _slides_hard_constraints(fields or [])
         if slides_hard:
             parts.append(slides_hard)
+    if format_key == "knowledge_draft":
+        parts.append(_draft_hard_constraints(fields or []))
     if isinstance(system_prompt, str) and system_prompt.strip():
         parts.append(system_prompt)
     parts.append(_FIXED_PROMPT)
@@ -330,22 +347,42 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
         await proc.wait()
 
 
-async def _sources(session, params: dict) -> list[dict]:
+def _source_clock(ms: int) -> str:
+    total = max(0, int(ms) // 1000)
+    minutes, seconds = divmod(total, 60)
+    return f"{minutes}:{seconds:02d}"
+
+
+async def _sources(session, params: dict, *, with_times: bool = False) -> list[dict]:
     sources: list[dict] = []
+    budget = 28_000 if with_times else None
+    used = 0
     for video_id in params.get("video_ids") or []:
         video = await session.get(Video, video_id)
         if video is None:
             sources.append({"id": video_id, "kind": "video", "title": "", "text": ""})
             continue
         _subtitle, lines = await load_subtitle(session, video)
+        pieces: list[str] = []
+        for line in lines:
+            spoken = (line.text or "").strip()
+            if not spoken:
+                continue
+            piece = f"[{_source_clock(line.start_ms)}] {spoken}" if with_times else spoken
+            if budget is not None and used + len(piece) > budget:
+                break
+            pieces.append(piece)
+            used += len(piece)
         sources.append(
             {
                 "id": video.id,
                 "kind": "video",
                 "title": video.title or "",
-                "text": "\n".join(line.text for line in lines),
+                "text": "\n".join(pieces),
             }
         )
+        if budget is not None and used >= budget:
+            break
     for note_id in params.get("note_ids") or []:
         note = await session.get(Note, note_id)
         if note is None:
@@ -386,7 +423,9 @@ async def _prepare(session, task: StudioTask) -> _Prepared:
         format_key=task.format_key,
         language=params.get("language"),
         fields=list(params.get("fields") or []),
-        sources=await _sources(session, params),
+        sources=await _sources(
+            session, params, with_times=task.format_key == "knowledge_draft"
+        ),
         capability_name=(cap.name if cap is not None else None) or plugin.name or task.title,
         skill_src=skill_src,
         skill_dirname=skill_dirname,
@@ -864,7 +903,7 @@ async def _store_success(
     main_key, data = _store_main(accepted_path, accepted_mime)
     stored_keys.append(main_key)
     text_content: str | None = None
-    if prepared.format_key in {"mind_map", "structured_notes", "four_panel"}:
+    if prepared.format_key in {"mind_map", "structured_notes", "four_panel", "knowledge_draft"}:
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:
@@ -897,6 +936,37 @@ async def _store_success(
     if side is not None:
         keys.append(side[0])
     async with factory() as session:
+        if prepared.format_key == "knowledge_draft":
+            task = await session.get(StudioTask, task_id)
+            if task is None:
+                await session.rollback()
+                await _delete_unshared_keys(factory, task_id, [main_key])
+                stored_keys.remove(main_key)
+                await _mark_failed(factory, task_id, "process_failed", "任务不存在", work)
+                return
+            params = task.params_json if isinstance(task.params_json, dict) else {}
+            focus = ""
+            for item in params.get("fields") or []:
+                if isinstance(item, dict) and item.get("key") == "focus":
+                    focus = str(item.get("value") or "")
+            from app.services.knowledge_draft import merge_generated_draft
+
+            try:
+                await merge_generated_draft(
+                    session,
+                    notebook_id=int(task.notebook_id),
+                    owner_id=int(task.owner_id),
+                    raw_text=text_content or "",
+                    video_ids=[int(item) for item in (params.get("video_ids") or [])],
+                    note_ids=[int(item) for item in (params.get("note_ids") or [])],
+                    focus=focus.strip() or None,
+                )
+            except BadRequestError as exc:
+                await session.rollback()
+                await _delete_unshared_keys(factory, task_id, [main_key])
+                stored_keys.remove(main_key)
+                await _mark_failed(factory, task_id, "format_mismatch", str(exc), work)
+                return
         result = await session.execute(
             update(StudioTask)
             .where(

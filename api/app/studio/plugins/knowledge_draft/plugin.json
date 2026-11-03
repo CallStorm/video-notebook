@@ -1,0 +1,22 @@
+{
+  "id": "knowledge_draft",
+  "name": "知识底稿",
+  "icon": "稿",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "timeout_seconds": 600,
+  "skill": "knowledge-draft",
+  "extensions": [".json"],
+  "preferred_names": ["draft.json"],
+  "form": [
+    { "type": "sources" },
+    {
+      "type": "text",
+      "key": "focus",
+      "label": "聚焦",
+      "placeholder": "可选：只关心落地步骤",
+      "required": false,
+      "multiline": false
+    }
+  ]
+}

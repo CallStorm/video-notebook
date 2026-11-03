@@ -1,0 +1,11 @@
+- 主文件是知识底稿 JSON，路径 `outputs/draft.json`。
+- `outputs/MANIFEST.json` 必须是这一份，字段名不能改：
+  {"status":"success","title":"底稿主题","artifacts":[{"role":"main","path":"outputs/draft.json","mime":"application/json"}]}
+- 阅读 `inputs.json` 的 `sources`。每条视频的 `text` 已带 `[分:秒]`。
+- `fields.focus` 若有内容，只展开和它直接相关的要点。
+- 来源只有一条时按精读：一句话主题、3–8 个概念、5–12 条按时间排列的要点。
+- 来源有两条及以上时按对比：要点分成相同点和不同点，`source_hint` 写 `video:<id>` 或 `note:<id>`。
+- 每条要点必须有 `text`、`example`。有可靠时间才写 `time`（MM:SS），并尽量写 `evidence` 原句短引。没有可靠时间就省略 `time`，禁止编造。
+- `example` 用 1–2 句生活场景，禁止把字幕原句抄进 `example`。
+- `takeaways` 与 `open_questions` 输出空数组。不要写用户结论，不要输出 `conclusions`。
+- 只写材料里有依据的内容。不要把字幕铺成长摘要。

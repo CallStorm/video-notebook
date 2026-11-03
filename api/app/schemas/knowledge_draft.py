@@ -64,6 +64,21 @@ class KnowledgeDraftContent(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
 
 
+class ConclusionLineRef(BaseModel):
+    video_id: int
+    line_no: int
+    start_ms: int = 0
+    end_ms: int = 0
+    text: str = ""
+
+
+class ConclusionCheck(BaseModel):
+    text: str
+    verdict: Literal["supported", "partial", "unsupported"]
+    gap: str = ""
+    lines: list[ConclusionLineRef] = Field(default_factory=list)
+
+
 class KnowledgeDraftRead(BaseModel):
     id: int
     notebook_id: int
@@ -77,6 +92,7 @@ class KnowledgeDraftRead(BaseModel):
     conclusion: str = ""
     # 方案 B：多条结论
     conclusions: list[str] = Field(default_factory=list)
+    conclusion_checks: list[ConclusionCheck] = Field(default_factory=list)
     content: KnowledgeDraftContent
     source_video_ids: list[int]
     source_note_ids: list[int]
@@ -133,7 +149,7 @@ class KnowledgeDraftReviewRequest(BaseModel):
 
 
 class KnowledgeDraftReviewResponse(BaseModel):
-    verdict: Literal["supported", "broader", "missing"]
-    evidence: str = ""
+    verdict: Literal["supported", "partial", "unsupported"]
     gap: str = ""
+    lines: list[ConclusionLineRef] = Field(default_factory=list)
 

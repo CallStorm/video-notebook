@@ -887,6 +887,12 @@ export default function NotebookPage() {
               access={token}
               notebookId={notebookId}
               onExpand={() => setRightCollapsed(false)}
+              onGoKnowledge={() => {
+                setRightCollapsed(false);
+                setPreviewTaskId(null);
+                setPreviewFormat(null);
+                setRightMode("knowledge");
+              }}
               onOpenTask={(taskId, formatKey) => {
                 setOpenNoteId(null);
                 setPendingCapabilityId(null);

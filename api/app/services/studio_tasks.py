@@ -17,7 +17,7 @@ _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
 # Retired from product surface; keep plugin/code for potential restore but hide from Studio UI/API lists.
 _HIDDEN_FORMATS = frozenset({"structured_notes", "four_panel"})
 # Product-fixed: always treated as enabled (admin toggle removed).
-_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides"})
+_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft"})
 
 
 def enqueue_studio_task(task_id: int) -> None:
@@ -138,6 +138,18 @@ async def create_task(
         get_plugin(cap.format_key)
     except KeyError as exc:
         raise BadRequestError("能力插件不存在") from exc
+
+    if cap.format_key == "knowledge_draft":
+        active = await session.scalar(
+            select(StudioTask.id).where(
+                StudioTask.notebook_id == notebook_id,
+                StudioTask.format_key == "knowledge_draft",
+                StudioTask.status.in_(("queued", "running")),
+                StudioTask.deleted_at.is_(None),
+            ).limit(1)
+        )
+        if active is not None:
+            raise BadRequestError("已有底稿正在生成")
 
     form = cap.form_json or []
     has_sources = any(field.get("type") == "sources" for field in form)
