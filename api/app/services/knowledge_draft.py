@@ -79,6 +79,12 @@ def _pack_conclusion_text(conclusions: list[str]) -> str:
     return "\n".join(c for c in conclusions if c.strip())
 
 
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
+
+
 _CHECK_VERDICTS = frozenset({"supported", "partial", "unsupported"})
 
 
@@ -661,6 +667,7 @@ async def generate_draft(
 
     await session.commit()
     await session.refresh(row)
+    _touch_index(notebook_id)
     return _to_read(row, strategy_title=strategy.title)
 
 
@@ -804,6 +811,7 @@ async def update_draft(
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    _touch_index(notebook_id)
 
     title = None
     if row.strategy_id is not None:
@@ -827,6 +835,7 @@ async def delete_draft(
         return
     await session.delete(row)
     await session.commit()
+    _touch_index(notebook_id)
 
 
 async def ask_about_point(

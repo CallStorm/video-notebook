@@ -553,9 +553,21 @@ def clamp_semantic_min_score(value: float | None) -> float:
     return max(SEMANTIC_MIN_SCORE_FLOOR, min(SEMANTIC_MIN_SCORE_CEIL, score))
 
 
-def _semantic_match_hint(score: float) -> str:
+_PART_LABELS = {
+    "card": "简介",
+    "subtitles": "字幕",
+    "notes": "笔记",
+    "conclusions": "结论",
+    "draft": "底稿",
+}
+
+
+def _semantic_match_hint(score: float, part: str | None = None) -> str:
     # Qdrant Cosine 返回的是相似度（约 0~1），不是距离；展示为百分比诚实映射
     pct = max(0, min(100, int(round(float(score) * 100))))
+    label = _PART_LABELS.get(part or "")
+    if pct > 0 and label:
+        return f"语义相近 · {label} · {pct}%"
     if pct > 0:
         return f"语义相近 · {pct}%"
     return "语义相近"
@@ -623,7 +635,7 @@ async def _discover_semantic(
 
     # 只保留仍在候选集内、且达到最低相似度的命中
     allowed = set(candidate_ids)
-    ordered: list[tuple[int, float]] = []
+    ordered: list[tuple[int, float, str]] = []
     seen: set[int] = set()
     for hit in hits:
         score = float(hit.score)
@@ -632,7 +644,8 @@ async def _discover_semantic(
         if score < threshold:
             continue
         seen.add(hit.notebook_id)
-        ordered.append((hit.notebook_id, score))
+        part = str((hit.payload or {}).get("part") or "")
+        ordered.append((hit.notebook_id, score, part))
 
     total = len(ordered)
     start = (page - 1) * size
@@ -640,12 +653,13 @@ async def _discover_semantic(
     if not page_rows:
         return [], total
 
-    page_ids = [nid for nid, _ in page_rows]
+    page_ids = [nid for nid, _, _ in page_rows]
     nb_rows = (
         await session.execute(select(Notebook).where(Notebook.id.in_(page_ids)))
     ).scalars().all()
     by_id = {nb.id: nb for nb in nb_rows}
-    score_by_id = {nid: score for nid, score in page_rows}
+    score_by_id = {nid: score for nid, score, _part in page_rows}
+    part_by_id = {nid: part for nid, _score, part in page_rows}
     pairs: list[tuple[Notebook, str | None]] = []
     for nid in page_ids:
         nb = by_id.get(nid)
@@ -660,7 +674,9 @@ async def _discover_semantic(
             continue
         if scope == "all" and nb.owner_id != viewer_id and not nb.share_all:
             continue
-        pairs.append((nb, _semantic_match_hint(score_by_id.get(nid, 0.0))))
+        pairs.append(
+            (nb, _semantic_match_hint(score_by_id.get(nid, 0.0), part_by_id.get(nid)))
+        )
     return pairs, total
 
 async def discover_notebooks(
@@ -798,9 +814,12 @@ async def update_notebook(
     is_pinned: bool | None = None,
 ) -> dict:
     nb = await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    index_changed = False
     if title is not None:
+        index_changed = index_changed or title != nb.title
         nb.title = title
     if description is not None:
+        index_changed = index_changed or (description or "") != (nb.description or "")
         nb.description = description
     if icon is not None:
         nb.icon = icon
@@ -811,6 +830,8 @@ async def update_notebook(
     session.add(nb)
     await session.commit()
     await session.refresh(nb)
+    if index_changed:
+        _touch_index(nb.id)
     return await to_read(session, nb)
 
 
@@ -835,6 +856,7 @@ async def delete_notebook(
         note.message_id = None
         session.add(note)
     await session.commit()
+    _touch_index(notebook_id)
 
 
 async def set_share_all(
@@ -845,11 +867,20 @@ async def set_share_all(
     value: bool,
 ) -> dict:
     nb = await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    changed = bool(nb.share_all) != bool(value)
     nb.share_all = value
     session.add(nb)
     await session.commit()
     await session.refresh(nb)
+    if changed:
+        _touch_index(nb.id)
     return await to_read(session, nb)
+
+
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
 
 
 async def list_sources(

@@ -335,8 +335,18 @@ def _on_worker_ready(**_kwargs) -> None:
 
 
 @celery_app.task(name="vector.index_notebook")
-def vector_index_notebook(notebook_id: int, force: bool = False) -> None:
+def vector_index_notebook(
+    notebook_id: int, force: bool = False, token: str | None = None
+) -> None:
     """Embed notebook document and upsert into Qdrant."""
+    if not force and token is not None:
+        from app.vector.enqueue import index_token_current
+
+        if not index_token_current(int(notebook_id), token):
+            logger.info(
+                "skip stale vector.index_notebook notebook_id=%s", notebook_id
+            )
+            return
 
     async def _run() -> None:
         from app.vector.enqueue import index_notebook_logged

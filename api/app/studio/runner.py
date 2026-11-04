@@ -935,6 +935,7 @@ async def _store_success(
     keys = [main_key]
     if side is not None:
         keys.append(side[0])
+    draft_notebook_id: int | None = None
     async with factory() as session:
         if prepared.format_key == "knowledge_draft":
             task = await session.get(StudioTask, task_id)
@@ -967,6 +968,7 @@ async def _store_success(
                 stored_keys.remove(main_key)
                 await _mark_failed(factory, task_id, "format_mismatch", str(exc), work)
                 return
+            draft_notebook_id = int(task.notebook_id)
         result = await session.execute(
             update(StudioTask)
             .where(
@@ -1012,6 +1014,10 @@ async def _store_success(
                 )
             )
         await session.commit()
+    if draft_notebook_id is not None:
+        from app.vector.schedule import touch_notebook_index
+
+        touch_notebook_index(draft_notebook_id)
     shutil.rmtree(work)
 
 

@@ -11,15 +11,49 @@ from app.llm.config_service import get_active_embedding
 from app.models.notebook import Notebook
 from app.models.notebook_index import NotebookIndexState
 from app.services.vector_settings import get_vector_settings_row
-from app.vector.document import build_notebook_document
+from app.vector.document import (
+    build_notebook_document,
+    chunk_point_id,
+    chunk_text_hash,
+)
 from app.vector.embeddings import EmbeddingError, embed_texts
 from app.vector.store import VectorPoint, VectorStoreError, make_vector_store
+
+_EMBED_BATCH = 16
 
 logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+async def _drop_deleted_notebook(session, notebook_id: int, settings):
+    """软删除后清掉向量点，避免发现页继续命中。"""
+    err: str | None = None
+    try:
+        store = make_vector_store(
+            backend=settings.vector_backend,
+            qdrant_url=settings.qdrant_url,
+            qdrant_collection=settings.qdrant_collection,
+            qdrant_api_key=settings.qdrant_api_key,
+        )
+        await store.delete(notebook_id)
+    except VectorStoreError as exc:
+        err = str(exc)[:2000]
+        logger.warning(
+            "delete index point failed notebook_id=%s err=%s", notebook_id, exc
+        )
+    state = await _get_or_create_state(session, notebook_id)
+    state.status = "failed" if err else "skipped"
+    state.index_error = err or "笔记本已删除"
+    state.indexed_at = _now()
+    state.model_name = None
+    state.vector_dim = None
+    session.add(state)
+    await session.commit()
+    await session.refresh(state)
+    return state
 
 
 async def _get_or_create_state(
@@ -40,10 +74,13 @@ async def index_notebook(
     force: bool = False,
 ) -> NotebookIndexState:
     nb = await session.get(Notebook, notebook_id)
-    if nb is None or nb.deleted_at is not None:
+    if nb is None:
         raise NotFoundError(f"notebook {notebook_id} 不存在")
 
     settings = await get_vector_settings_row(session)
+    if nb.deleted_at is not None:
+        return await _drop_deleted_notebook(session, notebook_id, settings)
+
     state = await _get_or_create_state(session, notebook_id)
     prev_hash = state.content_hash
     prev_status = state.status
@@ -68,9 +105,10 @@ async def index_notebook(
             )
             or 0
         )
-        # 空壳：无来源且无笔记正文 → 不进向量库（标题/描述 alone 易假阳性）
-        has_notes = "notes" in doc.parts_used
-        is_empty_shell = (not doc.text.strip()) or (source_count == 0 and not has_notes)
+        # 空壳：只有标题/描述、又没有来源、笔记、结论或底稿 → 不进向量库
+        substantive = {"notes", "conclusions", "draft", "overview", "subtitles"}
+        has_substantive = any(part in substantive for part in doc.parts_used)
+        is_empty_shell = (not doc.text.strip()) or (source_count == 0 and not has_substantive)
         if is_empty_shell:
             # 删掉旧点，避免空壳继续污染检索
             try:
@@ -93,7 +131,7 @@ async def index_notebook(
             if not doc.text.strip():
                 state.index_error = "没有可索引的文本（检查索引字段开关与笔记本内容）"
             else:
-                state.index_error = "空壳笔记本（无来源且无笔记），已跳过索引"
+                state.index_error = "空壳笔记本（无来源，且无笔记、结论或底稿），已跳过索引"
             state.indexed_at = _now()
             state.model_name = None
             state.vector_dim = None
@@ -123,37 +161,87 @@ async def index_notebook(
         except NotFoundError as exc:
             raise EmbeddingError(str(exc)) from exc
 
-        vectors = await embed_texts(emb, [doc.text[:30000]])
-        vector = vectors[0]
-        dim = len(vector)
-
         store = make_vector_store(
             backend=settings.vector_backend,
             qdrant_url=settings.qdrant_url,
             qdrant_collection=settings.qdrant_collection,
             qdrant_api_key=settings.qdrant_api_key,
         )
-        await store.ensure_collection(dim)
-        await store.upsert(
-            VectorPoint(
-                notebook_id=notebook_id,
-                vector=vector,
-                payload={
-                    "title": nb.title,
-                    "owner_id": nb.owner_id,
-                    "share_all": bool(nb.share_all),
-                    "parts": doc.parts_used,
-                    "content_hash": doc.content_hash,
-                    "model_name": emb.model_name,
-                },
+        existing = await store.scroll_notebook(notebook_id)
+        existing_hash = {
+            str(point_id): str((payload or {}).get("chunk_hash") or "")
+            for point_id, payload in existing
+        }
+        desired = {
+            chunk_point_id(notebook_id, chunk.key): chunk for chunk in doc.chunks
+        }
+        to_embed = [
+            (point_id, chunk)
+            for point_id, chunk in desired.items()
+            if force or existing_hash.get(point_id) != chunk_text_hash(chunk.text)
+        ]
+        vectors: list[list[float]] = []
+        if to_embed:
+            texts = [chunk.text for _, chunk in to_embed]
+            for start in range(0, len(texts), _EMBED_BATCH):
+                vectors.extend(await embed_texts(emb, texts[start : start + _EMBED_BATCH]))
+            if len(vectors) != len(to_embed):
+                raise EmbeddingError(
+                    f"embeddings 条数不匹配：input={len(to_embed)} data={len(vectors)}"
+                )
+            await store.ensure_collection(len(vectors[0]))
+            await store.upsert_many(
+                [
+                    VectorPoint(
+                        point_id=point_id,
+                        notebook_id=notebook_id,
+                        vector=vector,
+                        payload={
+                            "title": nb.title,
+                            "owner_id": nb.owner_id,
+                            "share_all": bool(nb.share_all),
+                            "part": chunk.part,
+                            "chunk_key": chunk.key,
+                            "chunk_hash": chunk_text_hash(chunk.text),
+                            "content_hash": doc.content_hash,
+                            "model_name": emb.model_name,
+                        },
+                    )
+                    for (point_id, chunk), vector in zip(to_embed, vectors, strict=True)
+                ]
             )
+
+        stale: list[str | int] = []
+        seen_stale: set[tuple[str, str]] = set()
+
+        def _add_stale(point_id: str | int) -> None:
+            marker = (type(point_id).__name__, str(point_id))
+            if marker in seen_stale or str(point_id) in desired:
+                return
+            seen_stale.add(marker)
+            stale.append(point_id)
+
+        for point_id, _payload in existing:
+            _add_stale(point_id)
+        _add_stale(notebook_id)
+        if stale:
+            await store.delete_points(stale)
+        await store.set_payload(
+            notebook_id,
+            {
+                "title": nb.title,
+                "owner_id": nb.owner_id,
+                "share_all": bool(nb.share_all),
+                "content_hash": doc.content_hash,
+            },
         )
+        fresh_dim = len(vectors[0]) if vectors else None
 
         state = await _get_or_create_state(session, notebook_id)
         state.status = "ready"
         state.content_hash = doc.content_hash
         state.model_name = emb.model_name
-        state.vector_dim = dim
+        state.vector_dim = fresh_dim if fresh_dim is not None else state.vector_dim
         state.indexed_at = _now()
         state.index_error = None
         session.add(state)
@@ -162,7 +250,7 @@ async def index_notebook(
         logger.info(
             "indexed notebook_id=%s dim=%s parts=%s",
             notebook_id,
-            dim,
+            state.vector_dim,
             ",".join(doc.parts_used),
         )
         return state

@@ -85,6 +85,7 @@ async def create_blank_note(
     session.add(note)
     await session.commit()
     await session.refresh(note)
+    _touch_index(note.notebook_id)
     return note_dict(note)
 
 
@@ -133,6 +134,7 @@ async def save_message_as_note(
         ).scalar_one()
         return note_dict(again)
     await session.refresh(note)
+    _touch_index(note.notebook_id)
     return note_dict(note)
 
 
@@ -170,6 +172,8 @@ async def rename_note(
     session.add(note)
     await session.commit()
     await session.refresh(note)
+    if title is not None or content_text is not None:
+        _touch_index(note.notebook_id)
     return note_dict(note)
 
 
@@ -177,8 +181,16 @@ async def delete_note(session: AsyncSession, *, owner_id: int, note_id: int) -> 
     note = await _owned_note(session, owner_id=owner_id, note_id=note_id)
     note.deleted_at = datetime.now(UTC).replace(tzinfo=None)
     note.message_id = None
+    notebook_id = note.notebook_id
     session.add(note)
     await session.commit()
+    _touch_index(notebook_id)
+
+
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
 
 
 async def _owned_note(session: AsyncSession, *, owner_id: int, note_id: int) -> Note:

@@ -30,8 +30,18 @@ async def test_vector_settings_get_put(client: AsyncClient, db_session):
     assert body["vector_backend"] == "qdrant"
     assert body["qdrant_collection"] == "notebooks"
     assert body["index_title"] is True
+    assert body["index_description"] is True
     assert body["index_overview"] is True
-    assert body["index_subtitles"] is False
+    assert body["index_subtitles"] is True
+    assert body["index_notes"] is True
+    assert body["index_conclusions"] is True
+    assert body["index_draft"] is True
+    assert body["chunk_card_chars"] == 6000
+    assert body["chunk_subtitles_chars"] == 6000
+    assert body["chunk_notes_chars"] == 6000
+    assert body["chunk_conclusions_chars"] == 6000
+    assert body["chunk_draft_chars"] == 6000
+    assert body["chunk_overlap_chars"] == 200
 
     r2 = await client.put(
         "/api/admin/vector-settings",
@@ -47,13 +57,30 @@ async def test_vector_settings_get_put(client: AsyncClient, db_session):
             "index_overview": True,
             "index_subtitles": True,
             "index_notes": False,
+            "index_conclusions": False,
+            "index_draft": True,
+            "chunk_card_chars": 5000,
+            "chunk_subtitles_chars": 4000,
+            "chunk_notes_chars": 3000,
+            "chunk_conclusions_chars": 2000,
+            "chunk_draft_chars": 4500,
+            "chunk_overlap_chars": 80,
         },
     )
     assert r2.status_code == 200, r2.text
     got = r2.json()
+    assert got["chunk_card_chars"] == 5000
+    assert got["chunk_subtitles_chars"] == 4000
+    assert got["chunk_notes_chars"] == 3000
+    assert got["chunk_conclusions_chars"] == 2000
+    assert got["chunk_draft_chars"] == 4500
+    assert got["chunk_overlap_chars"] == 80
     assert got["qdrant_collection"] == "notebooks_v2"
     assert got["index_description"] is False
     assert got["index_subtitles"] is True
+    assert got["index_notes"] is False
+    assert got["index_conclusions"] is False
+    assert got["index_draft"] is True
     assert got["qdrant_api_key_set"] is True
     assert got["qdrant_api_key"] is None  # 不明文回传
 

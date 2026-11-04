@@ -1,8 +1,10 @@
 """Admin 向量配置服务。"""
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.notebook import Notebook
 from app.models.vector_settings import VectorSettingsConfig
 from app.schemas.vector_settings import VectorSettingsRead, VectorSettingsUpdate
 
@@ -16,8 +18,16 @@ _DEFAULTS = dict(
     index_title=True,
     index_description=True,
     index_overview=True,
-    index_subtitles=False,
-    index_notes=False,
+    index_subtitles=True,
+    index_notes=True,
+    index_conclusions=True,
+    index_draft=True,
+    chunk_card_chars=6000,
+    chunk_subtitles_chars=6000,
+    chunk_notes_chars=6000,
+    chunk_conclusions_chars=6000,
+    chunk_draft_chars=6000,
+    chunk_overlap_chars=200,
 )
 
 
@@ -43,6 +53,16 @@ def _to_read(row: VectorSettingsConfig) -> VectorSettingsRead:
         index_overview=bool(row.index_overview),
         index_subtitles=bool(row.index_subtitles),
         index_notes=bool(row.index_notes),
+        index_conclusions=bool(row.index_conclusions),
+        index_draft=bool(row.index_draft),
+        chunk_card_chars=int(row.chunk_card_chars or 6000),
+        chunk_subtitles_chars=int(row.chunk_subtitles_chars or 6000),
+        chunk_notes_chars=int(row.chunk_notes_chars or 6000),
+        chunk_conclusions_chars=int(row.chunk_conclusions_chars or 6000),
+        chunk_draft_chars=int(row.chunk_draft_chars or 6000),
+        chunk_overlap_chars=int(
+            200 if row.chunk_overlap_chars is None else row.chunk_overlap_chars
+        ),
     )
 
 
@@ -55,10 +75,29 @@ async def get_vector_settings_row(session: AsyncSession) -> VectorSettingsConfig
     return await _ensure_row(session)
 
 
+def _index_flags(row: VectorSettingsConfig) -> tuple[int, ...]:
+    return (
+        int(bool(row.index_title)),
+        int(bool(row.index_description)),
+        int(bool(row.index_overview)),
+        int(bool(row.index_subtitles)),
+        int(bool(row.index_notes)),
+        int(bool(row.index_conclusions)),
+        int(bool(row.index_draft)),
+        int(row.chunk_card_chars or 6000),
+        int(row.chunk_subtitles_chars or 6000),
+        int(row.chunk_notes_chars or 6000),
+        int(row.chunk_conclusions_chars or 6000),
+        int(row.chunk_draft_chars or 6000),
+        int(200 if row.chunk_overlap_chars is None else row.chunk_overlap_chars),
+    )
+
+
 async def update_vector_settings(
     session: AsyncSession, body: VectorSettingsUpdate
 ) -> VectorSettingsRead:
     row = await _ensure_row(session)
+    before = _index_flags(row)
     row.vector_backend = (body.vector_backend or "qdrant").strip().lower() or "qdrant"
     row.qdrant_url = body.qdrant_url.strip()
     row.qdrant_collection = body.qdrant_collection.strip() or "notebooks"
@@ -71,7 +110,30 @@ async def update_vector_settings(
     row.index_overview = body.index_overview
     row.index_subtitles = body.index_subtitles
     row.index_notes = body.index_notes
+    row.index_conclusions = body.index_conclusions
+    row.index_draft = body.index_draft
+    row.chunk_card_chars = body.chunk_card_chars
+    row.chunk_subtitles_chars = body.chunk_subtitles_chars
+    row.chunk_notes_chars = body.chunk_notes_chars
+    row.chunk_conclusions_chars = body.chunk_conclusions_chars
+    row.chunk_draft_chars = body.chunk_draft_chars
+    row.chunk_overlap_chars = body.chunk_overlap_chars
+    changed = _index_flags(row) != before
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    if changed:
+        await _schedule_live_notebooks(session)
     return _to_read(row)
+
+
+async def _schedule_live_notebooks(session: AsyncSession) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    ids = (
+        await session.scalars(
+            select(Notebook.id).where(Notebook.deleted_at.is_(None)).order_by(Notebook.id)
+        )
+    ).all()
+    for nid in ids:
+        touch_notebook_index(int(nid))
