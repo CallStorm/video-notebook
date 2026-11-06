@@ -60,6 +60,14 @@ def create_app() -> FastAPI:
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.include_router(api_router, prefix=settings.api_prefix)
+    # Agent 门面与公开文档挂在站点根上，不走登录 JWT 的 /api。
+    from app.routes.agent_public import router as agent_public_router
+    from app.routes.agent_v1 import router as agent_v1_router
+    from app.routes.mcp import router as mcp_router
+
+    app.include_router(agent_public_router)
+    app.include_router(agent_v1_router)
+    app.include_router(mcp_router)
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

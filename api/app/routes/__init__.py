@@ -9,34 +9,35 @@ from fastapi import APIRouter
 from app.routes import (
     admin,
     admin_agents,
+    admin_chat_settings,
     admin_claude,
+    admin_cover_settings,
     admin_credentials,
     admin_default_models,
+    admin_draft_strategies,
     admin_fetch_network,
     admin_fetch_settings,
-    admin_subtitle_slice_settings,
-    admin_overview_settings,
-    admin_cover_settings,
-    admin_chat_settings,
-    admin_vector_settings,
-    admin_observability,
-    admin_stats,
     admin_models,
+    admin_observability,
+    admin_overview_settings,
     admin_skills,
+    admin_stats,
     admin_studio,
-    admin_draft_strategies,
-    knowledge_draft,
+    admin_subtitle_slice_settings,
+    admin_vector_settings,
+    agent_tokens,
     auth,
     chat,
-    tags,
     covers,
     health,
     icons,
+    knowledge_draft,
     notebooks,
     providers,
     search,
     sources,
     studio,
+    tags,
     users,
 )
 
@@ -44,6 +45,7 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
+api_router.include_router(agent_tokens.router)
 api_router.include_router(admin.router)
 # Phase 3.5：替换 admin_configs（已删）
 api_router.include_router(admin_credentials.router)

@@ -77,6 +77,7 @@ from app.models.studio import (  # noqa: E402,F401
 from app.models.knowledge_draft import NotebookKnowledgeDraft  # noqa: E402,F401
 from app.models.draft_strategy import DraftStrategy  # noqa: E402,F401
 from app.models.user import User  # noqa: F401,E402
+from app.models.agent_token import AgentJob, AgentToken  # noqa: E402,F401
 
 # 重要：清掉 lru_cache 让 .env override 生效
 get_settings.cache_clear()
@@ -125,6 +126,8 @@ async def _clean_db():
         # 注意：SQLite 与 MySQL 都不支持多表 DELETE 在此写法；
         # 改为按依赖顺序删（model_configs 没有 FK 引用 users，可以放前面）
         for table in (
+            "agent_jobs",
+            "agent_tokens",
             "studio_artifacts",
             "studio_tasks",
             "studio_capabilities",
