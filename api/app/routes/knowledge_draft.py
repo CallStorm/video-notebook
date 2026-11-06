@@ -1,6 +1,8 @@
 """/api/notebooks/{id}/knowledge-draft — 本内知识底稿。"""
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,6 +81,23 @@ async def patch_knowledge_draft(
 ):
     return await svc.update_draft(
         session, owner_id=user.id, notebook_id=notebook_id, body=body
+    )
+
+
+@router.get("/notebooks/{notebook_id}/knowledge-draft/export.docx")
+async def export_knowledge_draft(
+    notebook_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    payload, filename = await svc.export_draft_docx(
+        session, owner_id=user.id, notebook_id=notebook_id
+    )
+    disposition = f"attachment; filename=\"draft.docx\"; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=payload,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": disposition},
     )
 
 

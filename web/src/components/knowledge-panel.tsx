@@ -4,6 +4,7 @@ import {
   BookOpen,
   Check,
   Copy,
+  Download,
   Loader2,
   Network,
   PanelRightClose,
@@ -382,6 +383,8 @@ export function KnowledgePanel({
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [conceptFilter, setConceptFilter] = useState<string | null>(null);
   const [conclusionsDraft, setConclusionsDraft] = useState<string[]>([]);
   const [revealedDraftId, setRevealedDraftId] = useState<number | null>(null);
@@ -777,6 +780,35 @@ export function KnowledgePanel({
     }
   }
 
+  async function downloadDraft() {
+    if (!draft || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const list = conclusionsDraft.map((line) => line.trim()).filter(Boolean);
+      const prev = normalizeConclusions(draft);
+      if (JSON.stringify(list) !== JSON.stringify(prev)) {
+        await patch.mutateAsync({ conclusions: list });
+      }
+      const response = await api<Response>(
+        `/notebooks/${notebookId}/knowledge-draft/export.docx`,
+        { access, raw: true },
+      );
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const safeTitle = (notebookTitle || "笔记本").replace(/[\\/:*?"<>|]/g, " ").trim() || "笔记本";
+      anchor.href = url;
+      anchor.download = `${safeTitle}-底稿.docx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof ApiError ? err.message : "下载失败");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function reviewConclusion(index: number) {
     const text = (conclusionsDraft[index] || "").trim();
     if (!text || reviewingIndex != null) return;
@@ -917,6 +949,15 @@ export function KnowledgePanel({
                   </div>
                   <button
                     type="button"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                    disabled={downloading}
+                    onClick={() => void downloadDraft()}
+                  >
+                    <Download className="h-3 w-3" />
+                    {downloading ? "下载中…" : "下载 Word"}
+                  </button>
+                  <button
+                    type="button"
                     className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
                     onClick={() => void copyDraft()}
                   >
@@ -924,6 +965,9 @@ export function KnowledgePanel({
                     {copiedDraft ? "已复制" : "复制底稿"}
                   </button>
                 </div>
+                {downloadError ? (
+                  <p className="text-[11px] text-destructive">{downloadError}</p>
+                ) : null}
                 <div className="space-y-1.5 rounded-2xl border border-border/55 bg-card p-2.5 shadow-sm">
                   {conclusionsDraft.length === 0 ? (
                     <p className="px-1 py-0.5 text-[11px] text-muted-foreground">

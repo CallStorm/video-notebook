@@ -22,15 +22,15 @@ from app.schemas.knowledge_draft import (
     DraftStrategyOption,
     KnowledgeDraftContent,
     KnowledgeDraftGenerateRequest,
-    KnowledgeDraftRead,
-    KnowledgeDraftUpdateRequest,
     KnowledgeDraftPointAskRequest,
     KnowledgeDraftPointAskResponse,
+    KnowledgeDraftRead,
     KnowledgeDraftReviewRequest,
     KnowledgeDraftReviewResponse,
+    KnowledgeDraftUpdateRequest,
 )
 from app.services import notebooks as notebooks_svc
-from app.subtitles.store import load_subtitle
+from app.services.draft_docx import build_draft_docx, draft_docx_filename
 from app.services.draft_strategy import (
     _ensure_settings,
     _extract_json,
@@ -38,6 +38,7 @@ from app.services.draft_strategy import (
     resolve_draft_max_tokens,
     seed_builtin_strategies,
 )
+from app.subtitles.store import load_subtitle
 
 _MAX_COMBINED_CHARS = 28_000
 def _new_id() -> str:
@@ -334,6 +335,27 @@ async def get_draft(
         strat = await session.get(DraftStrategy, row.strategy_id)
         title = strat.title if strat else None
     return _to_read(row, strategy_title=title)
+
+
+async def export_draft_docx(
+    session: AsyncSession, *, owner_id: int, notebook_id: int
+) -> tuple[bytes, str]:
+    notebook = await notebooks_svc.get_notebook(
+        session, owner_id=owner_id, notebook_id=notebook_id
+    )
+    read = await get_draft(session, owner_id=owner_id, notebook_id=notebook_id)
+    if read is None:
+        raise NotFoundError("尚未生成知识底稿")
+    if read.status != "ready":
+        raise BadRequestError("底稿还没完成，完成后再下载。")
+    payload = build_draft_docx(
+        notebook_title=notebook.title,
+        theme=read.content.theme,
+        concepts=[item.model_dump() for item in read.content.concepts],
+        points=[item.model_dump() for item in read.content.points],
+        conclusions=list(read.conclusions),
+    )
+    return payload, draft_docx_filename(notebook.title)
 
 
 async def _load_note_text(session: AsyncSession, note_id: int) -> str:
