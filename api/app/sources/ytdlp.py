@@ -46,6 +46,25 @@ def download_url(url: str, work_dir: Path) -> DownloadResult:
     work_dir.mkdir(parents=True, exist_ok=True)
     if _looks_like_direct_media(url):
         return _download_direct(url, work_dir)
+    from app.fetch_network.douyin import match_host_rule, read_douyin_parser
+
+    parser = read_douyin_parser()
+    if match_host_rule(url, parser.host_rules):
+        if not parser.base_url or not parser.api_key:
+            raise FetchDownloadError(
+                "未配置抖音解析服务。请到后台「抓取与网络」填写地址和 API Key。"
+            )
+        from app.fetch_settings.runtime import get_settings_fresh
+        from app.sources.douyin_dtk import download_douyin
+
+        snap = get_settings_fresh()
+        return download_douyin(
+            url,
+            work_dir,
+            base_url=parser.base_url,
+            api_key=parser.api_key,
+            timeout_s=float(max(120, snap.hard_time_limit)),
+        )
     return _download_with_ytdlp(url, work_dir)
 
 

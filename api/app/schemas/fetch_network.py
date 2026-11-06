@@ -28,9 +28,16 @@ class ProxyRead(BaseModel):
     port: int | None = None
 
 
+class DouyinParserRead(BaseModel):
+    base_url: str
+    api_key_set: bool
+    host_rules: list[str]
+
+
 class FetchNetworkRead(BaseModel):
     cookies: list[PlatformCookieRead]
     proxy: ProxyRead
+    douyin_parser: DouyinParserRead
 
 
 class PlatformCookieUpdate(BaseModel):
@@ -51,6 +58,19 @@ class ProxyUpdate(BaseModel):
 
 
 class ProxyTestResult(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: int | None = None
+
+
+class DouyinParserUpdate(BaseModel):
+    base_url: str = Field(min_length=1, max_length=512)
+    # 空字符串 / null = 不修改已保存的 Key
+    api_key: str | None = None
+    host_rules: list[str] = Field(default_factory=list)
+
+
+class DouyinParserTestResult(BaseModel):
     ok: bool
     message: str
     latency_ms: int | None = None

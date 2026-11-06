@@ -15,10 +15,14 @@ from app.fetch_network.cookies_fs import (
     cookie_path,
     write_cookie_text,
 )
+from app.fetch_network.douyin import DouyinRuleError, normalize_host_rules
 from app.fetch_network.runtime import invalidate_runtime_cache, set_runtime_snapshot
 from app.fetch_network.types import PLATFORMS, PlatformKey
 from app.models.fetch_network import FetchNetworkConfig
 from app.schemas.fetch_network import (
+    DouyinParserRead,
+    DouyinParserTestResult,
+    DouyinParserUpdate,
     FetchNetworkRead,
     PlatformCookieRead,
     PlatformCookieUpdate,
@@ -45,6 +49,8 @@ async def _ensure_row(session: AsyncSession) -> FetchNetworkConfig:
             douyin_cookie_enabled=False,
             proxy_enabled=False,
             proxy_apply_to=[],
+            douyin_parser_base_url="http://127.0.0.1:8001",
+            douyin_host_rules=["v.douyin.com", "douyin.com", "iesdouyin.com"],
         )
         session.add(row)
         await session.flush()
@@ -98,6 +104,7 @@ async def get_fetch_network(session: AsyncSession) -> FetchNetworkRead:
             host=host,
             port=port,
         ),
+        douyin_parser=_douyin_parser_read(row),
     )
 
 
@@ -181,6 +188,79 @@ async def clear_proxy(session: AsyncSession) -> FetchNetworkRead:
     invalidate_runtime_cache()
     _publish_runtime(row)
     return await get_fetch_network(session)
+
+
+def _douyin_parser_read(row: FetchNetworkConfig) -> DouyinParserRead:
+    rules = [str(item) for item in (row.douyin_host_rules or []) if str(item).strip()]
+    base = (row.douyin_parser_base_url or "").strip() or "http://127.0.0.1:8001"
+    return DouyinParserRead(
+        base_url=base,
+        api_key_set=bool(row.get_douyin_parser_api_key().strip()),
+        host_rules=rules,
+    )
+
+
+def _clean_parser_base_url(raw: str) -> str:
+    text = raw.strip().rstrip("/")
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise BadRequestError("解析服务地址需要是 http 或 https 链接")
+    return text
+
+
+async def update_douyin_parser(
+    session: AsyncSession, body: DouyinParserUpdate
+) -> FetchNetworkRead:
+    row = await _ensure_row(session)
+    row.douyin_parser_base_url = _clean_parser_base_url(body.base_url)
+    try:
+        row.douyin_host_rules = normalize_host_rules(body.host_rules)
+    except DouyinRuleError as exc:
+        raise BadRequestError(str(exc)) from exc
+    if body.api_key is not None and body.api_key.strip():
+        row.set_douyin_parser_api_key(body.api_key)
+    await session.commit()
+    await session.refresh(row)
+    invalidate_runtime_cache()
+    _publish_runtime(row)
+    return await get_fetch_network(session)
+
+
+async def test_douyin_parser(session: AsyncSession) -> DouyinParserTestResult:
+    row = await _ensure_row(session)
+    base = (row.douyin_parser_base_url or "").strip().rstrip("/")
+    key = row.get_douyin_parser_api_key().strip()
+    if not base or not key:
+        return DouyinParserTestResult(ok=False, message="请先保存地址和 API Key", latency_ms=None)
+    started = time.perf_counter()
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            resp = client.get(
+                f"{base}/api/v1/system/status",
+                headers={"X-API-Key": key, "Accept": "application/json"},
+            )
+        latency = int((time.perf_counter() - started) * 1000)
+        if resp.status_code in {401, 403}:
+            return DouyinParserTestResult(ok=False, message="API Key 无效", latency_ms=latency)
+        if resp.status_code >= 400:
+            return DouyinParserTestResult(
+                ok=False,
+                message=f"解析服务返回 HTTP {resp.status_code}",
+                latency_ms=latency,
+            )
+        body = resp.json()
+        if isinstance(body, dict) and body.get("success") is False:
+            error = body.get("error") if isinstance(body.get("error"), dict) else {}
+            message = str(error.get("message") or "解析服务拒绝了这次测试")
+            return DouyinParserTestResult(ok=False, message=message, latency_ms=latency)
+        return DouyinParserTestResult(ok=True, message="解析服务可访问", latency_ms=latency)
+    except Exception as exc:  # noqa: BLE001
+        latency = int((time.perf_counter() - started) * 1000)
+        return DouyinParserTestResult(
+            ok=False,
+            message=str(exc) or "无法连接解析服务",
+            latency_ms=latency,
+        )
 
 
 async def test_proxy(session: AsyncSession) -> ProxyTestResult:

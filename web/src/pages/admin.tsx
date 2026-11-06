@@ -47,7 +47,7 @@ type ObservabilityTab = "pipeline-logs" | "llm-traces";
 
 const PIPELINE_STEPS: { id: PipelineStep; label: string; hint: string }[] = [
   { id: "models", label: "模型", hint: "模型与 Claude Code" },
-  { id: "fetch-network", label: "网络", hint: "Cookie 与代理" },
+  { id: "fetch-network", label: "网络", hint: "Cookie、代理与抖音" },
   { id: "fetch-settings", label: "抓取", hint: "并发与分块" },
   { id: "subtitle-slice", label: "切片", hint: "ASR 切段" },
   { id: "source-overview", label: "概览", hint: "自动概览与提示词" },
