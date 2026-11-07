@@ -284,31 +284,66 @@ async def test_cover_and_draft_jobs(client: AsyncClient, db_session, monkeypatch
     assert failed_job.json()["status"] == "failed"
     assert "封面" in (failed_job.json()["error"] or "")
 
-    async def fake_draft(session, *, owner_id, notebook_id, body):
-        del session, owner_id, body
+    # generate_draft 与网页相同：写 StudioTask(knowledge_draft)，产物列表可见
+    from app.models.notebook import NotebookSource, Video
+    from app.models.studio import StudioCapability, StudioTask
 
-        class _Draft:
-            def model_dump(self, mode: str = "python"):
-                del mode
-                return {"notebook_id": notebook_id, "status": "ready", "theme": "冒烟"}
+    video = Video(
+        owner_id=_user_row.id,
+        source_type="upload",
+        status="ready",
+        subtitle_status="ready",
+        overview_status="pending",
+        title="底稿来源",
+    )
+    db_session.add(video)
+    await db_session.flush()
+    db_session.add(NotebookSource(notebook_id=notebook_id, video_id=video.id, selected_for_chat=True))
+    cap = StudioCapability(
+        name="知识底稿",
+        format_key="knowledge_draft",
+        enabled=True,
+        is_builtin=True,
+        form_json=[{"type": "sources"}, {"type": "text", "key": "focus", "label": "聚焦", "required": False}],
+    )
+    db_session.add(cap)
+    await db_session.commit()
 
-        return _Draft()
-
-    monkeypatch.setattr("app.services.knowledge_draft.generate_draft", fake_draft)
+    monkeypatch.setattr("app.services.studio_tasks.enqueue_studio_task", lambda task_id: None)
     drafted = await client.post(
         "/agent/v1/tools/generate_draft",
         headers=_auth(agent),
-        json={"notebook_id": notebook_id, "video_ids": []},
+        json={"notebook_id": notebook_id},
     )
     assert drafted.status_code == 200, drafted.text
-    await run_agent_job(drafted.json()["job_id"])
+    body = drafted.json()
+    assert body["status"] == "queued"
+    assert body["format_key"] == "knowledge_draft"
+    assert body["job_id"] == body["task_id"]
+    task = await db_session.get(StudioTask, body["task_id"])
+    assert task is not None and task.format_key == "knowledge_draft"
+
+    listed = await client.post(
+        "/agent/v1/tools/list_artifacts",
+        headers=_auth(agent),
+        json={"notebook_id": notebook_id},
+    )
+    assert listed.status_code == 200, listed.text
+    draft_items = [x for x in listed.json()["items"] if x.get("format_key") == "knowledge_draft"]
+    assert draft_items and draft_items[0]["status"] == "queued"
+    assert draft_items[0]["task_id"] == body["task_id"]
+
+    task.status = "succeeded"
+    db_session.add(task)
+    await db_session.commit()
     draft_job = await client.post(
         "/agent/v1/tools/get_job",
         headers=_auth(agent),
-        json={"job_id": drafted.json()["job_id"]},
+        json={"job_id": body["job_id"]},
     )
     assert draft_job.json()["status"] == "succeeded", draft_job.text
-    assert draft_job.json()["result"]["draft"]["theme"] == "冒烟"
+    assert draft_job.json()["kind"] == "generate_draft"
+    assert draft_job.json()["format_key"] == "knowledge_draft"
 
 
 async def test_artifact_returns_signed_url_not_bytes(client: AsyncClient, db_session):
@@ -364,7 +399,10 @@ async def test_artifact_returns_signed_url_not_bytes(client: AsyncClient, db_ses
         json={"notebook_id": notebook.id},
     )
     assert listed.status_code == 200
-    assert {item["artifact_id"] for item in listed.json()["items"]} == {binary.id, text.id}
+    listed_body = listed.json()
+    assert {item["artifact_id"] for item in listed_body["items"]} == {binary.id, text.id}
+    assert listed_body["draft"]["available"] is False
+    assert listed_body["draft"]["read_with"] == "get_draft"
 
     fetched = await client.post(
         "/agent/v1/tools/get_artifact",

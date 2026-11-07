@@ -40,6 +40,11 @@ def present_job(job: AgentJob, *, origin: str) -> dict:
             result["cover_url"] = absolute_url(origin, expand_cover_url(str(cover_storage)))
         elif result.get("cover_url"):
             result["cover_url"] = absolute_url(origin, result.get("cover_url"))
+    next_step = None
+    if job.kind == "generate_draft" and job.status == "succeeded":
+        next_step = "调用 get_draft(notebook_id) 读取知识底稿全文；产物页也会有对应底稿任务。"
+    elif job.kind == "generate_draft" and job.status == "failed":
+        next_step = "可再次 generate_draft；成功后用 get_draft 读正文（底稿不在 list_artifacts）。"
     return {
         "job_id": int(job.id),
         "kind": job.kind,
@@ -47,6 +52,7 @@ def present_job(job: AgentJob, *, origin: str) -> dict:
         "notebook_id": job.notebook_id,
         "result": result,
         "error": job.error_message,
+        "next_step": next_step,
         "created_at": iso(job.created_at),
         "finished_at": iso(job.finished_at),
     }

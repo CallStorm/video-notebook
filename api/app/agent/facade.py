@@ -324,10 +324,24 @@ async def _get_draft(session: AsyncSession, ctx: AgentContext, args: NotebookIdA
 async def _list_artifacts(
     session: AsyncSession, ctx: AgentContext, args: NotebookIdArgs
 ) -> dict:
+    """产物列表：与网页「产物」同源（StudioTask），含知识底稿任务；正文仍用 get_draft。"""
+    from app.services import knowledge_draft as draft_svc
+
     await notebooks_svc.get_notebook(
         session, owner_id=ctx.user.id, notebook_id=args.notebook_id
     )
-    rows = (
+    tasks = (
+        await session.execute(
+            select(StudioTask)
+            .where(
+                StudioTask.notebook_id == args.notebook_id,
+                StudioTask.owner_id == ctx.user.id,
+                StudioTask.deleted_at.is_(None),
+            )
+            .order_by(StudioTask.id.desc())
+        )
+    ).scalars().all()
+    artifact_rows = (
         await session.execute(
             select(StudioArtifact, StudioTask)
             .join(StudioTask, StudioTask.id == StudioArtifact.task_id)
@@ -339,22 +353,91 @@ async def _list_artifacts(
             .order_by(StudioArtifact.id.desc())
         )
     ).all()
+    artifacts_by_task: dict[int, list] = {}
+    for artifact, task in artifact_rows:
+        artifacts_by_task.setdefault(int(task.id), []).append(artifact)
+
     items = []
-    for artifact, task in rows:
-        items.append(
-            {
-                "artifact_id": int(artifact.id),
-                "task_id": int(task.id),
-                "format_key": task.format_key,
-                "title": task.title,
-                "role": artifact.role,
-                "filename": artifact.filename,
-                "mime": artifact.mime,
-                "has_download": bool(artifact.storage_key),
-                "has_text": _is_text_mime(artifact.mime) and bool(artifact.text_content),
-            }
-        )
-    return {"notebook_id": args.notebook_id, "items": items}
+    for task in tasks:
+        tid = int(task.id)
+        arts = artifacts_by_task.get(tid) or []
+        if task.format_key == "knowledge_draft":
+            items.append(
+                {
+                    "artifact_id": int(arts[0].id) if arts else None,
+                    "task_id": tid,
+                    "format_key": "knowledge_draft",
+                    "title": task.title,
+                    "status": task.status,
+                    "role": "draft_task",
+                    "filename": arts[0].filename if arts else None,
+                    "mime": arts[0].mime if arts else None,
+                    "error": task.error_message,
+                    "has_download": bool(arts and arts[0].storage_key),
+                    "has_text": False,
+                    "read_content_with": "get_draft",
+                    "note": "底稿任务（与网页产物页相同）。进行中/失败看 status；正文请 get_draft。",
+                }
+            )
+            continue
+        for artifact in arts:
+            items.append(
+                {
+                    "artifact_id": int(artifact.id),
+                    "task_id": tid,
+                    "format_key": task.format_key,
+                    "title": task.title,
+                    "status": task.status,
+                    "role": artifact.role,
+                    "filename": artifact.filename,
+                    "mime": artifact.mime,
+                    "error": task.error_message,
+                    "has_download": bool(artifact.storage_key),
+                    "has_text": _is_text_mime(artifact.mime) and bool(artifact.text_content),
+                }
+            )
+        if not arts:
+            items.append(
+                {
+                    "artifact_id": None,
+                    "task_id": tid,
+                    "format_key": task.format_key,
+                    "title": task.title,
+                    "status": task.status,
+                    "role": "task",
+                    "filename": None,
+                    "mime": None,
+                    "error": task.error_message,
+                    "has_download": False,
+                    "has_text": False,
+                }
+            )
+
+    draft = await draft_svc.get_draft(
+        session, owner_id=ctx.user.id, notebook_id=args.notebook_id
+    )
+    if draft is None:
+        draft_hint = {
+            "available": False,
+            "status": None,
+            "theme": None,
+            "read_with": "get_draft",
+            "note": "尚无知识底稿正文。generate_draft 会在产物里创建底稿任务；成功后用 get_draft 读全文。",
+        }
+    else:
+        theme = None
+        content = getattr(draft, "content", None)
+        if content is not None:
+            theme = getattr(content, "theme", None)
+        draft_hint = {
+            "available": True,
+            "status": draft.status,
+            "theme": theme,
+            "model_used": draft.model_used,
+            "read_with": "get_draft",
+            "note": "知识底稿正文请用 get_draft；产物列表里的 knowledge_draft 是任务卡片，不是正文。",
+        }
+    return {"notebook_id": args.notebook_id, "items": items, "draft": draft_hint}
 
 
 async def _get_artifact(
@@ -457,38 +540,123 @@ async def _get_readiness(
 async def _generate_draft(
     session: AsyncSession, ctx: AgentContext, args: GenerateDraftArgs
 ) -> dict:
+    """与网页「生成底稿」相同：创建 StudioTask(format_key=knowledge_draft)，产物页可见。"""
+    from app.schemas.studio import TaskCreate
+    from app.services import studio_tasks as studio_tasks_svc
+    from app.services.agent_tokens import iso
+
     await notebooks_svc.get_notebook(
         session, owner_id=ctx.user.id, notebook_id=args.notebook_id
     )
-    payload: dict[str, Any] = {
-        "notebook_id": args.notebook_id,
-        "language": args.language,
-        "focus": args.focus,
-        "extra_constraints": args.extra_constraints,
-    }
+
+    video_ids = args.video_ids
+    note_ids = args.note_ids
+    if video_ids is None and note_ids is None:
+        sources = await notebooks_svc.list_sources(
+            session, owner_id=ctx.user.id, notebook_id=args.notebook_id
+        )
+        ready = [item.video_id for item in sources if item.video.subtitle_status == "ready"]
+        video_ids = ready or [item.video_id for item in sources]
+        note_ids = []
+    else:
+        video_ids = list(video_ids or [])
+        note_ids = list(note_ids or [])
+    if not video_ids and not note_ids:
+        raise BadRequestError("请先选择来源")
+
+    caps = await studio_tasks_svc.list_enabled_capabilities(
+        session, owner_id=ctx.user.id, notebook_id=args.notebook_id
+    )
+    cap = next((c for c in caps if c.format_key == "knowledge_draft"), None)
+    if cap is None:
+        raise BadRequestError("底稿生成暂不可用，请稍后重试或联系管理员")
+
+    focus_parts: list[str] = []
+    if args.focus and str(args.focus).strip():
+        focus_parts.append(str(args.focus).strip())
+    if args.extra_constraints and str(args.extra_constraints).strip():
+        focus_parts.append(str(args.extra_constraints).strip())
+    # strategy_id / language：网页底稿 Studio 表单无这两项；有需要时并入 focus 备注
     if args.strategy_id is not None:
-        payload["strategy_id"] = args.strategy_id
-    if args.video_ids is not None:
-        payload["video_ids"] = args.video_ids
-    if args.note_ids is not None:
-        payload["note_ids"] = args.note_ids
-    job = await enqueue_job(
+        focus_parts.append(f"[strategy_id={int(args.strategy_id)}]")
+    if args.language and args.language != "中文":
+        focus_parts.append(f"[language={args.language}]")
+    fields: dict[str, str] = {}
+    if focus_parts:
+        fields["focus"] = "\n".join(focus_parts)
+
+    task = await studio_tasks_svc.create_task(
         session,
         owner_id=ctx.user.id,
-        kind="generate_draft",
         notebook_id=args.notebook_id,
-        payload=payload,
+        body=TaskCreate(
+            capability_id=int(cap.id),
+            video_ids=[int(v) for v in video_ids],
+            note_ids=[int(n) for n in note_ids],
+            fields=fields,
+        ),
     )
-    return {"job_id": int(job.id), "status": job.status, "kind": job.kind}
+    return {
+        "job_id": int(task.id),
+        "task_id": int(task.id),
+        "status": task.status,
+        "kind": "generate_draft",
+        "format_key": "knowledge_draft",
+        "created_at": iso(task.created_at),
+        "note": "已创建与网页相同的底稿任务，产物页可见；用 get_job 轮询，成功后 get_draft 读正文。",
+    }
+
+
+def _present_studio_draft_job(task: StudioTask) -> dict:
+    from app.services.agent_tokens import iso
+
+    status = task.status
+    next_step = None
+    if status == "succeeded":
+        next_step = "调用 get_draft(notebook_id) 读取知识底稿全文；产物列表里也能看到该底稿任务。"
+    elif status == "failed":
+        next_step = "可再调 generate_draft；成功后用 get_draft 读正文。"
+    elif status in {"queued", "running"}:
+        next_step = "继续 get_job 轮询；网页「产物」页同步显示进度。"
+    return {
+        "job_id": int(task.id),
+        "task_id": int(task.id),
+        "kind": "generate_draft",
+        "status": status,
+        "notebook_id": int(task.notebook_id),
+        "format_key": task.format_key,
+        "result": {"notebook_id": int(task.notebook_id)} if status == "succeeded" else None,
+        "error": task.error_message,
+        "next_step": next_step,
+        "created_at": iso(task.created_at),
+        "finished_at": iso(task.finished_at),
+    }
 
 
 async def _get_job(session: AsyncSession, ctx: AgentContext, args: JobIdArgs) -> dict:
     from app.models.agent_token import AgentJob
 
     job = await session.get(AgentJob, args.job_id)
-    if job is None or job.owner_id != ctx.user.id:
-        raise NotFoundError("任务不存在")
-    return present_job(job, origin=ctx.origin)
+    task = await session.get(StudioTask, args.job_id)
+    # AgentJob 与 StudioTask 分表自增，id 可能撞号。
+    # 旧版 generate_draft 写 AgentJob；新版写 StudioTask(knowledge_draft)。
+    if (
+        job is not None
+        and job.owner_id == ctx.user.id
+        and job.kind == "generate_draft"
+    ):
+        return present_job(job, origin=ctx.origin)
+    if (
+        task is not None
+        and task.deleted_at is None
+        and task.owner_id == ctx.user.id
+        and task.format_key == "knowledge_draft"
+    ):
+        return _present_studio_draft_job(task)
+    if job is not None and job.owner_id == ctx.user.id:
+        return present_job(job, origin=ctx.origin)
+
+    raise NotFoundError("任务不存在")
 
 
 TOOLS: list[Tool] = [
@@ -505,8 +673,20 @@ TOOLS: list[Tool] = [
         _download_video,
     ),
     Tool("get_subtitle", "读取视频字幕文本。", ("read",), VideoIdArgs, _get_subtitle),
-    Tool("get_draft", "读取笔记本的知识底稿。", ("read",), NotebookIdArgs, _get_draft),
-    Tool("list_artifacts", "列出笔记本 Studio 产物的元数据。", ("read",), NotebookIdArgs, _list_artifacts),
+    Tool(
+        "get_draft",
+        "读取笔记本的知识底稿正文（网页「知识」页）。产物页的 knowledge_draft 是任务卡片；正文请用本工具。",
+        ("read",),
+        NotebookIdArgs,
+        _get_draft,
+    ),
+    Tool(
+        "list_artifacts",
+        "列出网页「产物」页任务（含知识底稿任务 knowledge_draft，以及思维导图/幻灯片等）。底稿正文仍用 get_draft；draft 字段提示是否已有正文。",
+        ("read",),
+        NotebookIdArgs,
+        _list_artifacts,
+    ),
     Tool(
         "get_artifact",
         "读取产物：文本直接返回，二进制只给签名 download_url。",
@@ -538,12 +718,18 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         "generate_draft",
-        "排队生成知识底稿，返回 job_id。来源省略时使用本内已就绪字幕。",
+        "与网页「生成底稿」相同：创建 Studio 底稿任务（产物页可见），立刻返回 job_id(=task_id)。用 get_job 轮询；成功后 get_draft 读正文。来源省略时用本内已就绪字幕。",
         ("write_generate",),
         GenerateDraftArgs,
         _generate_draft,
     ),
-    Tool("get_job", "查询 generate_cover / generate_draft 的状态与结果。", None, JobIdArgs, _get_job),
+    Tool(
+        "get_job",
+        "查询 generate_cover（AgentJob）或 generate_draft（Studio 底稿任务）状态。底稿成功后请再调 get_draft 读全文。",
+        None,
+        JobIdArgs,
+        _get_job,
+    ),
 ]
 
 _BY_NAME = {tool.name: tool for tool in TOOLS}

@@ -360,7 +360,7 @@ function AgentPanel({ token }: { token: string }) {
         <div>
           <h1 className="text-xl font-semibold">Agent 接入</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            把视频笔记接到 Claude Code / Workbuddy / Cursor
+            把安装命令发给当前 Agent；由它按本客户端规范自装 Skill 与 MCP（不硬写 Cursor）
           </p>
         </div>
         {items.length > 0 ? (
@@ -520,9 +520,10 @@ function Hints() {
     <div className="text-sm text-muted-foreground">
       <div className="mb-1 font-medium text-foreground">提示：</div>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Token 只显示一次</li>
-        <li>可撤销</li>
-        <li>不要用登录 JWT</li>
+        <li>Token 只显示一次，可撤销；不要用登录 JWT</li>
+        <li>把安装命令发给正在用的 Agent（WorkBuddy / Cursor / Claude Code 等）</li>
+        <li>脚本只打印 MCP JSON 与 Skill 地址，由该 Agent 按本客户端规范自装</li>
+        <li>不要指望脚本写入 ~/.cursor/mcp.json；Token 也不写入 Skill</li>
       </ul>
     </div>
   );

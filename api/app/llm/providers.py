@@ -1,4 +1,4 @@
-"""LLM provider 实现。
+﻿"""LLM provider 实现。
 
 Phase 3.5 重构后，make_provider 接收的是「provider name + base_url + api_key」，
 不再用 LlmConfig row。模型名与 credential 一起由调用方传入。
@@ -83,6 +83,25 @@ def anthropic_base_url(base_url: str | None) -> str | None:
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", "")).rstrip("/")
 
 
+
+def anthropic_requires_stream(max_tokens: int, model: str | None = None) -> bool:
+    """Anthropic SDK 在非流式且预估超 10 分钟时会直接 ValueError。
+
+    公式与 anthropic._base_client._calculate_nonstreaming_timeout 一致：
+    expected_time = 3600 * max_tokens / 128000；> 600s 必须 stream。
+    Opus 等模型还有 MODEL_NONSTREAMING_TOKENS 上限。
+    """
+    tokens = max(0, int(max_tokens))
+    if 3600 * tokens / 128_000 > 600:
+        return True
+    try:
+        from anthropic._constants import MODEL_NONSTREAMING_TOKENS
+    except Exception:  # noqa: BLE001
+        return False
+    cap = MODEL_NONSTREAMING_TOKENS.get(model or "")
+    return bool(cap is not None and tokens > int(cap))
+
+
 class AnthropicCompatProvider(LlmProvider):
     """走 Anthropic Messages API 的 provider（minimax、未来 anthropic）。"""
 
@@ -94,10 +113,20 @@ class AnthropicCompatProvider(LlmProvider):
 
     async def complete(self, prompt: str, *, system: str | None = None, **kwargs: Any) -> str:
         kwargs = {**_parse_params(self.params_json), **kwargs}
+        max_tokens = int(kwargs.get("max_tokens", 4096))
+        # 底稿等长输出默认 max_tokens 很大（如 200000）；非流式会被 SDK 拒绝。
+        # 此时改为 stream 并在本地聚合，对外仍是 complete() 语义。
+        if anthropic_requires_stream(max_tokens, self.model_name):
+            parts: list[str] = []
+            async for chunk in self.stream_chat(prompt, system=system, **kwargs):
+                if chunk:
+                    parts.append(chunk)
+            return "".join(parts)
+
         client = self._client(self.base_url)
         resp = await client.messages.create(
             model=self.model_name,
-            max_tokens=int(kwargs.get("max_tokens", 4096)),
+            max_tokens=max_tokens,
             system=system or "",
             messages=[{"role": "user", "content": prompt}],
             extra_body=_extra_body(kwargs),
@@ -181,3 +210,4 @@ def make_provider(
     if provider_name in ("minimax", "anthropic"):
         return AnthropicCompatProvider(config_like, api_key)
     return StubLlmProvider(config_like, api_key)
+

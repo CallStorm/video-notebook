@@ -1,34 +1,23 @@
-/** 品牌标：视频画面 + 笔记折角，区别于通用笔记本图标。 */
+/** 品牌标：影知 / Videnote */
 export function Brand() {
   return (
     <div className="flex items-center gap-2.5">
-      <div
-        className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl shadow-glow"
+      <img
+        src="/brand-mark.png"
+        alt=""
+        width={32}
+        height={32}
+        className="h-8 w-8 rounded-xl object-cover shadow-glow"
         aria-hidden
-      >
-        <svg viewBox="0 0 32 32" className="h-8 w-8" fill="none">
-          <defs>
-            <linearGradient id="brandGrad" x1="0" y1="0" x2="32" y2="32">
-              <stop stopColor="#3B82F6" />
-              <stop offset="1" stopColor="#6366F1" />
-            </linearGradient>
-          </defs>
-          <rect width="32" height="32" rx="10" fill="url(#brandGrad)" />
-          <rect x="7" y="8" width="18" height="14" rx="2.5" fill="white" fillOpacity="0.95" />
-          <path d="M13.2 12.2v7.6L19.8 16 13.2 12.2Z" fill="#4F46E5" />
-          <path
-            d="M8.5 24.5h9.5M8.5 26.5h6"
-            stroke="white"
-            strokeOpacity="0.9"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-          <path d="M21 8h4v4l-4-4Z" fill="#14B8A6" fillOpacity="0.9" />
-        </svg>
+      />
+      <div className="flex flex-col justify-center leading-none">
+        <span className="text-lg font-semibold tracking-tight text-foreground">
+          影知
+        </span>
+        <span className="mt-0.5 text-[10px] font-medium tracking-[0.14em] text-muted-foreground">
+          Videnote
+        </span>
       </div>
-      <span className="text-lg font-semibold tracking-tight text-foreground">
-        视频笔记
-      </span>
     </div>
   );
 }
