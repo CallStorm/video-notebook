@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { LogOut, Moon, Settings, Sun } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { useAuth } from "@/lib/auth";
 import { SKINS } from "@/lib/skin";
@@ -13,6 +14,7 @@ interface UserMenuProps {
 
 export function UserMenu({ onLogout }: UserMenuProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { skin, dark, setSkin, setDark } = useAppearance();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -148,6 +150,18 @@ export function UserMenu({ onLogout }: UserMenuProps) {
                 </div>
               </div>
 
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  navigate("/settings");
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+              >
+                <Settings className="h-4 w-4" />
+                设置
+              </button>
               <button
                 type="button"
                 onClick={() => {
