@@ -22,12 +22,15 @@ from app.schemas.knowledge_draft import (
     DraftStrategyOption,
     KnowledgeDraftContent,
     KnowledgeDraftGenerateRequest,
-    KnowledgeDraftRead,
-    KnowledgeDraftUpdateRequest,
     KnowledgeDraftPointAskRequest,
     KnowledgeDraftPointAskResponse,
+    KnowledgeDraftRead,
+    KnowledgeDraftReviewRequest,
+    KnowledgeDraftReviewResponse,
+    KnowledgeDraftUpdateRequest,
 )
 from app.services import notebooks as notebooks_svc
+from app.services.draft_docx import build_draft_docx, draft_docx_filename
 from app.services.draft_strategy import (
     _ensure_settings,
     _extract_json,
@@ -35,6 +38,7 @@ from app.services.draft_strategy import (
     resolve_draft_max_tokens,
     seed_builtin_strategies,
 )
+from app.subtitles.store import load_subtitle
 
 _MAX_COMBINED_CHARS = 28_000
 def _new_id() -> str:
@@ -74,6 +78,75 @@ def _normalize_conclusions(
 
 def _pack_conclusion_text(conclusions: list[str]) -> str:
     return "\n".join(c for c in conclusions if c.strip())
+
+
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
+
+
+_CHECK_VERDICTS = frozenset({"supported", "partial", "unsupported"})
+
+
+def _parse_checks(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        verdict = str(item.get("verdict") or "").strip()
+        if not text or verdict not in _CHECK_VERDICTS:
+            continue
+        lines: list[dict[str, Any]] = []
+        for line in item.get("lines") or []:
+            if not isinstance(line, dict):
+                continue
+            try:
+                video_id = int(line.get("video_id"))
+                line_no = int(line.get("line_no"))
+                start_ms = int(line.get("start_ms") or 0)
+                end_ms = int(line.get("end_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            spoken = str(line.get("text") or "").strip()
+            if not spoken:
+                continue
+            lines.append(
+                {
+                    "video_id": video_id,
+                    "line_no": line_no,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "text": spoken,
+                }
+            )
+        if not lines:
+            continue
+        out.append(
+            {
+                "text": text,
+                "verdict": verdict,
+                "gap": str(item.get("gap") or "").strip(),
+                "lines": lines,
+            }
+        )
+    return out
+
+
+def _checks_for_texts(checks: list[dict[str, Any]], texts: list[str]) -> list[dict[str, Any]]:
+    by_text = {check["text"]: check for check in checks}
+    return [by_text[text] for text in texts if text in by_text]
+
+
+def _attach_checks(content: dict[str, Any], previous: dict[str, Any] | None, texts: list[str]) -> None:
+    kept = _checks_for_texts(_parse_checks((previous or {}).get("conclusion_checks")), texts)
+    if kept:
+        content["conclusion_checks"] = kept
+    else:
+        content.pop("conclusion_checks", None)
 
 def _normalize_content(raw: dict[str, Any] | None, *, preserve_checks: dict[str, Any] | None = None) -> dict[str, Any]:
     raw = raw or {}
@@ -208,6 +281,7 @@ def _to_read(row: NotebookKnowledgeDraft, strategy_title: str | None = None) -> 
         model_used=row.model_used,
         conclusion=_pack_conclusion_text(conclusions),
         conclusions=conclusions,
+        conclusion_checks=_checks_for_texts(_parse_checks(raw.get("conclusion_checks")), conclusions),
         content=KnowledgeDraftContent.model_validate(content_for_model),
         source_video_ids=list(row.source_video_ids or []),
         source_note_ids=list(row.source_note_ids or []),
@@ -261,6 +335,27 @@ async def get_draft(
         strat = await session.get(DraftStrategy, row.strategy_id)
         title = strat.title if strat else None
     return _to_read(row, strategy_title=title)
+
+
+async def export_draft_docx(
+    session: AsyncSession, *, owner_id: int, notebook_id: int
+) -> tuple[bytes, str]:
+    notebook = await notebooks_svc.get_notebook(
+        session, owner_id=owner_id, notebook_id=notebook_id
+    )
+    read = await get_draft(session, owner_id=owner_id, notebook_id=notebook_id)
+    if read is None:
+        raise NotFoundError("尚未生成知识底稿")
+    if read.status != "ready":
+        raise BadRequestError("底稿还没完成，完成后再下载。")
+    payload = build_draft_docx(
+        notebook_title=notebook.title,
+        theme=read.content.theme,
+        concepts=[item.model_dump() for item in read.content.concepts],
+        points=[item.model_dump() for item in read.content.points],
+        conclusions=list(read.conclusions),
+    )
+    return payload, draft_docx_filename(notebook.title)
 
 
 async def _load_note_text(session: AsyncSession, note_id: int) -> str:
@@ -353,6 +448,31 @@ async def _build_source_material(
     if not chunks:
         raise BadRequestError("没有可用的来源文本（需字幕就绪或非空笔记）")
     return "\n\n".join(chunks)
+
+
+def _carry_user_layer(content: dict[str, Any], previous: dict[str, Any] | None, conclusion_text: str) -> None:
+    """重做底稿时留下要点评论、结论原文，以及仍对得上的核对。"""
+    prev = previous or {}
+    prev_pts = [p for p in (prev.get("points") or []) if isinstance(p, dict) and p.get("id")]
+    by_id = {str(p["id"]): (str(p.get("comment") or "").strip() or None) for p in prev_pts}
+    by_text: dict[str, str] = {}
+    for point in prev_pts:
+        comment = str(point.get("comment") or "").strip()
+        text = str(point.get("text") or "").strip()
+        if comment and text and text not in by_text:
+            by_text[text] = comment
+    for point in content["points"]:
+        if (point.get("comment") or "").strip():
+            continue
+        hit = by_id.get(str(point["id"])) or by_text.get(str(point.get("text") or "").strip())
+        if hit:
+            point["comment"] = hit
+    keep_conclusions = _normalize_conclusions(content=prev, conclusion_text=conclusion_text)
+    if keep_conclusions:
+        content["conclusions"] = keep_conclusions
+    else:
+        content.pop("conclusions", None)
+    _attach_checks(content, prev, keep_conclusions)
 
 
 async def generate_draft(
@@ -524,41 +644,11 @@ async def generate_draft(
         )
     ).scalar_one_or_none()
 
-    # 重新生成时保留要点评论（先 id，再 text）
-    if existing is not None:
-        prev_raw = existing.content_json if isinstance(existing.content_json, dict) else {}
-        prev_pts = [
-            p for p in (prev_raw.get("points") or []) if isinstance(p, dict) and p.get("id")
-        ]
-        by_id = {
-            str(p["id"]): (str(p.get("comment") or "").strip() or None) for p in prev_pts
-        }
-        by_text: dict[str, str] = {}
-        for p in prev_pts:
-            c = str(p.get("comment") or "").strip()
-            tx = str(p.get("text") or "").strip()
-            if c and tx and tx not in by_text:
-                by_text[tx] = c
-        for p in content["points"]:
-            if (p.get("comment") or "").strip():
-                continue
-            hit = by_id.get(str(p["id"]))
-            if not hit:
-                hit = by_text.get(str(p.get("text") or "").strip())
-            if hit:
-                p["comment"] = hit
-
-    # 重新生成时保留用户结论（多条）
-
-    keep_conclusions: list[str] = []
-    if existing is not None:
-        prev = existing.content_json if isinstance(existing.content_json, dict) else {}
-        keep_conclusions = _normalize_conclusions(
-            content=prev, conclusion_text=existing.conclusion or ""
-        )
-    if keep_conclusions:
-        content = {**content, "conclusions": keep_conclusions}
-    keep_conclusion = _pack_conclusion_text(keep_conclusions)
+    prev_raw = existing.content_json if existing is not None and isinstance(existing.content_json, dict) else {}
+    _carry_user_layer(content, prev_raw, existing.conclusion if existing is not None else "")
+    keep_conclusion = _pack_conclusion_text(
+        [str(item).strip() for item in content.get("conclusions") or [] if str(item).strip()]
+    )
 
     if existing is None:
         row = NotebookKnowledgeDraft(
@@ -599,7 +689,81 @@ async def generate_draft(
 
     await session.commit()
     await session.refresh(row)
+    _touch_index(notebook_id)
     return _to_read(row, strategy_title=strategy.title)
+
+
+async def merge_generated_draft(
+    session: AsyncSession,
+    *,
+    notebook_id: int,
+    owner_id: int,
+    raw_text: str,
+    video_ids: list[int],
+    note_ids: list[int],
+    focus: str | None,
+) -> None:
+    """把 Claude Code 写出的底稿 JSON 写回这本笔记本。不提交事务。"""
+    preview, parse_error = _extract_json(raw_text or "")
+    if preview is None:
+        raise BadRequestError(parse_error or "无法解析底稿")
+    content = _normalize_content(preview)
+    content["takeaways"] = []
+    content["open_questions"] = []
+    for point in content["points"]:
+        point["checked"] = False
+    if not content["points"]:
+        raise BadRequestError("底稿没有要点")
+    if len(video_ids) == 1:
+        only = video_ids[0]
+        for point in content["points"]:
+            if point.get("video_id") is None:
+                point["video_id"] = only
+    existing = (
+        await session.execute(
+            select(NotebookKnowledgeDraft).where(
+                NotebookKnowledgeDraft.notebook_id == notebook_id
+            )
+        )
+    ).scalar_one_or_none()
+    prev_raw = existing.content_json if existing is not None and isinstance(existing.content_json, dict) else {}
+    _carry_user_layer(content, prev_raw, existing.conclusion if existing is not None else "")
+    packed = _pack_conclusion_text(
+        [str(item).strip() for item in content.get("conclusions") or [] if str(item).strip()]
+    )
+    if existing is None:
+        session.add(
+            NotebookKnowledgeDraft(
+                notebook_id=notebook_id,
+                owner_id=owner_id,
+                strategy_id=None,
+                status="ready",
+                language="中文",
+                model_ref="claude_code",
+                model_used="claude_code",
+                conclusion=packed,
+                content_json=content,
+                source_video_ids=list(video_ids),
+                source_note_ids=list(note_ids),
+                focus=focus,
+                extra_constraints=None,
+                error_message=None,
+            )
+        )
+        return
+    existing.strategy_id = None
+    existing.status = "ready"
+    existing.language = "中文"
+    existing.model_ref = "claude_code"
+    existing.model_used = "claude_code"
+    existing.conclusion = packed
+    existing.content_json = content
+    existing.source_video_ids = list(video_ids)
+    existing.source_note_ids = list(note_ids)
+    existing.focus = focus
+    existing.extra_constraints = None
+    existing.error_message = None
+    session.add(existing)
 
 
 async def update_draft(
@@ -663,10 +827,13 @@ async def update_draft(
                         p["comment"] = s[:4000] if s else None
                     break
 
+    texts = [str(item).strip() for item in content.get("conclusions") or [] if str(item).strip()]
+    _attach_checks(content, raw_content, texts)
     row.content_json = content
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    _touch_index(notebook_id)
 
     title = None
     if row.strategy_id is not None:
@@ -690,6 +857,7 @@ async def delete_draft(
         return
     await session.delete(row)
     await session.commit()
+    _touch_index(notebook_id)
 
 
 async def ask_about_point(
@@ -770,4 +938,153 @@ async def ask_about_point(
     if not text:
         raise BadRequestError("模型未返回有效回答")
     return KnowledgeDraftPointAskResponse(point_id=body.point_id, answer=text)
+
+
+def _clock_ms(ms: int) -> str:
+    total = max(0, int(ms) // 1000)
+    minutes, seconds = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+async def _load_notebook_subtitle_lines(
+    session: AsyncSession,
+    *,
+    notebook_id: int,
+) -> list[dict[str, Any]]:
+    video_ids = (
+        await session.execute(
+            select(NotebookSource.video_id)
+            .where(NotebookSource.notebook_id == notebook_id)
+            .order_by(NotebookSource.sort, NotebookSource.video_id)
+        )
+    ).scalars().all()
+    lines: list[dict[str, Any]] = []
+    total = 0
+    for video_id in video_ids:
+        video = await session.get(Video, int(video_id))
+        if video is None:
+            continue
+        _subtitle, rows = await load_subtitle(session, video)
+        title = (video.title or "").strip() or f"视频 {video_id}"
+        for row in rows:
+            spoken = (row.text or "").strip()
+            if not spoken:
+                continue
+            piece = len(spoken) + len(title) + 32
+            if lines and total + piece > _MAX_COMBINED_CHARS:
+                return lines
+            lines.append(
+                {
+                    "video_id": int(video_id),
+                    "line_no": int(row.line_no),
+                    "start_ms": int(row.start_ms),
+                    "end_ms": int(row.end_ms),
+                    "text": spoken,
+                    "title": title,
+                }
+            )
+            total += piece
+    if not lines:
+        raise BadRequestError("这本笔记本还没有可用字幕")
+    return lines
+
+
+def _cited_subtitle_lines(data: dict[str, Any], catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key = {(int(item["video_id"]), int(item["line_no"])): item for item in catalog}
+    cited: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+    raw_lines = data.get("lines")
+    if not isinstance(raw_lines, list):
+        return []
+    for item in raw_lines:
+        if not isinstance(item, dict):
+            continue
+        try:
+            key = (int(item.get("video_id")), int(item.get("line_no")))
+        except (TypeError, ValueError):
+            continue
+        if key in seen or key not in by_key:
+            continue
+        seen.add(key)
+        source = by_key[key]
+        cited.append({k: source[k] for k in ("video_id", "line_no", "start_ms", "end_ms", "text")})
+        if len(cited) >= 8:
+            break
+    cited.sort(key=lambda item: (item["start_ms"], item["video_id"], item["line_no"]))
+    return cited
+
+
+async def review_conclusion(
+    session: AsyncSession,
+    *,
+    owner_id: int,
+    notebook_id: int,
+    body: KnowledgeDraftReviewRequest,
+) -> KnowledgeDraftReviewResponse:
+    """对照笔记本字幕判断这句结论，给出意见，不改写结论。"""
+    await notebooks_svc.get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    row = (
+        await session.execute(
+            select(NotebookKnowledgeDraft).where(
+                NotebookKnowledgeDraft.notebook_id == notebook_id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise NotFoundError("尚未生成知识底稿")
+
+    raw = row.content_json if isinstance(row.content_json, dict) else {}
+    conclusion = body.conclusion.strip()
+    texts = _normalize_conclusions(content=raw, conclusion_text=row.conclusion or "")
+    if conclusion not in texts:
+        raise BadRequestError("先保存这条结论再核对")
+
+    catalog = await _load_notebook_subtitle_lines(session, notebook_id=notebook_id)
+    quoted = "\n".join(
+        f"[video_id={item['video_id']} line_no={item['line_no']} {_clock_ms(item['start_ms'])}] {item['text']}"
+        for item in catalog
+    )
+    llm = await get_active_llm(session)
+    provider = make_provider(
+        provider_name=llm.provider,
+        api_key=llm.api_key,
+        base_url=llm.base_url,
+        model_name=llm.model_name,
+        params_json=llm.params_json,
+    )
+    system = (
+        "你根据给定字幕核对用户结论，并给出意见。"
+        "不要改写结论，不要另写一句替代结论，也不要使用这些字幕以外的材料。"
+        "verdict 只能是 supported、partial、unsupported 之一："
+        "supported 表示字幕撑得住这句；"
+        "partial 表示只撑住一部分；"
+        "unsupported 表示撑不住。"
+        "gap 用一两句话写出意见：字幕撑住了什么，差在哪。撑得住时也写清依据。"
+        "lines 只列出你用来下判断的字幕，每项包含 video_id 和 line_no，最多 8 条，必须来自给定字幕。"
+        "只输出一个 JSON 对象，键为 verdict、gap、lines。"
+    )
+    prompt = f"字幕：\n{quoted}\n\n用户结论：{conclusion}"
+    try:
+        raw_answer = await provider.complete(prompt, system=system, max_tokens=600)
+    except Exception as exc:  # noqa: BLE001
+        raise BadRequestError(f"模型调用失败：{exc}") from exc
+    data, err = _extract_json(raw_answer or "")
+    if data is None:
+        raise BadRequestError(err or "核对结果无法解析")
+    verdict = str(data.get("verdict") or "").strip()
+    if verdict not in _CHECK_VERDICTS:
+        raise BadRequestError("核对结果无法解析")
+    gap = str(data.get("gap") or "").strip()
+    lines = _cited_subtitle_lines(data, catalog)
+    check = {"text": conclusion, "verdict": verdict, "gap": gap, "lines": lines}
+    others = [item for item in _parse_checks(raw.get("conclusion_checks")) if item["text"] != conclusion]
+    content = dict(raw)
+    content["conclusion_checks"] = _checks_for_texts([*others, check], texts)
+    row.content_json = content
+    session.add(row)
+    await session.commit()
+    return KnowledgeDraftReviewResponse(verdict=verdict, gap=gap, lines=lines)  # type: ignore[arg-type]
 

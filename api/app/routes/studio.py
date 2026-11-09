@@ -71,6 +71,15 @@ async def get_studio_artifact_url(
     )
 
 
+@router.post("/studio/tasks/{task_id}/retry", response_model=TaskRead)
+async def retry_studio_task(
+    task_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await svc.retry_task(session, owner_id=user.id, task_id=task_id)
+
+
 @router.patch("/studio/tasks/{task_id}", response_model=TaskRead)
 async def rename_studio_task(
     task_id: int,

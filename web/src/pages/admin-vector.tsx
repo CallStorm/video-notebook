@@ -22,6 +22,14 @@ interface VectorSettings {
   index_overview: boolean;
   index_subtitles: boolean;
   index_notes: boolean;
+  index_conclusions: boolean;
+  index_draft: boolean;
+  chunk_card_chars: number;
+  chunk_subtitles_chars: number;
+  chunk_notes_chars: number;
+  chunk_conclusions_chars: number;
+  chunk_draft_chars: number;
+  chunk_overlap_chars: number;
 }
 
 interface ReindexAllResult {
@@ -48,8 +56,16 @@ export function AdminVectorPage() {
   const [indexTitle, setIndexTitle] = useState(true);
   const [indexDescription, setIndexDescription] = useState(true);
   const [indexOverview, setIndexOverview] = useState(true);
-  const [indexSubtitles, setIndexSubtitles] = useState(false);
-  const [indexNotes, setIndexNotes] = useState(false);
+  const [indexSubtitles, setIndexSubtitles] = useState(true);
+  const [indexNotes, setIndexNotes] = useState(true);
+  const [indexConclusions, setIndexConclusions] = useState(true);
+  const [indexDraft, setIndexDraft] = useState(true);
+  const [chunkCard, setChunkCard] = useState(6000);
+  const [chunkSubtitles, setChunkSubtitles] = useState(6000);
+  const [chunkNotes, setChunkNotes] = useState(6000);
+  const [chunkConclusions, setChunkConclusions] = useState(6000);
+  const [chunkDraft, setChunkDraft] = useState(6000);
+  const [chunkOverlap, setChunkOverlap] = useState(200);
 
   useEffect(() => {
     if (!config.data) return;
@@ -61,6 +77,14 @@ export function AdminVectorPage() {
     setIndexOverview(config.data.index_overview);
     setIndexSubtitles(config.data.index_subtitles);
     setIndexNotes(config.data.index_notes);
+    setIndexConclusions(config.data.index_conclusions);
+    setIndexDraft(config.data.index_draft);
+    setChunkCard(config.data.chunk_card_chars ?? 6000);
+    setChunkSubtitles(config.data.chunk_subtitles_chars ?? 6000);
+    setChunkNotes(config.data.chunk_notes_chars ?? 6000);
+    setChunkConclusions(config.data.chunk_conclusions_chars ?? 6000);
+    setChunkDraft(config.data.chunk_draft_chars ?? 6000);
+    setChunkOverlap(config.data.chunk_overlap_chars ?? 200);
     setQdrantApiKey("");
     setClearKey(false);
   }, [config.data]);
@@ -81,6 +105,14 @@ export function AdminVectorPage() {
           index_overview: indexOverview,
           index_subtitles: indexSubtitles,
           index_notes: indexNotes,
+          index_conclusions: indexConclusions,
+          index_draft: indexDraft,
+          chunk_card_chars: chunkCard,
+          chunk_subtitles_chars: chunkSubtitles,
+          chunk_notes_chars: chunkNotes,
+          chunk_conclusions_chars: chunkConclusions,
+          chunk_draft_chars: chunkDraft,
+          chunk_overlap_chars: chunkOverlap,
         },
       }),
     onSuccess: (data) => {
@@ -103,7 +135,7 @@ export function AdminVectorPage() {
     <div className="space-y-5">
       <AdminPageHeader
         title="向量配置"
-        description="语义检索用：选向量后端（Qdrant）、连接地址，以及每本笔记本索引哪些字段。一期默认索引标题、描述、来源概览；字幕/笔记可开。改字段后需重新索引才生效。"
+        description="语义检索用：选向量后端（Qdrant）、连接地址，以及哪些内容写入索引。每一类单独成段，超过切割字数再切开。默认全部索引。保存字段开关或切割参数后会自动排队重建；笔记、底稿、标题这些内容一变也会自动索引。"
       />
 
       {config.isLoading ? <AdminLoading /> : null}
@@ -185,7 +217,7 @@ export function AdminVectorPage() {
 
       <AdminSectionCard
         title="索引字段"
-        description="拼成一篇文档再 embedding。一期建议开：标题 + 描述 + 概览。字幕/笔记体量大，默认关。"
+        description="每一类各写自己的向量。关掉某一项后，保存会按新字段重新索引现有笔记本。"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Toggle
@@ -210,13 +242,71 @@ export function AdminVectorPage() {
             label="字幕"
             checked={indexSubtitles}
             onChange={setIndexSubtitles}
-            hint="口播字幕全文（量大，二期可用）"
+            hint="口播字幕全文"
           />
           <Toggle
             label="笔记"
             checked={indexNotes}
             onChange={setIndexNotes}
-            hint="保存的对话笔记"
+            hint="笔记标题和正文"
+          />
+          <Toggle
+            label="我的结论"
+            checked={indexConclusions}
+            onChange={setIndexConclusions}
+            hint="知识底稿里手写的结论"
+          />
+          <Toggle
+            label="底稿"
+            checked={indexDraft}
+            onChange={setIndexDraft}
+            hint="主题、概念、要点、收获和待问"
+          />
+        </div>
+      </AdminSectionCard>
+
+      <AdminSectionCard
+        title="分段"
+        description="某一类超过切割字数才切开，相邻段重叠一段，避免一句话正好被切断。建议 6000 字以内，再长可能被向量模型拒绝。改完保存后，现有笔记本会排队按新长度重建。"
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ChunkField
+            label="简介"
+            hint="标题、描述、概览放在一起。多个来源超长时按来源再切。"
+            value={chunkCard}
+            onChange={setChunkCard}
+          />
+          <ChunkField
+            label="字幕"
+            hint="每个来源单独成段，超长再按这个字数切开。"
+            value={chunkSubtitles}
+            onChange={setChunkSubtitles}
+          />
+          <ChunkField
+            label="笔记"
+            hint="一条笔记一段，超长再切这一条。"
+            value={chunkNotes}
+            onChange={setChunkNotes}
+          />
+          <ChunkField
+            label="我的结论"
+            hint="全部结论放在一起，超长再切。"
+            value={chunkConclusions}
+            onChange={setChunkConclusions}
+          />
+          <ChunkField
+            label="底稿"
+            hint="主题、概念、要点、收获和待问。超长再切底稿。"
+            value={chunkDraft}
+            onChange={setChunkDraft}
+          />
+          <ChunkField
+            label="重叠"
+            hint="相邻两段重复的字数。必须小于每一类的切割字数。"
+            value={chunkOverlap}
+            onChange={setChunkOverlap}
+            min={0}
+            max={2000}
           />
         </div>
       </AdminSectionCard>
@@ -274,23 +364,63 @@ export function AdminVectorPage() {
   );
 }
 
+function ChunkField({
+  label,
+  hint,
+  value,
+  onChange,
+  min = 500,
+  max = 10000,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <AdminFieldLabel hint={hint}>{label}</AdminFieldLabel>
+      <Input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next)) onChange(Math.round(next));
+        }}
+        className="max-w-xs"
+      />
+    </div>
+  );
+}
+
 function Toggle({
   label,
   checked,
   onChange,
   hint,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
   hint?: string;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-card/60 px-3 py-2.5">
+    <label
+      className={`flex items-start gap-3 rounded-xl border border-border/60 bg-card/60 px-3 py-2.5 ${
+        disabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"
+      }`}
+    >
       <input
         type="checkbox"
         className="mt-1"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       <span>

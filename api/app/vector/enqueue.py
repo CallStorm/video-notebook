@@ -3,27 +3,84 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from datetime import datetime
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+_DEBOUNCE_SECONDS = 3
+_TOKEN_TTL_SECONDS = 120
+
+
+def _token_key(notebook_id: int) -> str:
+    return f"vnb:index:token:{int(notebook_id)}"
+
+
+def _redis():
+    import redis
+
+    return redis.Redis.from_url(get_settings().redis_url, decode_responses=True)
+
+
+def arm_index_token(notebook_id: int) -> str | None:
+    """记下这次变更的令牌。后一次写入覆盖前一次，过期任务会自己放弃。"""
+    token = uuid.uuid4().hex
+    try:
+        _redis().set(_token_key(notebook_id), token, ex=_TOKEN_TTL_SECONDS)
+    except Exception:
+        logger.warning(
+            "index debounce unavailable notebook_id=%s", notebook_id, exc_info=True
+        )
+        return None
+    return token
+
+
+def index_token_current(notebook_id: int, token: str | None) -> bool:
+    """令牌仍是最新一次变更时才执行。读不到 Redis 时照常索引。"""
+    if not token:
+        return True
+    try:
+        current = _redis().get(_token_key(notebook_id))
+    except Exception:
+        logger.warning(
+            "index debounce read failed notebook_id=%s", notebook_id, exc_info=True
+        )
+        return True
+    if current is None:
+        return True
+    return current == token
+
 
 def enqueue_index_notebook(notebook_id: int, *, force: bool = False) -> None:
     if get_settings().app_env == "test":
         return
-    from app.media.worker import celery_app
+    token: str | None = None
+    countdown = 0
+    if not force:
+        token = arm_index_token(notebook_id)
+        if token is not None:
+            countdown = _DEBOUNCE_SECONDS
+    try:
+        from app.media.worker import celery_app
 
-    celery_app.send_task(
-        "vector.index_notebook",
-        args=[int(notebook_id), bool(force)],
-        queue="media",
-    )
+        celery_app.send_task(
+            "vector.index_notebook",
+            args=[int(notebook_id), bool(force), token],
+            queue="media",
+            countdown=countdown,
+        )
+    except Exception:
+        logger.exception(
+            "enqueue vector.index_notebook failed notebook_id=%s", notebook_id
+        )
+        return
     logger.info(
-        "enqueued vector.index_notebook notebook_id=%s force=%s",
+        "enqueued vector.index_notebook notebook_id=%s force=%s countdown=%s",
         notebook_id,
         force,
+        countdown,
     )
 
 

@@ -1,0 +1,12 @@
+dist/
+node_modules/
+.temp/
+.rn_temp/
+*.log
+.DS_Store
+
+project.private.config.json
+preview-qr*.png
+
+.swc/
+

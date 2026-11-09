@@ -25,6 +25,8 @@ export function StudioFile({
     enabled: !!access && artifactId != null,
   });
   const url = signed.data?.url ?? null;
+  const missing = artifactId == null;
+  const failed = signed.isError;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -40,16 +42,24 @@ export function StudioFile({
           <X className="h-3.5 w-3.5" />
         </Button>
       </header>
-      <div className="p-4">
-        {url ? (
+      <div className="flex flex-col items-start gap-3 p-4">
+        {missing ? <p className="text-sm text-muted-foreground">没有可下载的文件</p> : null}
+        {failed ? (
+          <>
+            <p className="text-sm text-destructive">下载地址获取失败</p>
+            <Button type="button" variant="outline" onClick={() => void signed.refetch()}>
+              重试
+            </Button>
+          </>
+        ) : null}
+        {!missing && !failed && url ? (
           <Button asChild>
             <a href={url} download={filename || undefined}>
-              下载
+              下载 {filename || title}
             </a>
           </Button>
-        ) : (
-          <Button disabled>下载</Button>
-        )}
+        ) : null}
+        {!missing && !failed && !url ? <Button disabled>正在获取下载地址…</Button> : null}
       </div>
     </div>
   );

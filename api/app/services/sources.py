@@ -24,6 +24,33 @@ from app.storage import ObjectStorage, get_storage
 logger = logging.getLogger(__name__)
 
 
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
+
+
+async def _linked_notebook_ids(session: AsyncSession, video_id: int) -> list[int]:
+    rows = (
+        await session.scalars(
+            select(NotebookSource.notebook_id)
+            .where(NotebookSource.video_id == video_id)
+            .order_by(NotebookSource.notebook_id.asc())
+        )
+    ).all()
+    seen: list[int] = []
+    for nid in rows:
+        value = int(nid)
+        if value not in seen:
+            seen.append(value)
+    return seen
+
+
+async def _touch_linked_notebooks(session: AsyncSession, video_id: int) -> None:
+    for nid in await _linked_notebook_ids(session, video_id):
+        _touch_index(nid)
+
+
 def _video_to_dict(v: Video) -> dict:
     return {
         "id": v.id,
@@ -157,6 +184,7 @@ async def upload_video(
     session.add(v)
     await session.commit()
     await session.refresh(v)
+    _touch_index(notebook_id)
 
     return _video_to_dict(v)
 
@@ -382,6 +410,7 @@ async def rename_video(
     session.add(video)
     await session.commit()
     await session.refresh(video)
+    await _touch_linked_notebooks(session, video_id)
     return _video_to_dict(video)
 
 
@@ -389,6 +418,7 @@ async def delete_video(
     session: AsyncSession, *, owner_id: int, video_id: int
 ) -> None:
     v = await get_video(session, owner_id=owner_id, video_id=video_id)
+    linked_ids = await _linked_notebook_ids(session, video_id)
     from app.media.enqueue import cancel_pipeline
 
     cancel_pipeline(video_id)
@@ -400,6 +430,8 @@ async def delete_video(
     )
     await session.delete(v)
     await session.commit()
+    for nid in linked_ids:
+        _touch_index(nid)
 
 
 # ── 工具 ─────────────────────────────────────────────────────

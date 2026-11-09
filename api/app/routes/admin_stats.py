@@ -16,6 +16,6 @@ router = APIRouter(prefix="/admin", tags=["admin-stats"])
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_admin_stats(
     session: AsyncSession = Depends(get_session),
-    _: User = Depends(require_admin),
+    user: User = Depends(require_admin),
 ) -> AdminStatsResponse:
-    return await svc.get_admin_stats(session)
+    return await svc.get_admin_stats(session, viewer_id=user.id)

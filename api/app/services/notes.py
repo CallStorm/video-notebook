@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.context import strip_citations
 from app.core.errors import BadRequestError, NotFoundError
 from app.models.notebook import ChatMessage, ChatThread, Note, Notebook
+from app.services.notebooks import get_notebook
 
 
 def note_dict(note: Note) -> dict:
@@ -67,6 +68,27 @@ async def note_ids_for_messages(session: AsyncSession, message_ids: list[int]) -
     return {message_id: note_id for message_id, note_id in rows if message_id is not None}
 
 
+async def create_blank_note(
+    session: AsyncSession, *, owner_id: int, notebook_id: int, title: str | None = None
+) -> dict:
+    await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    cleaned = (title or "").strip()[:255]
+    note = Note(
+        notebook_id=notebook_id,
+        author_id=owner_id,
+        message_id=None,
+        title=cleaned or "未命名笔记",
+        content_text="",
+        citations_json=[],
+        selected_for_chat=True,
+    )
+    session.add(note)
+    await session.commit()
+    await session.refresh(note)
+    _touch_index(note.notebook_id)
+    return note_dict(note)
+
+
 async def save_message_as_note(
     session: AsyncSession, *, owner_id: int, message_id: int
 ) -> dict:
@@ -112,6 +134,7 @@ async def save_message_as_note(
         ).scalar_one()
         return note_dict(again)
     await session.refresh(note)
+    _touch_index(note.notebook_id)
     return note_dict(note)
 
 
@@ -149,6 +172,8 @@ async def rename_note(
     session.add(note)
     await session.commit()
     await session.refresh(note)
+    if title is not None or content_text is not None:
+        _touch_index(note.notebook_id)
     return note_dict(note)
 
 
@@ -156,8 +181,16 @@ async def delete_note(session: AsyncSession, *, owner_id: int, note_id: int) -> 
     note = await _owned_note(session, owner_id=owner_id, note_id=note_id)
     note.deleted_at = datetime.now(UTC).replace(tzinfo=None)
     note.message_id = None
+    notebook_id = note.notebook_id
     session.add(note)
     await session.commit()
+    _touch_index(notebook_id)
+
+
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
 
 
 async def _owned_note(session: AsyncSession, *, owner_id: int, note_id: int) -> Note:

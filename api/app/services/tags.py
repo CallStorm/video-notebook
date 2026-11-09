@@ -691,3 +691,167 @@ async def migrate_collections_for_user(session: AsyncSession, user_id: int) -> i
                 created_links += 1
     await session.commit()
     return created_links
+
+
+_AUTO_TAG_ONE_SYSTEM = """你是笔记本标签助手。根据笔记本「名称」「描述」和可选「提示」，为这一本笔记本选择标签。
+
+硬性要求：
+1. 优先使用「已有标签」里的名称（必须完全一致）；只有现有标签都不合适时才新增。
+2. 分配 1～3 个标签，不要空数组。
+3. 新标签用简短中文（2～8 字），贴合主题。
+4. 只输出严格 JSON，不要 markdown 围栏，不要解释。
+
+JSON 格式：
+{"tag_names":["标签名"]}
+"""
+
+
+def _fallback_tag_names(title: str, description: str | None, hint: str | None, existing_names: list[str]) -> list[str]:
+    blob = " ".join(
+        part for part in [title or "", description or "", hint or ""] if part
+    ).lower()
+    picked: list[str] = []
+    for name in existing_names:
+        n = (name or "").strip()
+        if not n:
+            continue
+        if n.lower() in blob:
+            picked.append(n)
+    if picked:
+        return list(dict.fromkeys(picked))[:3]
+
+    # crude keyword buckets when nothing matches
+    rules = [
+        (("ai", "人工智能", "大模型", "llm", "gpt", "机器学习", "深度学习"), "人工智能"),
+        (("交易", "股票", "趋势", "量化", "投资", "基金"), "趋势交易"),
+        (("产品", "原型", "交互", "ux", "ui"), "产品设计"),
+        (("编程", "代码", "开发", "python", "前端", "后端"), "编程开发"),
+        (("学习", "教育", "课程", "笔记"), "学习笔记"),
+    ]
+    for keys, label in rules:
+        if any(k in blob for k in keys):
+            return [label]
+    # last resort: short title fragment or 未分类
+    cleaned = (title or "").strip()
+    if cleaned:
+        short = cleaned[:8]
+        return [short]
+    return ["未分类"]
+
+
+async def auto_tag_notebook(
+    session: AsyncSession,
+    user_id: int,
+    notebook_id: int,
+    *,
+    hint: str | None = None,
+) -> dict:
+    """Classify one notebook into tags (prefer existing; create missing). Apply immediately."""
+    nb = await notebook_svc.get_notebook(session, owner_id=user_id, notebook_id=notebook_id)
+    existing = await list_tags(session, user_id)
+    existing_names = [str(t.get("name") or "") for t in existing if t.get("name")]
+    title = nb.title or f"笔记本{notebook_id}"
+    description = (nb.description or "").strip() or None
+    hint_text = (hint or "").strip() or None
+
+    tag_names: list[str] = []
+    try:
+        llm = await get_active_llm(session)
+        provider = make_provider(
+            provider_name=llm.provider,
+            api_key=llm.api_key,
+            base_url=llm.base_url,
+            model_name=llm.model_name,
+            params_json=llm.params_json,
+        )
+        user_prompt = (
+            f"笔记本名称：{title}\n"
+            f"描述：{description or '（无）'}\n"
+            f"提示：{hint_text or '（无）'}\n"
+            f"已有标签：{', '.join(existing_names) if existing_names else '（暂无）'}\n"
+            "请输出 JSON。"
+        )
+        trace_id = start_llm_trace(
+            kind="auto_tag_notebook",
+            provider=llm.provider,
+            model_name=llm.model_name,
+        )
+        llm_span(trace_id, "system", content=_AUTO_TAG_ONE_SYSTEM)
+        llm_span(trace_id, "user", content=user_prompt)
+        try:
+            raw_text = await provider.complete(
+                user_prompt,
+                system=_AUTO_TAG_ONE_SYSTEM,
+                max_tokens=1024,
+                temperature=0.3,
+            )
+            llm_span(trace_id, "assistant", content=raw_text or "")
+            parsed = _extract_json_obj(raw_text or "")
+            names_raw = (parsed or {}).get("tag_names") if isinstance(parsed, dict) else None
+            if isinstance(names_raw, list):
+                for item in names_raw:
+                    name = _normalize_name(str(item or ""))
+                    if name and name not in tag_names:
+                        tag_names.append(name)
+            end_llm_trace(trace_id, status="ok")
+        except Exception as exc:
+            end_llm_trace(trace_id, status="error", error_text=str(exc))
+            tag_names = []
+    except Exception:
+        tag_names = []
+
+    if not tag_names:
+        tag_names = _fallback_tag_names(title, description, hint_text, existing_names)
+
+    # resolve names -> ids (reuse existing; create missing)
+    by_name = {
+        t.name: t
+        for t in (
+            await session.execute(select(Tag).where(Tag.owner_id == user_id))
+        ).scalars().all()
+    }
+    tag_ids: list[int] = []
+    for i, name in enumerate(tag_names[:3]):
+        cleaned = _normalize_name(name)
+        tag = by_name.get(cleaned)
+        if tag is None:
+            tag = Tag(
+                owner_id=user_id,
+                name=cleaned,
+                color=_color_for_index(len(by_name) + i),
+            )
+            session.add(tag)
+            await session.flush()
+            by_name[cleaned] = tag
+        tag_ids.append(int(tag.id))
+
+    return await set_notebook_tags(session, user_id, notebook_id, tag_ids)
+
+
+async def auto_organize_apply_preview(
+    session: AsyncSession, user_id: int
+) -> dict:
+    """One-shot: preview LLM plan then apply. For miniapp 自动归类."""
+    preview = await preview_auto_organize(session, user_id)
+    tags = preview.get("tags") or []
+    assignments = preview.get("assignments") or []
+    if not tags or not assignments:
+        return {
+            "tags": [],
+            "message": preview.get("message") or "没有可整理的笔记本",
+            "applied": False,
+        }
+    # ensure at least one assignment has tags
+    if not any((a.get("tag_temp_ids") or []) for a in assignments):
+        return {
+            "tags": [],
+            "message": "模型未给出有效标签分配",
+            "applied": False,
+        }
+    result_tags = await apply_auto_organize(session, user_id, tags, assignments)
+    return {
+        "tags": result_tags,
+        "message": preview.get("message"),
+        "applied": True,
+        "notebook_count": len(preview.get("notebooks") or []),
+    }

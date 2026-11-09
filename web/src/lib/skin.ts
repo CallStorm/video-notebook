@@ -1,4 +1,4 @@
-/** Skin / appearance tokens for Video Notebook. */
+/** Skin / appearance tokens for 影知 / Videnote. */
 export type SkinId = "cloud" | "ink" | "sand" | "bamboo";
 
 export const SKIN_STORAGE_KEY = "vn-skin";

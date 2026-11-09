@@ -41,6 +41,13 @@ def kick_subtitle_job(video_id: int, *, force: bool = False, notebook_id: int | 
     enqueue_pipeline(video_id, stage="subtitle_only", force=force, notebook_id=notebook_id)
 
 
+def kick_overview_job(video_id: int, *, notebook_id: int | None = None) -> None:
+    """Enqueue overview-only. Subtitles stay as they are."""
+    from app.media.enqueue import enqueue_pipeline
+
+    enqueue_pipeline(video_id, stage="overview_only", force=True, notebook_id=notebook_id)
+
+
 async def read_subtitle_for_owner(
     session: AsyncSession, *, owner_id: int, video_id: int
 ) -> dict:
@@ -89,6 +96,30 @@ async def request_regenerate(
     kick_subtitle_job(video.id, force=True, notebook_id=nb_id)
     subtitle, lines = await load_subtitle(session, video)
     return subtitle_view(video, subtitle, lines)
+
+
+async def request_overview_retry(
+    session: AsyncSession, *, owner_id: int, video_id: int
+) -> Video:
+    """字幕已就绪时只重跑概览。"""
+    video = await get_video(session, owner_id=owner_id, video_id=video_id)
+    if video.subtitle_status != "ready":
+        raise BadRequestError("字幕还没就绪，暂时无法重试概览")
+    video.overview_status = "processing"
+    video.overview_error = None
+    session.add(video)
+    await session.commit()
+    await session.refresh(video)
+    from app.models.notebook import NotebookSource
+    from sqlalchemy import select as _select
+
+    nb_id = await session.scalar(
+        _select(NotebookSource.notebook_id)
+        .where(NotebookSource.video_id == video.id)
+        .limit(1)
+    )
+    kick_overview_job(video.id, notebook_id=nb_id)
+    return video
 
 
 

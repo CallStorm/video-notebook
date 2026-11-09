@@ -47,6 +47,17 @@ class NotebookRead(BaseModel):
     index_status: str | None = None
     indexed_at: str | None = None
     index_error: str | None = None
+    subtitle_ready: int = 0
+    subtitle_failed: int = 0
+    subtitle_processing: int = 0
+    subtitle_total: int = 0
+    subtitle_error: str | None = None
+    overview_ready: int = 0
+    overview_failed: int = 0
+    overview_processing: int = 0
+    overview_total: int = 0
+    overview_error: str | None = None
+    index_stale_reason: str | None = None
     tags: list[TagBrief] = []
     created_at: str | None
     updated_at: str | None
@@ -95,6 +106,21 @@ class SourceSummary(BaseModel):
     sort: int
     selected_for_chat: bool
     video: VideoRead
+
+
+class NoteAssistRequest(BaseModel):
+    action: Literal["write", "translate", "explain"]
+    selection: str = Field(min_length=1, max_length=8000)
+    instruction: str | None = Field(default=None, max_length=2000)
+    prior: str | None = Field(default=None, max_length=8000)
+    source_ids: list[int] | None = None
+    note_ids: list[int] | None = None
+
+
+class NoteCreate(BaseModel):
+    """空白笔记。标题可空，空则用「未命名笔记」。"""
+
+    title: str | None = Field(default=None, max_length=255)
 
 
 class NoteRename(BaseModel):

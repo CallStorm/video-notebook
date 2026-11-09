@@ -243,6 +243,44 @@ async def test_patch_note_selection(client, owner_headers, notebook_id, note_id)
     assert response.json()["selected_for_chat"] is False
 
 
+async def test_retry_failed_task_requeues(
+    client, owner, owner_headers, outsider_headers, notebook_id, capability_id, db_session, monkeypatch
+):
+    queued: list[int] = []
+    monkeypatch.setattr(
+        "app.services.studio_tasks.enqueue_studio_task",
+        lambda task_id: queued.append(task_id),
+    )
+    task = StudioTask(
+        notebook_id=notebook_id,
+        owner_id=owner.id,
+        capability_id=capability_id,
+        format_key="mind_map",
+        title="失败的导图",
+        status="failed",
+        error_code="process_failed",
+        error_message="claude exited 1",
+        params_json={"language": "中文", "video_ids": [], "note_ids": [], "fields": []},
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    denied = await client.post(f"/api/studio/tasks/{task.id}/retry", headers=outsider_headers)
+    assert denied.status_code == 404
+
+    retried = await client.post(f"/api/studio/tasks/{task.id}/retry", headers=owner_headers)
+    assert retried.status_code == 200, retried.text
+    body = retried.json()
+    assert body["status"] == "queued"
+    assert body["error_code"] is None
+    assert body["error_message"] is None
+    assert queued == [task.id]
+
+    again = await client.post(f"/api/studio/tasks/{task.id}/retry", headers=owner_headers)
+    assert again.status_code == 400
+
+
 async def test_enqueue_failure_marks_task_failed(
     client, owner_headers, notebook_id, capability_id, video_id, monkeypatch
 ):

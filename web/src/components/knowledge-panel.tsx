@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
   Check,
+  Copy,
+  Download,
   Loader2,
   Network,
   PanelRightClose,
@@ -20,7 +22,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { parseClockToSeconds } from "@/components/studio-notes";
 
-type ModelRef = "inherit" | "claude_code" | "chat";
 type Language = "中文" | "English";
 type ExampleKind = "life" | "allusion" | "work" | "other";
 
@@ -42,17 +43,6 @@ export interface KnowledgeNote {
   id: number;
   title: string;
   selected_for_chat: boolean;
-}
-
-interface StrategyOption {
-  id: number;
-  name: string;
-  title: string;
-  description: string;
-  kind: string;
-  apply_default: boolean;
-  suggested_model: ModelRef;
-  min_sources: number;
 }
 
 interface DraftPoint {
@@ -79,6 +69,21 @@ interface DraftConcept {
   definition: string;
 }
 
+interface ConclusionLineRef {
+  video_id: number;
+  line_no: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+interface ConclusionCheck {
+  text: string;
+  verdict: "supported" | "partial" | "unsupported";
+  gap: string;
+  lines: ConclusionLineRef[];
+}
+
 interface KnowledgeDraft {
   id: number;
   notebook_id: number;
@@ -90,6 +95,7 @@ interface KnowledgeDraft {
   model_used: string | null;
   conclusion: string;
   conclusions: string[];
+  conclusion_checks?: ConclusionCheck[];
   content: {
     theme: string;
     concepts: DraftConcept[];
@@ -102,13 +108,6 @@ interface KnowledgeDraft {
   error_message: string | null;
   updated_at: string | null;
 }
-
-const MODEL_LABELS: Record<ModelRef, string> = {
-  inherit: "策略推荐",
-  claude_code: "Claude Code 全局模型",
-  chat: "对话模型",
-};
-
 
 function pointEvidence(point: DraftPoint): string | null {
   return (point.evidence || "").trim() || null;
@@ -177,6 +176,56 @@ function formatPointBlock(point: DraftPoint, index: number): string {
   const example = pointExample(point);
   if (evidence) lines.push(`   原句：${evidence}`);
   if (example) lines.push(`   例：${example}`);
+  return lines.join("\n");
+}
+
+const VERDICT_LABEL: Record<ConclusionCheck["verdict"], string> = {
+  supported: "撑得住",
+  partial: "只撑住一部分",
+  unsupported: "撑不住",
+};
+
+function fmtCueClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  const hours = Math.floor(minutes / 60);
+  const remain = minutes % 60;
+  if (hours > 0) {
+    return `${hours}:${String(remain).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${remain}:${String(seconds).padStart(2, "0")}`;
+}
+
+function buildDraftExport(notebookTitle: string, draft: KnowledgeDraft, conclusions: string[]): string {
+  const lines: string[] = [(notebookTitle || "").trim() || "笔记本"];
+  const theme = (draft.content.theme || "").trim();
+  if (theme) lines.push(`主题：${theme}`);
+  lines.push("", "我的结论");
+  conclusions
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .forEach((text, index) => lines.push(`${index + 1}. ${text}`));
+  const { points } = pointsForExport(draft);
+  lines.push("", "要点");
+  points.forEach((point, index) => {
+    lines.push(`${index + 1}. ${point.text.trim()}`);
+    const time = (point.time || "").trim();
+    if (time) lines.push(`   时间：${time}`);
+    const evidence = pointEvidence(point);
+    const example = pointExample(point);
+    if (evidence) lines.push(`   原句：${evidence}`);
+    if (example) lines.push(`   例：${example}`);
+    const comment = (point.comment || "").trim();
+    if (comment) lines.push(`   我的评论：${comment}`);
+  });
+  const concepts = draft.content.concepts.filter((concept) => concept.term.trim());
+  if (concepts.length > 0) {
+    lines.push("", "概念");
+    concepts.forEach((concept) => {
+      lines.push(`- ${concept.term.trim()}：${(concept.definition || "").trim()}`);
+    });
+  }
   return lines.join("\n");
 }
 
@@ -259,6 +308,44 @@ function resolveSourceIds(
   return { video_ids, note_ids };
 }
 
+function DraftGeneratingOverlay({ queued }: { queued: boolean }) {
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-center justify-center bg-background px-6"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex w-full max-w-[16rem] flex-col items-center gap-4 text-center">
+        <div
+          className="relative h-28 w-[5.5rem] rounded-2xl border border-primary/30 bg-card shadow-sm"
+          style={{ animation: "draft-page-float 2.8s ease-in-out infinite" }}
+        >
+          <div className="absolute inset-x-3 top-4 space-y-2">
+            {[0, 1, 2, 3].map((index) => (
+              <span
+                key={index}
+                className="block h-1.5 origin-left rounded-full bg-primary/70"
+                style={{
+                  width: index === 3 ? "62%" : "100%",
+                  opacity: 1 - index * 0.18,
+                  animation: "draft-line-write 1.8s ease-in-out infinite",
+                  animationDelay: `${index * 0.18}s`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-medium">{queued ? "底稿排队中" : "正在生成底稿"}</p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            这份底稿先留着，完成后再替换。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide text-primary/80">
@@ -272,6 +359,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export function KnowledgePanel({
   access,
   notebookId,
+  notebookTitle = "",
   sources,
   notes,
   onCollapse,
@@ -282,6 +370,7 @@ export function KnowledgePanel({
 }: {
   access: string;
   notebookId: number;
+  notebookTitle?: string;
   sources: KnowledgeSource[];
   notes: KnowledgeNote[];
   onCollapse?: () => void;
@@ -294,8 +383,14 @@ export function KnowledgePanel({
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [conceptFilter, setConceptFilter] = useState<string | null>(null);
   const [conclusionsDraft, setConclusionsDraft] = useState<string[]>([]);
+  const [revealedDraftId, setRevealedDraftId] = useState<number | null>(null);
+  const [copiedDraft, setCopiedDraft] = useState(false);
+  const [reviewErrors, setReviewErrors] = useState<Record<number, string>>({});
+  const [reviewingIndex, setReviewingIndex] = useState<number | null>(null);
   const [editingPointId, setEditingPointId] = useState<string | null>(null);
   const [editingPointText, setEditingPointText] = useState("");
   const [commentEditingId, setCommentEditingId] = useState<string | null>(null);
@@ -308,21 +403,11 @@ export function KnowledgePanel({
   const askAnchorRef = useRef<HTMLElement | null>(null);
   const askPopoverRef = useRef<HTMLDivElement | null>(null);
 
-  const [strategyId, setStrategyId] = useState<number | null>(null);
-  const [language, setLanguage] = useState<Language>("中文");
-  const [model, setModel] = useState<ModelRef>("inherit");
   const [videoIds, setVideoIds] = useState<number[]>([]);
   const [noteIds, setNoteIds] = useState<number[]>([]);
   const [focus, setFocus] = useState("");
-  const [extra, setExtra] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const strategiesQ = useQuery({
-    queryKey: ["draft-strategies", notebookId],
-    queryFn: () =>
-      api<StrategyOption[]>(`/notebooks/${notebookId}/draft-strategies`, { access }),
-    enabled: !!access && !!notebookId,
-  });
+  const appliedDraftTask = useRef<number | null>(null);
+  const knowledgeBodyRef = useRef<HTMLDivElement>(null);
 
   const draftQ = useQuery({
     queryKey: ["knowledge-draft", notebookId],
@@ -359,12 +444,22 @@ export function KnowledgePanel({
     onSuccess: (task) => {
       setStudioError(null);
       setStudioAction(null);
+      setFormError(null);
+      setModalOpen(false);
       void qc.invalidateQueries({ queryKey: ["studio-tasks", notebookId] });
-      onStudioTaskCreated?.(task.id, task.format_key);
+      if (task.format_key !== "knowledge_draft") {
+        onStudioTaskCreated?.(task.id, task.format_key);
+      }
     },
-    onError: (err) => {
+    onError: (err, body) => {
       setStudioAction(null);
-      setStudioError(err instanceof ApiError ? err.message : "创建失败");
+      const message = err instanceof ApiError ? err.message : "创建失败";
+      const cap = (capabilitiesQ.data ?? []).find((item) => item.id === body.capability_id);
+      if (cap?.format_key === "knowledge_draft") {
+        setFormError(message);
+        return;
+      }
+      setStudioError(message);
     },
   });
 
@@ -414,64 +509,87 @@ export function KnowledgePanel({
     setConclusionsDraft(normalizeConclusions(draft));
   }, [draft?.id, conclusionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!modalOpen) return;
-    const strategies = strategiesQ.data ?? [];
-    const defaultVideos = sources.filter((s) => s.selected_for_chat).map((s) => s.video_id);
-    const defaultNotes = notes.filter((n) => n.selected_for_chat).map((n) => n.id);
-    const nextVideos = defaultVideos.length ? defaultVideos : sources.map((s) => s.video_id);
-    const nextNotes = defaultNotes;
-    const selectedCount = nextVideos.length + nextNotes.length;
-
-    let pick =
-      strategies.find((s) => s.apply_default) ??
-      strategies[0] ??
-      null;
-    if (selectedCount >= 2) {
-      const compare = strategies.find((s) => s.kind === "compare" || s.name === "compare_read");
-      if (compare) pick = compare;
-    }
-    setStrategyId(pick?.id ?? null);
-    setModel(pick?.suggested_model ?? "inherit");
-    setLanguage("中文");
-    setFocus("");
-    setExtra("");
-    setShowAdvanced(false);
-    setFormError(null);
-    setVideoIds(nextVideos);
-    setNoteIds(nextNotes);
-  }, [modalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const selectedStrategy = useMemo(
-    () => (strategiesQ.data ?? []).find((s) => s.id === strategyId) ?? null,
-    [strategiesQ.data, strategyId],
-  );
-
-  const generate = useMutation({
-    mutationFn: () =>
-      api<KnowledgeDraft>(`/notebooks/${notebookId}/knowledge-draft`, {
-        method: "POST",
-        access,
-        body: {
-          strategy_id: strategyId,
-          language,
-          video_ids: videoIds,
-          note_ids: noteIds,
-          model,
-          focus: focus.trim() || null,
-          extra_constraints: extra.trim() || null,
-        },
-      }),
-    onSuccess: (data) => {
-      setModalOpen(false);
-      setFormError(null);
-      qc.setQueryData(["knowledge-draft", notebookId], data);
-      void qc.invalidateQueries({ queryKey: ["knowledge-draft", notebookId] });
-    },
-    onError: (err) => {
-      setFormError(err instanceof ApiError ? err.message : "生成失败");
+  const draftTasksQ = useQuery({
+    queryKey: ["studio-tasks", notebookId],
+    queryFn: () =>
+      api<Array<{ id: number; format_key: string; status: string; error_message: string | null }>>(
+        `/notebooks/${notebookId}/studio/tasks`,
+        { access },
+      ),
+    enabled: !!access && !!notebookId,
+    refetchInterval: (query) => {
+      const rows = query.state.data ?? [];
+      return rows.some(
+        (task) =>
+          task.format_key === "knowledge_draft" &&
+          (task.status === "queued" || task.status === "running"),
+      )
+        ? 2000
+        : false;
     },
   });
+
+  const latestDraftTask = (draftTasksQ.data ?? []).find((task) => task.format_key === "knowledge_draft") ?? null;
+  const draftBusy = latestDraftTask?.status === "queued" || latestDraftTask?.status === "running";
+  const draftProgress =
+    latestDraftTask?.status === "queued"
+      ? "排队中"
+      : latestDraftTask?.status === "running"
+        ? "生成中"
+        : latestDraftTask?.status === "failed"
+          ? `失败：${(latestDraftTask.error_message || "").trim() || "生成没有完成"}`
+          : null;
+
+  useEffect(() => {
+    const node = knowledgeBodyRef.current;
+    if (!node) return;
+    if (draftBusy) node.setAttribute("inert", "");
+    else node.removeAttribute("inert");
+  }, [draftBusy]);
+
+  useEffect(() => {
+    if (!draftBusy) return;
+    setAskPointId(null);
+    setEditingPointId(null);
+    setCommentEditingId(null);
+  }, [draftBusy]);
+
+  useEffect(() => {
+    if (!latestDraftTask || latestDraftTask.status !== "succeeded") return;
+    if (appliedDraftTask.current === latestDraftTask.id) return;
+    appliedDraftTask.current = latestDraftTask.id;
+    void qc.invalidateQueries({ queryKey: ["knowledge-draft", notebookId] });
+  }, [latestDraftTask, notebookId, qc]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const defaultVideos = sources.filter((s) => s.selected_for_chat).map((s) => s.video_id);
+    const defaultNotes = notes.filter((n) => n.selected_for_chat).map((n) => n.id);
+    setFocus("");
+    setFormError(null);
+    setVideoIds(defaultVideos.length ? defaultVideos : sources.map((s) => s.video_id));
+    setNoteIds(defaultNotes);
+  }, [modalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function startDraftJob() {
+    if (createStudioTask.isPending || draftBusy) return;
+    if (videoIds.length === 0 && noteIds.length === 0) {
+      setFormError("请先选择来源");
+      return;
+    }
+    const cap = (capabilitiesQ.data ?? []).find((item) => item.format_key === "knowledge_draft");
+    if (!cap) {
+      setFormError("底稿生成暂不可用，请稍后重试或联系管理员");
+      return;
+    }
+    setFormError(null);
+    createStudioTask.mutate({
+      capability_id: cap.id,
+      video_ids: videoIds,
+      note_ids: noteIds,
+      fields: focus.trim() ? { focus: focus.trim() } : {},
+    });
+  }
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -505,16 +623,6 @@ export function KnowledgePanel({
     if (point.checked) ids.delete(point.id);
     else ids.add(point.id);
     patch.mutate({ checked_point_ids: [...ids] });
-  }
-
-  function toggleTakeaway(item: DraftTakeaway) {
-    if (!draft) return;
-    const ids = new Set(
-      draft.content.takeaways.filter((t) => t.checked).map((t) => t.id),
-    );
-    if (item.checked) ids.delete(item.id);
-    else ids.add(item.id);
-    patch.mutate({ checked_takeaway_ids: [...ids] });
   }
 
   function savePointEdit() {
@@ -655,10 +763,82 @@ export function KnowledgePanel({
   }
 
 
-  const checkedCount = draft
-    ? draft.content.points.filter((p) => p.checked).length +
-      draft.content.takeaways.filter((t) => t.checked).length
-    : 0;
+  const checkedCount = draft ? draft.content.points.filter((p) => p.checked).length : 0;
+  const savedConclusions = draft
+    ? normalizeConclusions(draft).map((line) => line.trim()).filter(Boolean)
+    : [];
+  const recall = Boolean(draft && savedConclusions.length > 0 && revealedDraftId !== draft.id);
+
+  async function copyDraft() {
+    if (!draft) return;
+    try {
+      await navigator.clipboard.writeText(buildDraftExport(notebookTitle, draft, conclusionsDraft));
+      setCopiedDraft(true);
+      window.setTimeout(() => setCopiedDraft(false), 1600);
+    } catch {
+      setFormError("复制失败");
+    }
+  }
+
+  async function downloadDraft() {
+    if (!draft || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const list = conclusionsDraft.map((line) => line.trim()).filter(Boolean);
+      const prev = normalizeConclusions(draft);
+      if (JSON.stringify(list) !== JSON.stringify(prev)) {
+        await patch.mutateAsync({ conclusions: list });
+      }
+      const response = await api<Response>(
+        `/notebooks/${notebookId}/knowledge-draft/export.docx`,
+        { access, raw: true },
+      );
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const safeTitle = (notebookTitle || "笔记本").replace(/[\\/:*?"<>|]/g, " ").trim() || "笔记本";
+      anchor.href = url;
+      anchor.download = `${safeTitle}-底稿.docx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof ApiError ? err.message : "下载失败");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function reviewConclusion(index: number) {
+    const text = (conclusionsDraft[index] || "").trim();
+    if (!text || reviewingIndex != null) return;
+    setReviewingIndex(index);
+    setReviewErrors((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    try {
+      const list = conclusionsDraft.map((item) => item.trim()).filter(Boolean);
+      const prev = normalizeConclusions(draft);
+      if (JSON.stringify(list) !== JSON.stringify(prev)) {
+        await patch.mutateAsync({ conclusions: list });
+      }
+      await api<ConclusionCheck>(`/notebooks/${notebookId}/knowledge-draft/review`, {
+        method: "POST",
+        access,
+        body: { conclusion: text },
+      });
+      await qc.invalidateQueries({ queryKey: ["knowledge-draft", notebookId] });
+    } catch (error) {
+      setReviewErrors((prev) => ({
+        ...prev,
+        [index]: error instanceof ApiError ? error.message : "核对失败",
+      }));
+    } finally {
+      setReviewingIndex(null);
+    }
+  }
 
   const filteredPoints = useMemo(() => {
     if (!draft) return [];
@@ -672,10 +852,7 @@ export function KnowledgePanel({
     );
   }, [draft, conceptFilter]);
 
-  const canSubmit =
-    strategyId != null &&
-    (videoIds.length > 0 || noteIds.length > 0) &&
-    !generate.isPending;
+  const canSubmit = (videoIds.length > 0 || noteIds.length > 0) && !createStudioTask.isPending && !draftBusy;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -684,7 +861,7 @@ export function KnowledgePanel({
           <p className="min-w-0 truncate text-[10px] text-muted-foreground">
             {draft
               ? `已勾 ${checkedCount}${draft.strategy_title ? ` · ${draft.strategy_title}` : ""}`
-              : "从字幕提炼可勾选的要点与行动"}
+              : "从字幕提炼要点，写下你的结论"}
           </p>
         </div>
       ) : (
@@ -730,7 +907,8 @@ export function KnowledgePanel({
         </header>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col" aria-busy={draftBusy}>
+        <div ref={knowledgeBodyRef} className="flex min-h-0 flex-1 flex-col">
         {draftQ.isLoading ? (
           <div className="flex flex-1 items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -744,16 +922,154 @@ export function KnowledgePanel({
             <div className="space-y-1">
               <p className="text-sm font-medium">字幕就绪后生成知识底稿</p>
               <p className="max-w-[16rem] text-xs text-muted-foreground">
-                按策略抽出可勾选、可跳播的要点与收获；勾选后可一键生成导图或幻灯片。
+                从勾选的来源抽出可勾选、可跳播的要点。先写下你的结论，再核对。
               </p>
             </div>
-            <Button className="rounded-full" onClick={openGenerate}>
+            {draftProgress ? (
+              <p
+                className={`flex items-center gap-1.5 text-xs ${
+                  latestDraftTask?.status === "failed" ? "text-destructive" : "text-muted-foreground"
+                }`}
+              >
+                {draftBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                {draftProgress}
+              </p>
+            ) : null}
+            <Button className="rounded-full" disabled={draftBusy} onClick={openGenerate}>
               生成底稿
             </Button>
           </div>
         ) : (
           <>
             <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-3 pb-4">
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SectionLabel>我的结论</SectionLabel>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                    disabled={downloading}
+                    onClick={() => void downloadDraft()}
+                  >
+                    <Download className="h-3 w-3" />
+                    {downloading ? "下载中…" : "下载 Word"}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                    onClick={() => void copyDraft()}
+                  >
+                    <Copy className="h-3 w-3" />
+                    {copiedDraft ? "已复制" : "复制底稿"}
+                  </button>
+                </div>
+                {downloadError ? (
+                  <p className="text-[11px] text-destructive">{downloadError}</p>
+                ) : null}
+                <div className="space-y-1.5 rounded-2xl border border-border/55 bg-card p-2.5 shadow-sm">
+                  {conclusionsDraft.length === 0 ? (
+                    <p className="px-1 py-0.5 text-[11px] text-muted-foreground">
+                      还没有结论。写下你从材料带走的判断，失焦自动保存。
+                    </p>
+                  ) : null}
+                  {conclusionsDraft.map((line, cidx) => {
+                    const saved = (draft?.conclusion_checks ?? []).find(
+                      (item) => item.text === line.trim(),
+                    );
+                    return (
+                      <div key={`c-${cidx}`} className="space-y-1">
+                        <div className="flex items-start gap-1.5">
+                          <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/55" />
+                          <textarea
+                            className="min-h-[2.4rem] flex-1 resize-y rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs leading-relaxed outline-none focus-visible:border-primary/35 focus-visible:ring-2 focus-visible:ring-ring/25"
+                            placeholder={`结论 ${cidx + 1}`}
+                            value={line}
+                            rows={2}
+                            onChange={(e) => {
+                              const next = [...conclusionsDraft];
+                              next[cidx] = e.target.value;
+                              setConclusionsDraft(next);
+                            }}
+                            onBlur={(e) => {
+                              const next = [...conclusionsDraft];
+                              next[cidx] = e.currentTarget.value;
+                              setConclusionsDraft(next);
+                              saveConclusions(next);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="mt-1 shrink-0 rounded-full px-2 py-1 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-40"
+                            disabled={!line.trim() || reviewingIndex != null}
+                            onClick={() => void reviewConclusion(cidx)}
+                          >
+                            {reviewingIndex === cidx ? "核对中…" : "核对"}
+                          </button>
+                          <button
+                            type="button"
+                            className="mt-1 rounded-full p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
+                            title="删除"
+                            aria-label="删除结论"
+                            onClick={() => {
+                              const next = conclusionsDraft.filter((_, i) => i !== cidx);
+                              setConclusionsDraft(next);
+                              setReviewErrors({});
+                              saveConclusions(next);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {saved ? (
+                          <div className="ml-3 rounded-lg bg-muted/50 px-2.5 py-1.5 text-[11px] leading-relaxed">
+                            <p className="font-medium text-foreground">{VERDICT_LABEL[saved.verdict]}</p>
+                            {saved.gap ? <p className="mt-0.5 text-muted-foreground">{saved.gap}</p> : null}
+                            {saved.lines.length > 0 ? (
+                              <div className="mt-1 space-y-0.5">
+                                {saved.lines.map((cue) => (
+                                  <button
+                                    key={`${cue.video_id}-${cue.line_no}`}
+                                    type="button"
+                                    className="block w-full text-left text-muted-foreground hover:text-foreground"
+                                    onClick={() => onSeekVideo?.(cue.video_id, cue.start_ms / 1000)}
+                                  >
+                                    <span className="mr-1 font-mono text-[10px] text-primary">{fmtCueClock(cue.start_ms)}</span>
+                                    {cue.text}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {reviewErrors[cidx] ? (
+                          <p className="ml-3 text-[11px] text-destructive">{reviewErrors[cidx]}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] text-xs text-primary transition hover:bg-primary/10"
+                    onClick={() => setConclusionsDraft((prev) => [...prev, ""])}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    失焦自动保存 · + 添加
+                  </button>
+                </div>
+              </section>
+              {recall ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 w-full rounded-xl"
+                  onClick={() => setRevealedDraftId(draft.id)}
+                >
+                  对照要点
+                </Button>
+              ) : (
+              <>
               {/* 1. 主题 */}
               {draft.content.theme ? (
                 <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.09] via-primary/[0.03] to-transparent px-3.5 py-2.5 shadow-sm">
@@ -1059,103 +1375,22 @@ export function KnowledgePanel({
                   })
                 )}
               </section>
-
-              {/* 4. 可执行收获 */}
-              {draft.content.takeaways.length > 0 ? (
-                <section className="space-y-2">
-                  <SectionLabel>可执行收获</SectionLabel>
-                  {draft.content.takeaways.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={
-                        "flex w-full items-start gap-2 rounded-2xl border px-2.5 py-2 text-left text-xs shadow-sm " +
-                        (item.checked
-                          ? "border-primary/30 bg-primary/[0.05]"
-                          : "border-border/55 bg-card")
-                      }
-                      onClick={() => toggleTakeaway(item)}
-                    >
-                      <span
-                        className={
-                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border " +
-                          (item.checked
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-muted-foreground/40")
-                        }
-                      >
-                        {item.checked ? <Check className="h-3 w-3" /> : null}
-                      </span>
-                      <span className="leading-relaxed">{item.text}</span>
-                    </button>
-                  ))}
-                </section>
-              ) : null}
-
-              {/* 遗留问题 */}
-              {draft.content.open_questions.length > 0 ? (
-                <section className="space-y-1.5">
-                  <SectionLabel>遗留问题</SectionLabel>
-                  <ul className="list-inside list-disc space-y-1 rounded-2xl border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    {draft.content.open_questions.map((q) => (
-                      <li key={q}>{q}</li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {/* 5. 我的结论 —— 始终显示 */}
-              <section className="mt-1 space-y-2">
-                <SectionLabel>我的结论</SectionLabel>
-                <div className="space-y-1.5 rounded-2xl border border-border/55 bg-card p-2.5 shadow-sm">
-                  {conclusionsDraft.length === 0 ? (
-                    <p className="px-1 py-0.5 text-[11px] text-muted-foreground">
-                      还没有结论。写下你从材料带走的判断，失焦自动保存。
-                    </p>
-                  ) : null}
-                  {conclusionsDraft.map((line, cidx) => (
-                    <div key={`c-${cidx}`} className="flex items-start gap-1.5">
-                      <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/55" />
-                      <textarea
-                        className="min-h-[2.4rem] flex-1 resize-y rounded-xl border border-border/50 bg-background px-2.5 py-1.5 text-xs leading-relaxed outline-none focus-visible:border-primary/35 focus-visible:ring-2 focus-visible:ring-ring/25"
-                        placeholder={`结论 ${cidx + 1}`}
-                        value={line}
-                        rows={2}
-                        onChange={(e) => {
-                          const next = [...conclusionsDraft];
-                          next[cidx] = e.target.value;
-                          setConclusionsDraft(next);
-                        }}
-                        onBlur={() => saveConclusions()}
-                      />
-                      <button
-                        type="button"
-                        className="mt-1 rounded-full p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive"
-                        title="删除"
-                        aria-label="删除结论"
-                        onClick={() => {
-                          const next = conclusionsDraft.filter((_, i) => i !== cidx);
-                          setConclusionsDraft(next);
-                          saveConclusions(next);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="flex h-9 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] text-xs text-primary transition hover:bg-primary/10"
-                    onClick={() => setConclusionsDraft((prev) => [...prev, ""])}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    失焦自动保存 · + 添加
-                  </button>
-                </div>
-              </section>
+              </>
+              )}
             </div>
 
+            {recall ? null : (
             <div className="shrink-0 border-t border-border/60 bg-card/95 px-3 py-2.5 backdrop-blur">
+              {draftProgress ? (
+                <p
+                  className={`mb-2 flex items-center gap-1.5 text-[11px] ${
+                    latestDraftTask?.status === "failed" ? "text-destructive" : "text-muted-foreground"
+                  }`}
+                >
+                  {draftBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  <span className="min-w-0 truncate">{draftProgress}</span>
+                </p>
+              ) : null}
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="min-w-0 truncate text-[11px] text-muted-foreground">
                   已勾选{" "}
@@ -1166,8 +1401,9 @@ export function KnowledgePanel({
                 </p>
                 <button
                   type="button"
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground transition hover:bg-primary/10 hover:text-primary disabled:opacity-50"
                   title="重做知识底稿"
+                  disabled={draftBusy}
                   onClick={openGenerate}
                 >
                   <RefreshCw className="h-3 w-3" />
@@ -1227,8 +1463,11 @@ export function KnowledgePanel({
                 </p>
               )}
             </div>
+            )}
           </>
         )}
+        </div>
+        {draftBusy ? <DraftGeneratingOverlay queued={latestDraftTask?.status === "queued"} /> : null}
       </div>
 
 
@@ -1358,37 +1597,15 @@ export function KnowledgePanel({
               <button
                 type="button"
                 className="rounded-full p-1 text-muted-foreground hover:bg-muted"
-                onClick={() => !generate.isPending && setModalOpen(false)}
+                onClick={() => !createStudioTask.isPending && setModalOpen(false)}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-              <label className="block space-y-1">
-                <span className="text-[11px] font-medium text-muted-foreground">策略</span>
-                <select
-                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-                  value={strategyId ?? ""}
-                  onChange={(e) => {
-                    const id = Number(e.target.value);
-                    setStrategyId(id);
-                    const s = (strategiesQ.data ?? []).find((x) => x.id === id);
-                    if (s) setModel(s.suggested_model);
-                  }}
-                >
-                  {(strategiesQ.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.title}
-                      {s.apply_default ? "（默认）" : ""}
-                      {s.min_sources > 1 ? ` · ≥${s.min_sources} 来源` : ""}
-                    </option>
-                  ))}
-                </select>
-                {selectedStrategy?.description ? (
-                  <p className="text-[11px] text-muted-foreground">{selectedStrategy.description}</p>
-                ) : null}
-              </label>
-
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                用已勾选的来源生成。一条来源按精读，多条来源按对比。生成在后台进行，完成后出现在这里。
+              </p>
               <fieldset className="space-y-1.5">
                 <legend className="text-[11px] font-medium text-muted-foreground">来源</legend>
                 <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-border/60 p-2">
@@ -1418,34 +1635,6 @@ export function KnowledgePanel({
                 </div>
               </fieldset>
 
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block space-y-1">
-                  <span className="text-[11px] font-medium text-muted-foreground">语言</span>
-                  <select
-                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value as Language)}
-                  >
-                    <option value="中文">中文</option>
-                    <option value="English">English</option>
-                  </select>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[11px] font-medium text-muted-foreground">模型</span>
-                  <select
-                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value as ModelRef)}
-                  >
-                    {(Object.keys(MODEL_LABELS) as ModelRef[]).map((k) => (
-                      <option key={k} value={k}>
-                        {MODEL_LABELS[k]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
               <label className="block space-y-1">
                 <span className="text-[11px] font-medium text-muted-foreground">聚焦（可选）</span>
                 <Input
@@ -1454,22 +1643,6 @@ export function KnowledgePanel({
                   placeholder="例如：只关心落地步骤"
                 />
               </label>
-
-              <button
-                type="button"
-                className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-                onClick={() => setShowAdvanced((v) => !v)}
-              >
-                {showAdvanced ? "收起高级" : "高级：额外约束"}
-              </button>
-              {showAdvanced ? (
-                <textarea
-                  className="min-h-[4rem] w-full rounded-xl border border-input bg-background px-3 py-2 text-xs"
-                  value={extra}
-                  onChange={(e) => setExtra(e.target.value)}
-                  placeholder="拼在策略提示词后的额外约束"
-                />
-              ) : null}
 
               {formError ? (
                 <p className="rounded-lg bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
@@ -1480,16 +1653,16 @@ export function KnowledgePanel({
             <div className="flex items-center justify-end gap-2 border-t border-border/60 px-4 py-3">
               <Button
                 variant="ghost"
-                disabled={generate.isPending}
+                disabled={createStudioTask.isPending}
                 onClick={() => setModalOpen(false)}
               >
                 取消
               </Button>
               <Button
                 disabled={!canSubmit}
-                onClick={() => generate.mutate()}
+                onClick={() => startDraftJob()}
               >
-                {generate.isPending ? (
+                {createStudioTask.isPending || draftBusy ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     生成中…

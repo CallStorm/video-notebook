@@ -38,7 +38,7 @@ OUTPUT_SCHEMA_INSTRUCTION = """你必须只输出一个 JSON 对象（不要 Mar
 2. 每一条 points[i] 都必须有非空字符串字段 example：用 1–2 句生活场景或典故帮助理解要点（例如「例：就像开车只盯后视镜会错过眼前风景」这种），禁止把原句字幕塞进 example，禁止留空、禁止省略该字段。
 3. example_kind 尽量填写：life / allusion / work / other。
 4. evidence 仍可写原句短引（可选）；example 与 evidence 不是同一字段。
-5. takeaways 要可执行，禁止空话。
+5. takeaways 与 open_questions 固定输出空数组。这两块已从产品中去掉。
 6. 字符串内若需引号，优先用中文「」或转义为 \"；禁止在 JSON 字符串里直接写未转义的英文双引号，对象/数组元素之间必须有逗号。"""
 
 DEFAULT_PREFIX = """你是视频知识底稿编辑。目标：从字幕/来源抽出可勾选、可跳播、可复习的知识底稿，而不是长摘要。
@@ -74,8 +74,7 @@ BUILTIN_STRATEGIES: list[dict[str, Any]] = [
 - theme：一句话说清整段材料在讲什么。
 - concepts：3–8 个关键术语，各一句解释。
 - points：5–12 条按时间或逻辑排列的要点；尽量带 time 与 evidence；每条必须带 example（生活/典故短例子 1–2 句）。
-- takeaways：3–7 条可勾选的可执行收获。
-- open_questions：若有未决问题可列，否则 []。
+- takeaways 与 open_questions 输出空数组。
 
 禁止：大段转述字幕、空洞鸡汤、与主题无关枝节。""",
     },
@@ -94,8 +93,7 @@ BUILTIN_STRATEGIES: list[dict[str, Any]] = [
 - theme：这份材料要推动什么行动/决策。
 - concepts：只保留与落地相关的术语（可少）。
 - points：每条尽量写成「问题/现状 → 建议动作」，并带 time + evidence + example（落地场景短例子）。
-- takeaways：必须是可执行下一步（谁/做什么/注意什么），3–8 条。
-- open_questions：落地前还需确认的问题。
+- takeaways 与 open_questions 输出空数组。
 
 禁止：纯概念科普、无法执行的空泛总结。""",
     },
@@ -114,8 +112,7 @@ BUILTIN_STRATEGIES: list[dict[str, Any]] = [
 - theme：这份材料的知识领域一句话。
 - concepts：尽量完整的关键术语表（可到 8–15）；definition 用材料里的含义，勿抄百科。
 - points：补充易混对比、首次出现语境；尽量标 time；每条带 example（易记的生活/典故对照）。
-- takeaways：如何记住/区分这些概念的实用提示（可少）。
-- open_questions：材料未讲清的术语疑问。
+- takeaways 与 open_questions 输出空数组。
 
 禁止：离开材料的百科扩写。""",
     },
@@ -134,9 +131,8 @@ BUILTIN_STRATEGIES: list[dict[str, Any]] = [
 - theme：对比在回答什么共同问题。
 - concepts：跨来源共享的关键概念。
 - points：明确标出「共识 / 冲突 / 独有」；冲突处尽量给双方 time 或在 text 里写清来源；每条带 example。
-- takeaways：读完应如何取舍或组合各方观点。
-- open_questions：仍无法裁定的分歧。
+- takeaways 与 open_questions 输出空数组。
 
-若实际只有一个来源：降级为精读，并在 open_questions 说明「仅单来源，未能对比」。""",
+若实际只有一个来源：降级为精读，并在 theme 末尾注明「仅单来源，未能对比」。""",
     },
 ]

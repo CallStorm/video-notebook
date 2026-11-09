@@ -30,9 +30,16 @@ interface ProxyRead {
   port: number | null;
 }
 
+interface DouyinParserRead {
+  base_url: string;
+  api_key_set: boolean;
+  host_rules: string[];
+}
+
 interface FetchNetworkRead {
   cookies: PlatformCookieRead[];
   proxy: ProxyRead;
+  douyin_parser: DouyinParserRead;
 }
 
 interface ProxyTestResult {
@@ -48,6 +55,26 @@ const PLATFORM_LABEL: Record<Platform, string> = {
 
 const PLATFORMS: Platform[] = ["youtube", "bilibili"];
 const SCHEMES: ProxyScheme[] = ["http", "https", "socks5", "socks4"];
+const DEFAULT_DOUYIN_RULES = ["v.douyin.com", "douyin.com", "iesdouyin.com"];
+
+function hostOf(raw: string): string {
+  const text = raw.trim().toLowerCase();
+  if (!text) return "";
+  try {
+    const withScheme = text.includes("://") ? text : `https://${text}`;
+    return new URL(withScheme).hostname.replace(/\.$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function matchedRule(rawUrl: string, rules: string[]): string | null {
+  const host = hostOf(rawUrl);
+  if (!host) return null;
+  const hits = rules.filter((rule) => host === rule || host.endsWith(`.${rule}`));
+  if (!hits.length) return null;
+  return hits.sort((a, b) => b.length - a.length)[0];
+}
 
 export function AdminFetchNetworkPage() {
   const { access } = useAuth();
@@ -77,6 +104,12 @@ export function AdminFetchNetworkPage() {
   const [port, setPort] = useState("7890");
   const [applyTo, setApplyTo] = useState<Platform[]>(["youtube"]);
   const [testResult, setTestResult] = useState<ProxyTestResult | null>(null);
+  const [douyinBase, setDouyinBase] = useState("http://127.0.0.1:8001");
+  const [douyinKey, setDouyinKey] = useState("");
+  const [douyinRules, setDouyinRules] = useState<string[]>(DEFAULT_DOUYIN_RULES);
+  const [ruleDraft, setRuleDraft] = useState("");
+  const [probe, setProbe] = useState("https://v.douyin.com/tIqoVziKWl8/");
+  const [douyinTest, setDouyinTest] = useState<ProxyTestResult | null>(null);
 
   useEffect(() => {
     if (!config.data) return;
@@ -93,6 +126,12 @@ export function AdminFetchNetworkPage() {
     if (config.data.proxy.scheme) setScheme(config.data.proxy.scheme);
     if (config.data.proxy.host) setHost(config.data.proxy.host);
     if (config.data.proxy.port) setPort(String(config.data.proxy.port));
+    setDouyinBase(config.data.douyin_parser.base_url || "http://127.0.0.1:8001");
+    setDouyinRules(
+      config.data.douyin_parser.host_rules.length
+        ? config.data.douyin_parser.host_rules
+        : [],
+    );
   }, [config.data]);
 
   const saveCookie = useMutation({
@@ -171,6 +210,43 @@ export function AdminFetchNetworkPage() {
     onSuccess: (data) => setTestResult(data),
   });
 
+  const saveDouyin = useMutation({
+    mutationFn: () =>
+      api<FetchNetworkRead>("/admin/fetch-network/douyin-parser", {
+        method: "PUT",
+        access: token,
+        body: {
+          base_url: douyinBase.trim(),
+          api_key: douyinKey.trim() ? douyinKey.trim() : null,
+          host_rules: douyinRules,
+        },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-fetch-network"] });
+      setDouyinKey("");
+      setDouyinTest(null);
+    },
+  });
+
+  const testDouyin = useMutation({
+    mutationFn: () =>
+      api<ProxyTestResult>("/admin/fetch-network/douyin-parser/test", {
+        method: "POST",
+        access: token,
+      }),
+    onSuccess: (data) => setDouyinTest(data),
+  });
+
+  function addRule() {
+    const host = hostOf(ruleDraft);
+    if (!host || douyinRules.includes(host)) {
+      setRuleDraft("");
+      return;
+    }
+    setDouyinRules((prev) => [...prev, host]);
+    setRuleDraft("");
+  }
+
   function toggleApply(platform: Platform) {
     setApplyTo((prev) =>
       prev.includes(platform) ? prev.filter((p) => p !== platform) : [...prev, platform],
@@ -199,7 +275,7 @@ export function AdminFetchNetworkPage() {
     <div className="space-y-5">
       <AdminPageHeader
         title="抓取与网络"
-        description="按平台配置 Cookie 与代理，用于字幕抓取与聚合搜索。"
+        description="按平台配置 Cookie 与代理，并指定哪些域名走抖音解析。"
       />
 
       <AdminSectionCard
@@ -354,6 +430,137 @@ export function AdminFetchNetworkPage() {
             );
           })}
         </div>
+      </AdminSectionCard>
+
+      <AdminSectionCard
+        title="抖音解析"
+        description="命中下面域名的链接交给本机解析服务。Key 只保存在服务器上。"
+        action={
+          config.data?.douyin_parser.api_key_set ? (
+            <AdminStatusBadge tone="ok">已配置</AdminStatusBadge>
+          ) : (
+            <AdminStatusBadge tone="idle">未配置</AdminStatusBadge>
+          )
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="douyin-base">
+              服务地址
+            </label>
+            <Input
+              id="douyin-base"
+              value={douyinBase}
+              onChange={(e) => setDouyinBase(e.target.value)}
+              placeholder="http://127.0.0.1:8001"
+              autoComplete="off"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="douyin-key">
+              API Key
+            </label>
+            <Input
+              id="douyin-key"
+              type="password"
+              value={douyinKey}
+              onChange={(e) => setDouyinKey(e.target.value)}
+              placeholder={
+                config.data?.douyin_parser.api_key_set
+                  ? "已保存，留空则不修改"
+                  : "粘贴 douyin:read 的 Key"
+              }
+              autoComplete="off"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">哪些链接走这里</p>
+          <p className="text-xs text-muted-foreground">
+            按域名匹配。命中域名本身或其子域名就走抖音解析。点域名可删除。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {douyinRules.map((rule) => (
+              <button
+                key={rule}
+                type="button"
+                className="rounded-full bg-muted px-3 py-1 text-sm"
+                onClick={() => setDouyinRules((prev) => prev.filter((item) => item !== rule))}
+              >
+                {rule} ×
+              </button>
+            ))}
+            {douyinRules.length === 0 && (
+              <span className="text-xs text-muted-foreground">规则是空的，抖音链接不会走解析服务。</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Input
+              value={ruleDraft}
+              onChange={(e) => setRuleDraft(e.target.value)}
+              placeholder="例如 m.douyin.com"
+              className="max-w-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addRule();
+                }
+              }}
+            />
+            <Button type="button" size="sm" variant="secondary" className="rounded-lg" onClick={addRule}>
+              添加
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="douyin-probe">
+            用一条链接试匹配
+          </label>
+          <Input
+            id="douyin-probe"
+            value={probe}
+            onChange={(e) => setProbe(e.target.value)}
+            placeholder="https://v.douyin.com/..."
+            autoComplete="off"
+          />
+          <p className="text-xs text-muted-foreground">
+            {matchedRule(probe, douyinRules)
+              ? `会走抖音解析，命中 ${matchedRule(probe, douyinRules)}`
+              : "不会走抖音解析"}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            className="rounded-lg"
+            disabled={saveDouyin.isPending || !douyinBase.trim()}
+            onClick={() => saveDouyin.mutate()}
+          >
+            <Check className="h-4 w-4" />
+            {saveDouyin.isPending ? "保存中…" : "保存"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-lg"
+            disabled={testDouyin.isPending || !config.data?.douyin_parser.api_key_set}
+            onClick={() => testDouyin.mutate()}
+          >
+            {testDouyin.isPending ? "测试中…" : "测试连接"}
+          </Button>
+        </div>
+        {saveDouyin.error instanceof ApiError && (
+          <p className="text-sm text-destructive">{saveDouyin.error.message}</p>
+        )}
+        {douyinTest && (
+          <p className={`text-sm ${douyinTest.ok ? "text-[hsl(var(--success))]" : "text-destructive"}`}>
+            {douyinTest.message}
+            {douyinTest.latency_ms != null ? `（${douyinTest.latency_ms} ms）` : ""}
+          </p>
+        )}
       </AdminSectionCard>
 
       <AdminSectionCard

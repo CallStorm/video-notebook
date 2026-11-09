@@ -17,7 +17,7 @@ _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
 # Retired from product surface; keep plugin/code for potential restore but hide from Studio UI/API lists.
 _HIDDEN_FORMATS = frozenset({"structured_notes", "four_panel"})
 # Product-fixed: always treated as enabled (admin toggle removed).
-_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides"})
+_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft"})
 
 
 def enqueue_studio_task(task_id: int) -> None:
@@ -138,6 +138,18 @@ async def create_task(
         get_plugin(cap.format_key)
     except KeyError as exc:
         raise BadRequestError("能力插件不存在") from exc
+
+    if cap.format_key == "knowledge_draft":
+        active = await session.scalar(
+            select(StudioTask.id).where(
+                StudioTask.notebook_id == notebook_id,
+                StudioTask.format_key == "knowledge_draft",
+                StudioTask.status.in_(("queued", "running")),
+                StudioTask.deleted_at.is_(None),
+            ).limit(1)
+        )
+        if active is not None:
+            raise BadRequestError("已有底稿正在生成")
 
     form = cap.form_json or []
     has_sources = any(field.get("type") == "sources" for field in form)
@@ -263,6 +275,58 @@ async def _require_notebook_notes(
     )
     if found != set(note_ids):
         raise BadRequestError("来源不属于该笔记本")
+
+
+async def retry_task(
+    session: AsyncSession, *, owner_id: int, task_id: int
+) -> StudioTask:
+    task = await session.get(StudioTask, task_id)
+    if task is None or task.deleted_at is not None or task.owner_id != owner_id:
+        raise NotFoundError("任务不存在")
+    if task.format_key in _HIDDEN_FORMATS:
+        raise BadRequestError("该产物格式已停用")
+    if task.status != "failed":
+        raise BadRequestError("只能重试失败的任务")
+    artifacts = (
+        await session.execute(
+            select(StudioArtifact).where(StudioArtifact.task_id == task.id)
+        )
+    ).scalars().all()
+    storage = get_storage()
+    for artifact in artifacts:
+        key = artifact.storage_key
+        if key:
+            other = await session.scalar(
+                select(StudioArtifact.id).where(
+                    StudioArtifact.storage_key == key,
+                    StudioArtifact.task_id != task.id,
+                ).limit(1)
+            )
+            if other is None:
+                storage.delete(key)
+        await session.delete(artifact)
+    task.status = "queued"
+    task.error_code = None
+    task.error_message = None
+    task.started_at = None
+    task.finished_at = None
+    task.result_json = None
+    session.add(task)
+    await session.commit()
+    await session.refresh(task)
+    try:
+        enqueue_studio_task(task.id)
+    except Exception as exc:  # noqa: BLE001 — surface broker/worker wiring failures
+        task.status = "failed"
+        task.error_code = "process_failed"
+        task.error_message = (
+            f"任务入队失败：{exc}" if str(exc).strip() else "任务入队失败，请检查 Celery studio worker"
+        )[-2000:]
+        task.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        session.add(task)
+        await session.commit()
+        await session.refresh(task)
+    return task
 
 
 async def rename_task(

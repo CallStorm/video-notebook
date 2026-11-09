@@ -21,7 +21,10 @@ async def get_current_user(
 ) -> User:
     if credentials is None or not credentials.credentials:
         raise UnauthorizedError("Missing Bearer token")
-    payload = decode_token(credentials.credentials, expected_type="access")
+    raw = credentials.credentials.strip()
+    if raw.startswith("vn_agent_"):
+        raise UnauthorizedError("这是 Agent Token，请改用 /agent/v1，不要把它当作登录 JWT")
+    payload = decode_token(raw, expected_type="access")
     sub = payload.get("sub")
     if not sub:
         raise UnauthorizedError("Invalid token: no subject")

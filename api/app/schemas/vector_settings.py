@@ -1,7 +1,7 @@
 """向量配置 admin schema。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class VectorSettingsRead(BaseModel):
@@ -15,6 +15,14 @@ class VectorSettingsRead(BaseModel):
     index_overview: bool
     index_subtitles: bool
     index_notes: bool
+    index_conclusions: bool
+    index_draft: bool
+    chunk_card_chars: int
+    chunk_subtitles_chars: int
+    chunk_notes_chars: int
+    chunk_conclusions_chars: int
+    chunk_draft_chars: int
+    chunk_overlap_chars: int
 
 
 class VectorSettingsUpdate(BaseModel):
@@ -27,8 +35,29 @@ class VectorSettingsUpdate(BaseModel):
     index_title: bool = True
     index_description: bool = True
     index_overview: bool = True
-    index_subtitles: bool = False
-    index_notes: bool = False
+    index_subtitles: bool = True
+    index_notes: bool = True
+    index_conclusions: bool = True
+    index_draft: bool = True
+    chunk_card_chars: int = Field(default=6000, ge=500, le=10000)
+    chunk_subtitles_chars: int = Field(default=6000, ge=500, le=10000)
+    chunk_notes_chars: int = Field(default=6000, ge=500, le=10000)
+    chunk_conclusions_chars: int = Field(default=6000, ge=500, le=10000)
+    chunk_draft_chars: int = Field(default=6000, ge=500, le=10000)
+    chunk_overlap_chars: int = Field(default=200, ge=0, le=2000)
+
+    @model_validator(mode="after")
+    def overlap_fits_every_chunk(self):
+        smallest = min(
+            self.chunk_card_chars,
+            self.chunk_subtitles_chars,
+            self.chunk_notes_chars,
+            self.chunk_conclusions_chars,
+            self.chunk_draft_chars,
+        )
+        if self.chunk_overlap_chars >= smallest:
+            raise ValueError("重叠字数必须小于每一类的切割字数")
+        return self
 
 
 class VectorReindexAllResult(BaseModel):

@@ -2,11 +2,12 @@
 import { Pin } from "lucide-react";
 import { NotebookCardMenu } from "@/components/notebook-card-menu";
 import { GeneratedCover } from "@/components/generated-cover";
+import { NotebookStatusLines, type NotebookReadiness } from "@/components/notebook-status";
 import { isRemoteCover } from "@/lib/cover-gen";
 import type { ReactNode } from "react";
 import { cn, formatDateZh } from "@/lib/utils";
 
-export interface NotebookBookCardData {
+export type NotebookBookCardData = {
   id: number;
   title: string;
   icon: string | null;
@@ -19,7 +20,7 @@ export interface NotebookBookCardData {
   index_status?: string | null;
   index_error?: string | null;
   tags?: { id: number; name: string; color: string | null }[];
-}
+} & NotebookReadiness;
 
 function formatSources(n: number): string {
   return n === 1 ? "1 个来源" : `${n} 个来源`;
@@ -65,6 +66,8 @@ export function NotebookBookCard({
 }) {
   const remote = isRemoteCover(nb.cover_url);
   const sourcesLabel = formatSources(nb.source_count ?? 0);
+  const coverTags = nb.tags?.slice(0, 2) ?? [];
+  const extraTags = (nb.tags?.length ?? 0) - coverTags.length;
 
   return (
     <article className="notebook-card group soft-tile soft-tile-hover flex flex-col overflow-hidden">
@@ -108,34 +111,17 @@ export function NotebookBookCard({
               公开
             </CoverChip>
           ) : null}
-          {nb.index_status === "failed" ? (
-            <CoverChip
-              className="border-rose-300/30 text-rose-100"
-              title={nb.index_error ?? "索引失败"}
-            >
+          {coverTags.map((tag) => (
+            <CoverChip key={tag.id} title={tag.name}>
               <span
                 aria-hidden
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400"
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: tag.color || "#86efac" }}
               />
-              索引失败
+              <span className="max-w-[4.5rem] truncate">{tag.name}</span>
             </CoverChip>
-          ) : nb.index_status === "ready" ? (
-            <CoverChip>
-              <span
-                aria-hidden
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-300"
-              />
-              已索引
-            </CoverChip>
-          ) : nb.index_status === "indexing" ? (
-            <CoverChip className="text-amber-100">
-              <span
-                aria-hidden
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300"
-              />
-              索引中
-            </CoverChip>
-          ) : null}
+          ))}
+          {extraTags > 0 ? <CoverChip>+{extraTags}</CoverChip> : null}
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
       </Link>
@@ -145,32 +131,18 @@ export function NotebookBookCard({
           <h3 className="line-clamp-2 text-xs font-semibold leading-snug tracking-tight text-foreground">
             {nb.title}
           </h3>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
-            <span className="inline-flex items-center rounded-full bg-muted/80 px-1.5 py-0.5 font-medium text-foreground/80">
-              {sourcesLabel}
-            </span>
-            {nb.updated_at ? (
-              <span className="truncate">{formatDateZh(nb.updated_at)}</span>
-            ) : null}
-          </p>
-          {nb.tags && nb.tags.length > 0 ? (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {nb.tags.slice(0, 2).map((t) => (
-                <span
-                  key={t.id}
-                  className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
-                >
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: t.color || "#2F6B4F" }}
-                  />
-                  <span className="truncate">{t.name}</span>
-                </span>
-              ))}
-              {nb.tags.length > 2 ? (
-                <span className="text-[10px] text-muted-foreground">+{nb.tags.length - 2}</span>
+          <div className="mt-1">
+            <NotebookStatusLines notebook={nb} />
+          </div>
+          {nb.subtitle_total == null && nb.overview_total == null && !nb.index_status ? (
+            <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
+              <span className="inline-flex items-center rounded-full bg-muted/80 px-1.5 py-0.5 font-medium text-foreground/80">
+                {sourcesLabel}
+              </span>
+              {nb.updated_at ? (
+                <span className="truncate">{formatDateZh(nb.updated_at)}</span>
               ) : null}
-            </div>
+            </p>
           ) : null}
         </Link>
         <div

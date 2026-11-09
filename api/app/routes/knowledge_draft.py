@@ -1,6 +1,8 @@
 """/api/notebooks/{id}/knowledge-draft — 本内知识底稿。"""
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,8 @@ from app.schemas.knowledge_draft import (
     KnowledgeDraftPointAskRequest,
     KnowledgeDraftPointAskResponse,
     KnowledgeDraftRead,
+    KnowledgeDraftReviewRequest,
+    KnowledgeDraftReviewResponse,
     KnowledgeDraftUpdateRequest,
 )
 from app.services import knowledge_draft as svc
@@ -80,6 +84,23 @@ async def patch_knowledge_draft(
     )
 
 
+@router.get("/notebooks/{notebook_id}/knowledge-draft/export.docx")
+async def export_knowledge_draft(
+    notebook_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    payload, filename = await svc.export_draft_docx(
+        session, owner_id=user.id, notebook_id=notebook_id
+    )
+    disposition = f"attachment; filename=\"draft.docx\"; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=payload,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": disposition},
+    )
+
+
 @router.delete(
     "/notebooks/{notebook_id}/knowledge-draft",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -105,6 +126,21 @@ async def ask_knowledge_draft_point(
     user: User = Depends(get_current_active_user),
 ):
     return await svc.ask_about_point(
+        session, owner_id=user.id, notebook_id=notebook_id, body=body
+    )
+
+
+@router.post(
+    "/notebooks/{notebook_id}/knowledge-draft/review",
+    response_model=KnowledgeDraftReviewResponse,
+)
+async def review_knowledge_draft_conclusion(
+    notebook_id: int,
+    body: KnowledgeDraftReviewRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    return await svc.review_conclusion(
         session, owner_id=user.id, notebook_id=notebook_id, body=body
     )
 

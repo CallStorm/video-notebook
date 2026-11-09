@@ -161,6 +161,19 @@ async def get_subtitle(
     )
 
 
+@router.post("/sources/{video_id}/overview/retry", response_model=VideoRead)
+async def retry_overview(
+    video_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    """字幕就绪后只重跑概览。"""
+    from app.subtitles.pipeline import request_overview_retry
+
+    video = await request_overview_retry(session, owner_id=user.id, video_id=video_id)
+    return svc._video_to_dict(video)
+
+
 @router.post(
     "/sources/{video_id}/subtitle/regenerate",
     response_model=SubtitleView,

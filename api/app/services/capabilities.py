@@ -15,7 +15,7 @@ _TEXT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _FIELD_TYPES = frozenset({"sources", "language", "text", "select"})
 
 # Product-fixed formats: always available, not admin-togglable.
-ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides"})
+ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft"})
 # Retired from product surface; keep DB/plugin rows but force off.
 ALWAYS_OFF_FORMATS = frozenset({"structured_notes", "four_panel"})
 

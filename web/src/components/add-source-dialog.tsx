@@ -215,7 +215,7 @@ function WebsitesDialog({
             >
               <span className="text-base">←</span>
             </Button>
-            <h2 className="text-base font-semibold">Website and YouTube URLs</h2>
+            <h2 className="text-base font-semibold">链接</h2>
           </div>
           <Button
             type="button"
@@ -230,7 +230,7 @@ function WebsitesDialog({
 
         <div className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
-            粘贴 Website 和 YouTube URL，每行一个。
+            粘贴 YouTube、B 站或抖音链接，每行一个。分享文案里的 http(s) 地址会自动取出。
           </p>
           <textarea
             value={text}
@@ -241,8 +241,8 @@ function WebsitesDialog({
           />
           <ul className="space-y-1 text-xs text-muted-foreground">
             <li>· 多个 URL 用空格或换行分隔</li>
-            <li>· 仅导入页面可见的正文（v2 接 ASR）</li>
-            <li>· 仅 YouTube 公开视频可导入</li>
+            <li>· 图文和直播链接不能作为视频来源</li>
+            <li>· 抖音支持 v.douyin.com、douyin.com、iesdouyin.com</li>
             <li>· 上传失败请检查链接有效性</li>
           </ul>
         </div>

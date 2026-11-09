@@ -224,7 +224,7 @@ async def prepare_chat(
     ids = await _source_ids(session, notebook_id, source_ids)
     notes = await _notes(session, notebook_id, note_ids)
     if not ids and not notes:
-        raise BadRequestError("请先勾选至少一个来源")
+        raise BadRequestError("请先勾选至少一个来源或笔记")
     context = await build_context(session, notebook_id=notebook_id, source_ids=ids)
     if not context.lines and not notes:
         raise BadRequestError("勾选的来源还没有可用字幕")

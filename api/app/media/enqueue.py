@@ -11,7 +11,7 @@ from app.observability.pipeline_log import log_event, start_pipeline_run
 
 logger = logging.getLogger(__name__)
 
-Stage = Literal["full", "subtitle_only"]
+Stage = Literal["full", "subtitle_only", "overview_only"]
 
 _TASK_KEY = "vnb:media:pipeline:task:{video_id}"
 _RUN_KEY = "vnb:media:pipeline:run:{video_id}"

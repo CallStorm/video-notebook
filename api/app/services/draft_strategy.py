@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.config import get_settings as get_app_settings
 from app.core.errors import BadRequestError, NotFoundError
 from app.draft_strategy.defaults import (
     BUILTIN_STRATEGIES,
@@ -67,7 +67,7 @@ async def _ensure_settings(session: AsyncSession) -> DraftStrategySettings:
             id=_SETTINGS_ID,
             default_prefix=DEFAULT_PREFIX,
             default_model_ref="claude_code",
-            max_tokens=int(get_settings().draft_max_tokens) or 200000,
+            max_tokens=int(get_app_settings().draft_max_tokens) or 200000,
         )
         session.add(row)
         await session.flush()
@@ -81,7 +81,7 @@ async def resolve_draft_max_tokens(session: AsyncSession) -> int:
     n = int(getattr(row, "max_tokens", 0) or 0)
     if n >= 1:
         return n
-    return max(1, int(get_settings().draft_max_tokens) or 200000)
+    return max(1, int(get_app_settings().draft_max_tokens) or 200000)
 
 
 async def seed_builtin_strategies(session: AsyncSession) -> None:
@@ -142,7 +142,7 @@ async def get_settings(session: AsyncSession) -> DraftStrategySettingsRead:
     return DraftStrategySettingsRead(
         default_prefix=row.default_prefix or "",
         default_model_ref=row.default_model_ref,  # type: ignore[arg-type]
-        max_tokens=int(row.max_tokens) if getattr(row, "max_tokens", None) else int(get_settings().draft_max_tokens) or 200000,
+        max_tokens=int(row.max_tokens) if getattr(row, "max_tokens", None) else int(get_app_settings().draft_max_tokens) or 200000,
         output_schema=OUTPUT_SCHEMA,
         kind_labels=KIND_LABELS,
     )

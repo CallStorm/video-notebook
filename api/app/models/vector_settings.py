@@ -28,5 +28,15 @@ class VectorSettingsConfig(Base, TimestampMixin):
     index_title: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     index_description: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     index_overview: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    index_subtitles: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    index_notes: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    index_subtitles: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    index_notes: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    index_conclusions: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    index_draft: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # 某一类超过这个字数才切开。默认 6000，留在 bge-m3 的 8192 token 以内。
+    chunk_card_chars: Mapped[int] = mapped_column(Integer, default=6000, nullable=False)
+    chunk_subtitles_chars: Mapped[int] = mapped_column(Integer, default=6000, nullable=False)
+    chunk_notes_chars: Mapped[int] = mapped_column(Integer, default=6000, nullable=False)
+    chunk_conclusions_chars: Mapped[int] = mapped_column(Integer, default=6000, nullable=False)
+    chunk_draft_chars: Mapped[int] = mapped_column(Integer, default=6000, nullable=False)
+    chunk_overlap_chars: Mapped[int] = mapped_column(Integer, default=200, nullable=False)

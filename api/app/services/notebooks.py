@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.cover_url import expand_cover_url, normalize_cover_url
 from app.core.errors import NotFoundError
+from app.models.knowledge_draft import NotebookKnowledgeDraft
 from app.models.notebook import Note, Notebook, NotebookSource, Video
 from app.models.notebook_index import NotebookIndexState
 from app.models.user import User
@@ -54,6 +55,7 @@ def _to_read_dict(
     indexed_at: str | None = None,
     index_error: str | None = None,
     tags: list[dict] | None = None,
+    readiness: dict | None = None,
 ) -> dict:
     return {
         "id": nb.id,
@@ -73,6 +75,7 @@ def _to_read_dict(
         "indexed_at": indexed_at,
         "index_error": index_error,
         "tags": tags or [],
+        **(readiness or _empty_readiness()),
         "created_at": nb.created_at.isoformat() if nb.created_at else None,
         "updated_at": nb.updated_at.isoformat() if nb.updated_at else None,
     }
@@ -145,6 +148,158 @@ def _index_fields(
         "index_error": state.index_error,
     }
 
+
+def _empty_readiness() -> dict:
+    return {
+        "subtitle_ready": 0,
+        "subtitle_failed": 0,
+        "subtitle_processing": 0,
+        "subtitle_total": 0,
+        "subtitle_error": None,
+        "overview_ready": 0,
+        "overview_failed": 0,
+        "overview_processing": 0,
+        "overview_total": 0,
+        "overview_error": None,
+        "index_stale_reason": None,
+    }
+
+
+def _naive(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def _draft_has_conclusions(draft: NotebookKnowledgeDraft) -> bool:
+    if (draft.conclusion or "").strip():
+        return True
+    content = draft.content_json if isinstance(draft.content_json, dict) else {}
+    raw = content.get("conclusions")
+    if isinstance(raw, list):
+        return any(str(item).strip() for item in raw)
+    return False
+
+
+def _count_stage(stage: dict[str, int], status: str | None) -> None:
+    stage["total"] += 1
+    if status == "ready":
+        stage["ready"] += 1
+    elif status == "failed":
+        stage["failed"] += 1
+    elif status == "processing":
+        stage["processing"] += 1
+
+
+def _first_error(current: str | None, status: str | None, error: str | None) -> str | None:
+    if current or status != "failed":
+        return current
+    text = " ".join((error or "").split())
+    return text or None
+
+
+async def readiness_for_notebooks(
+    session: AsyncSession,
+    notebook_ids: list[int],
+    *,
+    states: dict[int, NotebookIndexState],
+    owner_flags: dict[int, bool],
+) -> dict[int, dict]:
+    """字幕 / 概览计数，以及主人可见的失败原因和索引过期原因。"""
+    out = {int(nid): _empty_readiness() for nid in notebook_ids}
+    if not notebook_ids:
+        return out
+
+    rows = (
+        await session.execute(
+            select(
+                NotebookSource.notebook_id,
+                Video.subtitle_status,
+                Video.subtitle_error,
+                Video.overview_status,
+                Video.overview_error,
+            )
+            .join(Video, Video.id == NotebookSource.video_id)
+            .where(NotebookSource.notebook_id.in_(notebook_ids))
+            .order_by(NotebookSource.notebook_id, NotebookSource.sort, Video.id)
+        )
+    ).all()
+    stages: dict[int, dict[str, dict[str, int]]] = {}
+    for notebook_id, subtitle_status, subtitle_error, overview_status, overview_error in rows:
+        nid = int(notebook_id)
+        bucket = stages.setdefault(
+            nid,
+            {
+                "subtitle": {"ready": 0, "failed": 0, "processing": 0, "total": 0},
+                "overview": {"ready": 0, "failed": 0, "processing": 0, "total": 0},
+            },
+        )
+        _count_stage(bucket["subtitle"], subtitle_status)
+        _count_stage(bucket["overview"], overview_status)
+        item = out[nid]
+        item["subtitle_error"] = _first_error(
+            item["subtitle_error"], subtitle_status, subtitle_error
+        )
+        item["overview_error"] = _first_error(
+            item["overview_error"], overview_status, overview_error
+        )
+
+    for nid, bucket in stages.items():
+        item = out[nid]
+        for key in ("subtitle", "overview"):
+            item[f"{key}_ready"] = bucket[key]["ready"]
+            item[f"{key}_failed"] = bucket[key]["failed"]
+            item[f"{key}_processing"] = bucket[key]["processing"]
+            item[f"{key}_total"] = bucket[key]["total"]
+
+    note_rows = (
+        await session.execute(
+            select(Note.notebook_id, func.max(Note.updated_at))
+            .where(Note.notebook_id.in_(notebook_ids), Note.deleted_at.is_(None))
+            .group_by(Note.notebook_id)
+        )
+    ).all()
+    note_updated = {int(nid): updated for nid, updated in note_rows}
+    drafts = (
+        await session.execute(
+            select(NotebookKnowledgeDraft).where(
+                NotebookKnowledgeDraft.notebook_id.in_(notebook_ids)
+            )
+        )
+    ).scalars().all()
+    draft_by_id = {int(row.notebook_id): row for row in drafts}
+
+    for nid, item in out.items():
+        state = states.get(nid)
+        indexed_at = _naive(state.indexed_at) if state is not None else None
+        if (
+            state is not None
+            and state.status == "ready"
+            and indexed_at is not None
+            and owner_flags.get(nid, False)
+        ):
+            note_at = _naive(note_updated.get(nid))
+            draft = draft_by_id.get(nid)
+            draft_at = _naive(draft.updated_at) if draft is not None else None
+            note_stale = note_at is not None and note_at > indexed_at
+            conclusion_stale = (
+                draft is not None
+                and _draft_has_conclusions(draft)
+                and draft_at is not None
+                and draft_at > indexed_at
+            )
+            if note_stale:
+                item["index_stale_reason"] = "笔记有更新，尚未写入"
+            elif conclusion_stale:
+                item["index_stale_reason"] = "结论有更新，尚未写入"
+        if not owner_flags.get(nid, False):
+            item["subtitle_error"] = None
+            item["overview_error"] = None
+            item["index_stale_reason"] = None
+    return out
+
 async def _owner_names(session: AsyncSession, owner_ids: list[int]) -> dict[int, str]:
     ids = sorted({int(i) for i in owner_ids if i is not None})
     if not ids:
@@ -178,6 +333,9 @@ async def to_read(
     states = await index_states_for_notebooks(session, [nb.id])
     is_owner = viewer_id == nb.owner_id if viewer_id is not None else False
     idx = _index_fields(states.get(nb.id), is_owner=is_owner)
+    ready_map = await readiness_for_notebooks(
+        session, [nb.id], states=states, owner_flags={nb.id: is_owner}
+    )
     tag_owner = nb.owner_id if (viewer_id is None or viewer_id == nb.owner_id) else None
     tags_map = await _tags_map(session, [nb.id], tag_owner)
     return _to_read_dict(
@@ -187,6 +345,7 @@ async def to_read(
         owner_name=owner_name,
         viewer_id=viewer_id,
         tags=tags_map.get(nb.id, []),
+        readiness=ready_map.get(nb.id),
         **idx,
     )
 
@@ -202,7 +361,15 @@ async def to_read_many(
     names: dict[int, str] = {}
     if include_owner_name:
         names = await _owner_names(session, [nb.owner_id for nb in notebooks])
-    states = await index_states_for_notebooks(session, [nb.id for nb in notebooks])
+    ids = [nb.id for nb in notebooks]
+    states = await index_states_for_notebooks(session, ids)
+    owner_flags = {
+        nb.id: (viewer_id == nb.owner_id if viewer_id is not None else False)
+        for nb in notebooks
+    }
+    ready_map = await readiness_for_notebooks(
+        session, ids, states=states, owner_flags=owner_flags
+    )
     # Only expose tags for notebooks the viewer owns (or when no viewer).
     owned_ids = [
         nb.id
@@ -229,6 +396,7 @@ async def to_read_many(
                 owner_name=names.get(nb.owner_id),
                 viewer_id=viewer_id,
                 tags=tags_map.get(nb.id, []) if is_owner or viewer_id is None else [],
+                readiness=ready_map.get(nb.id),
                 **idx,
             )
         )
@@ -385,9 +553,21 @@ def clamp_semantic_min_score(value: float | None) -> float:
     return max(SEMANTIC_MIN_SCORE_FLOOR, min(SEMANTIC_MIN_SCORE_CEIL, score))
 
 
-def _semantic_match_hint(score: float) -> str:
+_PART_LABELS = {
+    "card": "简介",
+    "subtitles": "字幕",
+    "notes": "笔记",
+    "conclusions": "结论",
+    "draft": "底稿",
+}
+
+
+def _semantic_match_hint(score: float, part: str | None = None) -> str:
     # Qdrant Cosine 返回的是相似度（约 0~1），不是距离；展示为百分比诚实映射
     pct = max(0, min(100, int(round(float(score) * 100))))
+    label = _PART_LABELS.get(part or "")
+    if pct > 0 and label:
+        return f"语义相近 · {label} · {pct}%"
     if pct > 0:
         return f"语义相近 · {pct}%"
     return "语义相近"
@@ -455,7 +635,7 @@ async def _discover_semantic(
 
     # 只保留仍在候选集内、且达到最低相似度的命中
     allowed = set(candidate_ids)
-    ordered: list[tuple[int, float]] = []
+    ordered: list[tuple[int, float, str]] = []
     seen: set[int] = set()
     for hit in hits:
         score = float(hit.score)
@@ -464,7 +644,8 @@ async def _discover_semantic(
         if score < threshold:
             continue
         seen.add(hit.notebook_id)
-        ordered.append((hit.notebook_id, score))
+        part = str((hit.payload or {}).get("part") or "")
+        ordered.append((hit.notebook_id, score, part))
 
     total = len(ordered)
     start = (page - 1) * size
@@ -472,12 +653,13 @@ async def _discover_semantic(
     if not page_rows:
         return [], total
 
-    page_ids = [nid for nid, _ in page_rows]
+    page_ids = [nid for nid, _, _ in page_rows]
     nb_rows = (
         await session.execute(select(Notebook).where(Notebook.id.in_(page_ids)))
     ).scalars().all()
     by_id = {nb.id: nb for nb in nb_rows}
-    score_by_id = {nid: score for nid, score in page_rows}
+    score_by_id = {nid: score for nid, score, _part in page_rows}
+    part_by_id = {nid: part for nid, _score, part in page_rows}
     pairs: list[tuple[Notebook, str | None]] = []
     for nid in page_ids:
         nb = by_id.get(nid)
@@ -492,7 +674,9 @@ async def _discover_semantic(
             continue
         if scope == "all" and nb.owner_id != viewer_id and not nb.share_all:
             continue
-        pairs.append((nb, _semantic_match_hint(score_by_id.get(nid, 0.0))))
+        pairs.append(
+            (nb, _semantic_match_hint(score_by_id.get(nid, 0.0), part_by_id.get(nid)))
+        )
     return pairs, total
 
 async def discover_notebooks(
@@ -630,9 +814,12 @@ async def update_notebook(
     is_pinned: bool | None = None,
 ) -> dict:
     nb = await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    index_changed = False
     if title is not None:
+        index_changed = index_changed or title != nb.title
         nb.title = title
     if description is not None:
+        index_changed = index_changed or (description or "") != (nb.description or "")
         nb.description = description
     if icon is not None:
         nb.icon = icon
@@ -643,6 +830,8 @@ async def update_notebook(
     session.add(nb)
     await session.commit()
     await session.refresh(nb)
+    if index_changed:
+        _touch_index(nb.id)
     return await to_read(session, nb)
 
 
@@ -667,6 +856,7 @@ async def delete_notebook(
         note.message_id = None
         session.add(note)
     await session.commit()
+    _touch_index(notebook_id)
 
 
 async def set_share_all(
@@ -677,11 +867,20 @@ async def set_share_all(
     value: bool,
 ) -> dict:
     nb = await get_notebook(session, owner_id=owner_id, notebook_id=notebook_id)
+    changed = bool(nb.share_all) != bool(value)
     nb.share_all = value
     session.add(nb)
     await session.commit()
     await session.refresh(nb)
+    if changed:
+        _touch_index(nb.id)
     return await to_read(session, nb)
+
+
+def _touch_index(notebook_id: int) -> None:
+    from app.vector.schedule import touch_notebook_index
+
+    touch_notebook_index(notebook_id)
 
 
 async def list_sources(

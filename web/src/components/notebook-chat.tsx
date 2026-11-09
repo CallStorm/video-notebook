@@ -73,6 +73,7 @@ export function NotebookChat({
   access,
   notebookId,
   sources,
+  notes = [],
   onJump,
   relay,
   readOnly = false,
@@ -81,6 +82,7 @@ export function NotebookChat({
   access: string;
   notebookId: number;
   sources: ChatSource[];
+  notes?: { id: number; title: string; selected: boolean }[];
   onJump: (videoId: number, lineNo: number) => void;
   relay?: ChatRelay | null;
   readOnly?: boolean;
@@ -104,6 +106,14 @@ export function NotebookChat({
   const [deletingSelected, setDeletingSelected] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const selectedSourceIds = sources.filter((source) => source.selected).map((source) => source.videoId);
+  const selectedNoteIds = notes.filter((note) => note.selected).map((note) => note.id);
+  const hasContext = selectedSourceIds.length + selectedNoteIds.length > 0;
+  const contextLabel =
+    selectedNoteIds.length === 0
+      ? `${selectedSourceIds.length} 个来源`
+      : selectedSourceIds.length === 0
+        ? `${selectedNoteIds.length} 条笔记`
+        : `${selectedSourceIds.length} 个来源 · ${selectedNoteIds.length} 条笔记`;
 
   const saved = history.data ?? [];
   const shown = [...saved];
@@ -202,7 +212,7 @@ export function NotebookChat({
 
   async function send() {
     const message = draft.trim();
-    if (readOnly || selecting || !message || sending || selectedSourceIds.length === 0) return;
+    if (readOnly || selecting || !message || sending || !hasContext) return;
     setDraft("");
     setFormError(null);
     setSending(true);
@@ -227,6 +237,7 @@ export function NotebookChat({
     let savedId: number | null = null;
     try {
       await readChatStream(access, notebookId, message, selectedSourceIds, {
+        noteIds: selectedNoteIds,
         onToken: (token) => {
           setLive((current) =>
             current ? { ...current, content_text: current.content_text + token } : current,
@@ -413,11 +424,11 @@ export function NotebookChat({
               placeholder={
                 selecting
                   ? "选择模式下不可提问…"
-                  : selectedSourceIds.length === 0
-                    ? "请先在左侧勾选来源…"
-                    : "向来源提问…"
+                  : hasContext
+                    ? "向已勾选的来源或笔记提问…"
+                    : "请先在左侧勾选来源或笔记…"
               }
-              disabled={selecting || sending || selectedSourceIds.length === 0}
+              disabled={selecting || sending || !hasContext}
               className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -428,12 +439,12 @@ export function NotebookChat({
               }}
             />
             <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
-              {selectedSourceIds.length} 个来源
+              {contextLabel}
             </span>
             <button
               type="submit"
               title="发送"
-              disabled={selecting || sending || !draft.trim() || selectedSourceIds.length === 0}
+              disabled={selecting || sending || !draft.trim() || !hasContext}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition enabled:bg-primary enabled:text-primary-foreground enabled:shadow-soft disabled:opacity-50"
             >
               <ArrowUp className="h-4 w-4" />

@@ -10,6 +10,8 @@ from app.db.session import get_session
 from app.fetch_network.types import PLATFORMS, PlatformKey
 from app.models.user import User
 from app.schemas.fetch_network import (
+    DouyinParserTestResult,
+    DouyinParserUpdate,
     FetchNetworkRead,
     PlatformCookieUpdate,
     ProxyTestResult,
@@ -68,6 +70,23 @@ async def delete_proxy(
     _: User = Depends(require_admin),
 ):
     return await svc.clear_proxy(session)
+
+
+@router.put("/douyin-parser", response_model=FetchNetworkRead)
+async def put_douyin_parser(
+    body: DouyinParserUpdate,
+    session: AsyncSession = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    return await svc.update_douyin_parser(session, body)
+
+
+@router.post("/douyin-parser/test", response_model=DouyinParserTestResult)
+async def post_douyin_parser_test(
+    session: AsyncSession = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    return await svc.test_douyin_parser(session)
 
 
 @router.post("/proxy/test", response_model=ProxyTestResult)
