@@ -2,7 +2,7 @@
 
 面向 WorkBuddy、Claude Code、Cursor 等客户端，用 Agent Token + Skill + MCP 操作影知（视频搜索、建笔记本、加片、知识底稿），**不要**把整站 `/api` 或登录 JWT 交给 Agent。
 
-详细步骤与截图见 [功能说明 · 对外 Agent](features.md#对外-agentworkbuddy--claude-code--cursor-等)。
+详细步骤与截图见 [功能说明 · 对外 Agent](features.md#对外-agentworkbuddy--claude-code--cursor-等)。产品多端总览见根 [README](../README.md)。
 
 ## 推荐对话节奏
 
