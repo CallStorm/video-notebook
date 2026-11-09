@@ -42,8 +42,13 @@ class SearchArgs(BaseModel):
 class ListNotebooksArgs(BaseModel):
     search: str | None = Field(default=None, max_length=200)
     q: str | None = Field(default=None, max_length=200)
+    tag_id: int | None = Field(default=None, ge=1)
     page: int = Field(default=1, ge=1)
     size: int = Field(default=20, ge=1, le=50)
+
+
+class EmptyArgs(BaseModel):
+    pass
 
 
 class NotebookIdArgs(BaseModel):
@@ -63,6 +68,18 @@ class CreateNotebookArgs(BaseModel):
         self.name = cleaned
         return self
 
+
+class DeleteNotebookArgs(BaseModel):
+    notebook_id: int = Field(ge=1)
+
+
+class AutoTagNotebookArgs(BaseModel):
+    notebook_id: int = Field(ge=1)
+    hint: str | None = Field(default=None, max_length=2000)
+
+
+class EmptyWriteArgs(BaseModel):
+    pass
 
 class GenerateCoverArgs(BaseModel):
     notebook_id: int
@@ -127,11 +144,17 @@ def _cover(origin: str, cover_url: str | None) -> str | None:
 
 
 def notebook_brief(data: dict, *, origin: str) -> dict:
+    tags = data.get("tags") or []
     return {
         "notebook_id": data["id"],
         "name": data["title"],
         "description": data.get("description"),
         "cover_url": _cover(origin, data.get("cover_url")),
+        "tags": [
+            {"id": int(t["id"]), "name": t.get("name") or "", "color": t.get("color")}
+            for t in tags
+            if isinstance(t, dict) and t.get("id") is not None
+        ],
         "source_count": data.get("source_count", 0),
         "note_count": data.get("note_count", 0),
         "subtitle_ready": data.get("subtitle_ready", 0),
@@ -214,6 +237,7 @@ async def _list_notebooks(
         search=(args.search or args.q),
         page=args.page,
         size=args.size,
+        tag_id=args.tag_id,
     )
     reads = await notebooks_svc.to_read_many(session, items, viewer_id=ctx.user.id)
     return {
@@ -221,6 +245,26 @@ async def _list_notebooks(
         "total": total,
         "page": args.page,
         "size": args.size,
+        "tag_id": args.tag_id,
+    }
+
+
+async def _list_tags(
+    session: AsyncSession, ctx: AgentContext, args: EmptyArgs
+) -> dict:
+    from app.services import tags as tags_svc
+
+    items = await tags_svc.list_tags(session, ctx.user.id)
+    return {
+        "items": [
+            {
+                "id": int(t["id"]),
+                "name": t.get("name") or "",
+                "color": t.get("color"),
+                "notebook_count": int(t.get("notebook_count") or 0),
+            }
+            for t in items
+        ]
     }
 
 
@@ -549,14 +593,48 @@ async def _generate_draft(
         session, owner_id=ctx.user.id, notebook_id=args.notebook_id
     )
 
+    sources = await notebooks_svc.list_sources(
+        session, owner_id=ctx.user.id, notebook_id=args.notebook_id
+    )
+    readiness = _readiness(args.notebook_id, sources)
+    if sources and not readiness["ready_for_draft"]:
+        pending = [
+            item for item in readiness["sources"] if item["subtitle_status"] != "ready"
+        ]
+        fetching_count = sum(
+            1
+            for item in readiness["sources"]
+            if item["fetch_status"] not in {"ready", "failed"}
+            or item["subtitle_status"] not in {"ready", "failed"}
+        )
+        failed = [item for item in pending if item["subtitle_status"] == "failed"]
+        waiting = [item for item in pending if item["subtitle_status"] != "failed"]
+        parts: list[str] = [
+            f"笔记本尚有来源未就绪，不能生成底稿"
+            f"（字幕就绪 {readiness['subtitle_ready_count']}/{readiness['source_count']}，"
+            f"抓取/字幕进行中约 {fetching_count} 条）"
+        ]
+        if waiting:
+            titles = "、".join(
+                (item.get("title") or f"video_id={item['video_id']}")[:40]
+                for item in waiting[:5]
+            )
+            more = f" 等{len(waiting)}条" if len(waiting) > 5 else ""
+            parts.append(f"仍在抓取或字幕处理中：{titles}{more}")
+        if failed:
+            titles = "、".join(
+                (item.get("title") or f"video_id={item['video_id']}")[:40]
+                for item in failed[:5]
+            )
+            more = f" 等{len(failed)}条" if len(failed) > 5 else ""
+            parts.append(f"字幕失败：{titles}{more}")
+        parts.append("请先 get_readiness，待 ready_for_draft=true 后再试。")
+        raise BadRequestError("；".join(parts))
+
     video_ids = args.video_ids
     note_ids = args.note_ids
     if video_ids is None and note_ids is None:
-        sources = await notebooks_svc.list_sources(
-            session, owner_id=ctx.user.id, notebook_id=args.notebook_id
-        )
-        ready = [item.video_id for item in sources if item.video.subtitle_status == "ready"]
-        video_ids = ready or [item.video_id for item in sources]
+        video_ids = [item.video_id for item in sources]
         note_ids = []
     else:
         video_ids = list(video_ids or [])
@@ -659,9 +737,69 @@ async def _get_job(session: AsyncSession, ctx: AgentContext, args: JobIdArgs) ->
     raise NotFoundError("任务不存在")
 
 
+
+
+async def _delete_notebook(
+    session: AsyncSession, ctx: AgentContext, args: DeleteNotebookArgs
+) -> dict:
+    await notebooks_svc.delete_notebook(
+        session, owner_id=ctx.user.id, notebook_id=args.notebook_id
+    )
+    return {"ok": True, "notebook_id": args.notebook_id}
+
+
+async def _auto_tag_notebook(
+    session: AsyncSession, ctx: AgentContext, args: AutoTagNotebookArgs
+) -> dict:
+    from app.services import tags as tags_svc
+
+    result = await tags_svc.auto_tag_notebook(
+        session,
+        ctx.user.id,
+        args.notebook_id,
+        hint=args.hint,
+    )
+    tags = result.get("tags") or []
+    return {
+        "notebook_id": args.notebook_id,
+        "tag_ids": result.get("tag_ids") or [int(t["id"]) for t in tags if t.get("id") is not None],
+        "tags": [
+            {"id": int(t["id"]), "name": t.get("name") or "", "color": t.get("color")}
+            for t in tags
+            if isinstance(t, dict) and t.get("id") is not None
+        ],
+    }
+
+
+async def _auto_organize_tags(
+    session: AsyncSession, ctx: AgentContext, args: EmptyWriteArgs
+) -> dict:
+    from app.services import tags as tags_svc
+
+    del args
+    result = await tags_svc.auto_organize_apply_preview(session, ctx.user.id)
+    tags = result.get("tags") or []
+    return {
+        "applied": bool(result.get("applied")),
+        "message": result.get("message"),
+        "notebook_count": result.get("notebook_count"),
+        "tags": [
+            {
+                "id": int(t["id"]),
+                "name": t.get("name") or "",
+                "color": t.get("color"),
+                "notebook_count": int(t.get("notebook_count") or 0),
+            }
+            for t in tags
+            if isinstance(t, dict) and t.get("id") is not None
+        ],
+    }
+
+
 TOOLS: list[Tool] = [
     Tool("search", "在 YouTube / Bilibili 搜索视频，返回可粘贴的链接。", ("read",), SearchArgs, _search),
     Tool("list_notebooks", "列出当前用户的笔记本。", ("read",), ListNotebooksArgs, _list_notebooks),
+    Tool("list_tags", "列出当前用户的笔记本标签（用于分类筛选）。", ("read",), EmptyArgs, _list_tags),
     Tool("get_notebook", "读取笔记本详情、来源和就绪情况。", ("read",), NotebookIdArgs, _get_notebook),
     Tool("get_source", "读取一条来源（视频）以及它挂在哪些笔记本上。", ("read",), VideoIdArgs, _get_source),
     Tool("get_video", "读取视频元数据，不含文件内容。", ("read",), VideoIdArgs, _get_video),
@@ -702,6 +840,27 @@ TOOLS: list[Tool] = [
         _create_notebook,
     ),
     Tool(
+        "delete_notebook",
+        "软删除一本笔记本（及其笔记）。不可恢复到列表。",
+        ("write_notebook",),
+        DeleteNotebookArgs,
+        _delete_notebook,
+    ),
+    Tool(
+        "auto_tag_notebook",
+        "根据笔记本名称/描述（可选 hint）自动归类标签：优先已有标签，必要时新建，并立即写入关联。",
+        ("write_notebook",),
+        AutoTagNotebookArgs,
+        _auto_tag_notebook,
+    ),
+    Tool(
+        "auto_organize_tags",
+        "一键自动归类：用 LLM 为当前用户全部笔记本生成并应用标签方案（覆盖原有关联）。",
+        ("write_notebook",),
+        EmptyWriteArgs,
+        _auto_organize_tags,
+    ),
+    Tool(
         "generate_cover",
         "按笔记本名称和描述排队生成封面，返回 job_id。",
         ("write_generate",),
@@ -718,7 +877,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         "generate_draft",
-        "与网页「生成底稿」相同：创建 Studio 底稿任务（产物页可见），立刻返回 job_id(=task_id)。用 get_job 轮询；成功后 get_draft 读正文。来源省略时用本内已就绪字幕。",
+        "与网页「生成底稿」相同：创建 Studio 底稿任务（产物页可见），立刻返回 job_id(=task_id)。必须先 get_readiness 且 ready_for_draft=true；笔记本内只要还有抓取中/字幕未就绪的来源就拒绝生成。用 get_job 轮询；成功后 get_draft 读正文。",
         ("write_generate",),
         GenerateDraftArgs,
         _generate_draft,

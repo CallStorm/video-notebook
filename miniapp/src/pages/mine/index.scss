@@ -1,0 +1,18 @@
+.brand-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+}
+.name {
+  font-size: 20px;
+  font-weight: 800;
+}
+.en {
+  color: #0f766e;
+  font-weight: 600;
+}

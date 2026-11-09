@@ -1,0 +1,278 @@
+.collect-page {
+  padding-bottom: 40px;
+}
+
+.paste-card {
+  margin-bottom: 16px;
+}
+
+.paste-area {
+  min-height: 180px;
+  margin-top: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.picked {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #ecfeff;
+  border-radius: 10px;
+}
+
+.picked-label {
+  display: block;
+  font-size: 12px;
+  color: #0f766e;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.picked-url {
+  display: block;
+  font-size: 12px;
+  color: #0f766e;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.hint-empty {
+  display: block;
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.collect-cta {
+  margin-top: 4px;
+  padding: 14px;
+  font-size: 16px;
+}
+
+.collect-cta.disabled,
+.sheet-create-btn.disabled,
+.nb-row.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.cta-hint {
+  display: block;
+  text-align: center;
+  margin-top: 10px;
+}
+
+/* F4 bottom action sheet */
+.collect-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.collect-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.collect-sheet {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height: 82vh;
+  box-shadow: 0 -8px 28px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  margin: 0 auto 12px;
+  flex-shrink: 0;
+}
+
+.sheet-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sheet-block {
+  margin-bottom: 14px;
+}
+
+.create-block {
+  padding: 12px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 14px;
+}
+
+.block-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.block-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.block-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sheet-input {
+  margin-top: 0;
+  background: #fff;
+}
+
+.sheet-create-btn {
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.nb-list {
+  margin-top: 8px;
+}
+
+.nb-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: #f8fafc;
+  margin-bottom: 8px;
+}
+
+.nb-row.compact {
+  padding: 8px;
+  background: transparent;
+  border-bottom: 1px solid #f1f5f9;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+.nb-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #d9eee8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+
+.nb-avatar.sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.nb-avatar-text {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.nb-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nb-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nb-name.flex1 {
+  flex: 1;
+  min-width: 0;
+  margin-right: 8px;
+}
+
+.nb-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nb-go {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ecfeff;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.search-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.search-chevron {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.search-panel {
+  margin-top: 8px;
+}
+
+.search-scroll {
+  margin-top: 8px;
+  max-height: 28vh;
+}
+
+.empty-search {
+  display: block;
+  padding: 16px 0;
+  text-align: center;
+}

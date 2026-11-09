@@ -1,0 +1,355 @@
+.nb-page {
+  padding: 12px 14px 24px;
+  background: #f5f7fa;
+  min-height: 100vh;
+  position: relative;
+}
+
+.toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0 14px;
+  height: 40px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  min-width: 0;
+}
+
+.search-input {
+  flex: 1;
+  font-size: 14px;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+}
+
+.filter-btn {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  max-width: 118px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.filter-btn.on {
+  background: #ecfdf5;
+  border-color: #99f6e4;
+}
+
+.filter-icon {
+  font-size: 12px;
+  color: #0f766e;
+  line-height: 1;
+}
+
+.filter-label {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 72px;
+}
+
+.filter-btn.on .filter-label {
+  color: #0f766e;
+}
+
+.filter-clear {
+  margin-left: 2px;
+  font-size: 16px;
+  line-height: 1;
+  color: #0f766e;
+  padding: 0 2px;
+}
+
+.tip {
+  display: block;
+  margin: 14px 0 0;
+}
+
+.empty {
+  margin-top: 48px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.empty-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.empty-btn {
+  margin: 18px auto 0;
+  width: 140px;
+}
+
+.shelf {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.book-swipe {
+  width: 48%;
+  margin-bottom: 14px;
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #ef4444;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.book-swipe-actions {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  /* capital Px: skip Taro px->rpx so width matches JS translateX px */
+  width: 76Px;
+  z-index: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.book-swipe-del {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ef4444;
+}
+
+.book-swipe-del-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 1px;
+}
+
+.book-swipe-front {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  transition: transform 0.2s ease;
+  will-change: transform;
+}
+
+.book-swipe-front.dragging {
+  transition: none;
+}
+
+.cover-box {
+  width: 100%;
+  height: 0;
+  padding-top: 132%;
+  position: relative;
+  background: #e2e8f0;
+}
+
+.cover-img,
+.cover-fallback {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cover-letter {
+  font-size: 36px;
+  font-weight: 700;
+  color: rgba(15, 23, 42, 0.35);
+}
+
+.book-meta {
+  padding: 10px 10px 12px;
+}
+
+.book-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Design C: bottom sheet filter */
+.filter-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.filter-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.filter-sheet {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height: 72vh;
+  box-shadow: 0 -8px 28px rgba(15, 23, 42, 0.12);
+}
+
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  margin: 0 auto 12px;
+}
+
+.sheet-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.tag-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.tag-chip {
+  width: 31.5%;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.tag-chip.on {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
+.tag-chip-text {
+  font-size: 13px;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-chip.on .tag-chip-text {
+  color: #fff;
+  font-weight: 600;
+}
+
+.actions-row {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auto-tag-btn {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  border: 1px solid #99f6e4;
+}
+
+.auto-tag-btn.disabled {
+  opacity: 0.55;
+}
+
+.auto-tag-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.actions-hint {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.book-tags {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.book-tag {
+  font-size: 10px;
+  color: #0f766e;
+  background: #ecfdf5;
+  border-radius: 999px;
+  padding: 2px 6px;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
