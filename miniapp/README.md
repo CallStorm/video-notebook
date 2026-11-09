@@ -31,3 +31,7 @@ npm run build:weapp
 ```
 
 首次需在开发者工具扫码登录；不要自动 submit 审核。
+
+## 产品说明
+
+抖音收集演示与截图见 [docs/miniapp.md](../docs/miniapp.md)。

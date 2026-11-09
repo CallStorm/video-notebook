@@ -51,6 +51,7 @@ flowchart TB
 |------|------|
 | **web** | React + Vite；开发期 `:5173`，代理 `/api` → api |
 | **api** | FastAPI：鉴权、笔记本/来源/标签、聊天 SSE、知识底稿、发现检索、入队 |
+| **Agent / MCP** | /agent/* + /mcp：Token 鉴权的工具门面（search / notebook / readiness / draft）；Skill 由 /agent/skill.md 下发 |
 | **media-worker** | 抓取、字幕、向量索引（`-Q media`） |
 | **studio-worker** | 思维导图 / PPT（`-Q studio`，依赖本机 Claude CLI） |
 | **MySQL** | 业务库（含 `tags` / `notebook_tags`） |
