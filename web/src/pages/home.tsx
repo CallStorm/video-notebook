@@ -125,7 +125,7 @@ export default function HomePage() {
   const [searchParams] = useSearchParams();
   const token = access ?? "";
   const qc = useQueryClient();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<View>("grid");
   const [tab, setTab] = useState<Tab>(() => initialTab(searchParams));

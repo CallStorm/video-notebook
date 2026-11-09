@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_workers: int = 2
+    # 对外 Origin，用于安装命令、MCP 地址和签名链接。空则用请求的 Host。
+    public_base_url: str = ""
 
     # ─── 数据库 ──────────────────────────────────────────────────────────
     # 默认走 127.0.0.1（开发期：compose.middleware.yml 把 mysql 绑到 localhost）。

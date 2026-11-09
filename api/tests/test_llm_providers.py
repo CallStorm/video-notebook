@@ -71,3 +71,72 @@ async def test_complete_sends_temperature_in_extra_body():
 
     assert "temperature" not in client.messages.calls[0]
     assert client.messages.calls[0]["extra_body"] == {"temperature": 0.2}
+
+
+def test_anthropic_requires_stream_threshold():
+    from app.llm.providers import anthropic_requires_stream
+
+    assert anthropic_requires_stream(800) is False
+    assert anthropic_requires_stream(21333) is False
+    assert anthropic_requires_stream(21334) is True
+    assert anthropic_requires_stream(200000) is True
+    # Opus model-specific non-streaming cap
+    assert anthropic_requires_stream(9000, "claude-opus-4-20250514") is True
+    assert anthropic_requires_stream(4096, "claude-opus-4-20250514") is False
+
+
+class _StreamCM:
+    def __init__(self, chunks=("流式", "底稿")):
+        self._chunks = chunks
+        self.entered = False
+
+    async def __aenter__(self):
+        self.entered = True
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    @property
+    def text_stream(self):
+        async def _gen():
+            for c in self._chunks:
+                yield c
+        return _gen()
+
+    async def get_final_message(self):
+        return None
+
+
+class _StreamMessages(_Messages):
+    def __init__(self):
+        super().__init__()
+        self.stream_calls: list[dict] = []
+        self._cm = _StreamCM()
+
+    def stream(self, **kwargs):
+        self.stream_calls.append(kwargs)
+        return self._cm
+
+
+class _StreamClient:
+    def __init__(self):
+        self.messages = _StreamMessages()
+
+
+@pytest.mark.asyncio
+async def test_complete_uses_stream_for_large_max_tokens():
+    client = _StreamClient()
+    with patch("app.llm.providers.AsyncAnthropic", return_value=client):
+        provider = make_provider(
+            provider_name="minimax",
+            api_key="sk-test",
+            base_url="https://api.minimaxi.com/v1",
+            model_name="MiniMax-M3",
+        )
+        text = await provider.complete("写底稿", system="只输出 JSON", max_tokens=200000)
+
+    assert text == "流式底稿"
+    assert client.messages.calls == []
+    assert len(client.messages.stream_calls) == 1
+    assert client.messages.stream_calls[0]["max_tokens"] == 200000
