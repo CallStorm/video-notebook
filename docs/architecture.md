@@ -1,6 +1,6 @@
 # 架构
 
-以当前仓库代码为准。
+以当前仓库代码为准。产品能力见 [功能说明](features.md)，三条平台如何入库见 [采集说明](collection.md)，本地进程见 [本地部署与开发](development.md)。
 
 ## 总览
 
@@ -9,7 +9,7 @@
 ```mermaid
 flowchart TB
   subgraph Client
-    Browser[PC 网页 Browser]
+    Browser[PC 网页]
     Mini[微信小程序]
     ExtAgent[外部 Agent<br/>WorkBuddy / Cursor 等]
   end
@@ -60,7 +60,7 @@ flowchart TB
 | **api** | FastAPI：鉴权、笔记本/来源/标签、聊天 SSE、知识底稿、发现检索、入队 |
 | **Agent / MCP** | /agent/* + /mcp：Token 鉴权的工具门面（search / notebook / readiness / draft）；Skill 由 /agent/skill.md 下发 |
 | **media-worker** | 抓取、字幕、向量索引（`-Q media`） |
-| **studio-worker** | 思维导图 / PPT（`-Q studio`，依赖本机 Claude CLI） |
+| **studio-worker** | 思维导图 / 幻灯片 / 阅读页（`-Q studio`，依赖本机 Claude CLI） |
 | **MySQL** | 业务库（含 `tags` / `notebook_tags`） |
 | **Redis** | 缓存 `db0`；Celery broker/result `db1`/`db2` |
 | **Qdrant** | 语义检索 |
@@ -74,12 +74,13 @@ flowchart LR
   B --> C[笔记本三栏]
   C --> D[对话 · 引用跳字幕]
   C --> E[知识底稿]
-  E --> F[studio-worker<br/>导图/PPT]
+  E --> F[studio-worker<br/>导图/幻灯片/阅读页]
   G[标签·自动整理] --> H[首页 Chip]
   C --> H
   I[公开] --> J[发现·关键词/语义]
 ```
 
 1. PC 浏览器访问 web（API 经代理）；小程序 / 外部 Agent 经 Agent 门面；笔记本数据同一套。
-2. 抓取 / ASR / 索引 / 导图 PPT 走 Celery，api 立即返回任务状态。
+2. 抓取 / 语音转文字 / 索引 / 导图、幻灯片、阅读页走 Celery，api 立即返回任务状态。抖音链接由 media-worker 转给本机解析服务，不走 yt-dlp；哔哩哔哩和 YouTube 走 yt-dlp。分流见 [采集说明](collection.md)。
 3. 标签存在 MySQL；自动整理只落库有关联的标签。
+4. 对外 Agent 在任一来源仍在抓取或字幕未就绪时拒绝生成底稿。

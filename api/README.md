@@ -1,8 +1,8 @@
-# video-notebook · API
+# 影知 · API
 
-FastAPI + SQLAlchemy 2 (async) + Alembic + Celery + Redis + MySQL。
+FastAPI + SQLAlchemy 2（async）+ Alembic + Celery + Redis + MySQL。
 
-产品与本地启动见仓库根目录 [README](../README.md) 与 [docs/development.md](../docs/development.md)。
+本地启动见 [本地部署与开发](../docs/development.md)。产品说明见 [功能说明](../docs/features.md)，采集见 [采集说明](../docs/collection.md)。
 
 ```bash
 # 仓库根目录
@@ -13,4 +13,4 @@ make media-worker   # -Q media
 make worker         # -Q studio
 ```
 
-或在 `api/` 内：`uv sync` 后 `uv run uvicorn app.main:app --reload --port 8000`。
+或在 `api/` 内：`uv sync` 之后 `uv run uvicorn app.main:app --reload --port 8000`。
