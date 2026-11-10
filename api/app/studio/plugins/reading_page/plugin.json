@@ -1,0 +1,31 @@
+{
+  "id": "reading_page",
+  "name": "阅读页",
+  "icon": "📖",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "timeout_seconds": 900,
+  "skill": "reading-page",
+  "extensions": [".json"],
+  "preferred_names": ["page.json"],
+  "form": [
+    { "type": "language" },
+    { "type": "sources" },
+    {
+      "type": "text",
+      "key": "title",
+      "label": "短标题",
+      "placeholder": "列表用，如：如何审 AI 代码",
+      "required": false,
+      "multiline": false
+    },
+    {
+      "type": "text",
+      "key": "brief",
+      "label": "描述",
+      "placeholder": "已勾选要点会自动填入。可补充受众，但不要整段贴进正文。",
+      "required": true,
+      "multiline": true
+    }
+  ]
+}

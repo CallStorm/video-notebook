@@ -292,6 +292,56 @@ function buildSlidesFields(draft: KnowledgeDraft, points: DraftPoint[]): Record<
   };
 }
 
+function pointVideoId(point: DraftPoint, draft: KnowledgeDraft): number | null {
+  if (typeof point.video_id === "number" && point.video_id > 0) return point.video_id;
+  const hint = (point.source_hint || "").trim();
+  const matched = /^video:(\d+)$/.exec(hint);
+  if (matched) return Number(matched[1]);
+  if (draft.source_video_ids.length === 1) return draft.source_video_ids[0];
+  return null;
+}
+
+function buildReadingBrief(draft: KnowledgeDraft, points: DraftPoint[]): string {
+  const theme = (draft.content.theme || "").trim() || "知识要点";
+  const parts: string[] = [
+    "受众：自学复盘",
+    "结构建议：开篇论点 → 按主题分组的步骤 → 收束",
+    `主题：${theme}`,
+    "",
+    "请把下列已勾选要点重组成一篇阅读页，按主题合并，不要按条平铺。",
+    "",
+    "要点：",
+  ];
+  points.forEach((point, index) => {
+    parts.push(`${index + 1}. ${point.text.trim()}`);
+    const time = (point.time || "").trim();
+    if (time) parts.push(`   时间：${time}`);
+    const videoId = pointVideoId(point, draft);
+    if (videoId != null) parts.push(`   video_id：${videoId}`);
+    const evidence = pointEvidence(point);
+    const example = pointExample(point);
+    const comment = pointComment(point);
+    if (evidence) parts.push(`   原句：${truncateText(evidence, 180)}`);
+    if (example) parts.push(`   例：${truncateText(example, 160)}`);
+    if (comment) parts.push(`   我的评论：${truncateText(comment, 160)}`);
+  });
+  const conclusions = normalizeConclusions(draft);
+  if (conclusions.length) {
+    parts.push("", "结论：");
+    conclusions.forEach((text, index) => parts.push(`${index + 1}. ${text}`));
+  }
+  return parts.join("\n");
+}
+
+function buildReadingFields(draft: KnowledgeDraft, points: DraftPoint[]): Record<string, string> {
+  return {
+    title: shortSlideTitle(draft, points),
+    brief: buildReadingBrief(draft, points),
+  };
+}
+
+type StudioExportFormat = "mind_map" | "slides" | "reading_page";
+
 
 
 function resolveSourceIds(
@@ -418,7 +468,7 @@ export function KnowledgePanel({
 
   const draft = draftQ.data ?? null;
 
-  const [studioAction, setStudioAction] = useState<"mind_map" | "slides" | null>(null);
+  const [studioAction, setStudioAction] = useState<StudioExportFormat | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
 
   const capabilitiesQ = useQuery({
@@ -463,11 +513,11 @@ export function KnowledgePanel({
     },
   });
 
-  function capabilityByFormat(formatKey: "mind_map" | "slides"): StudioCapability | null {
+  function capabilityByFormat(formatKey: StudioExportFormat): StudioCapability | null {
     return (capabilitiesQ.data ?? []).find((c) => c.format_key === formatKey) ?? null;
   }
 
-  function startStudioExport(formatKey: "mind_map" | "slides") {
+  function startStudioExport(formatKey: StudioExportFormat) {
     if (!draft || createStudioTask.isPending) return;
     setStudioError(null);
     const cap = capabilityByFormat(formatKey);
@@ -475,7 +525,9 @@ export function KnowledgePanel({
       setStudioError(
         formatKey === "mind_map"
           ? "思维导图暂不可用，请稍后重试或联系管理员"
-          : "PPT 暂不可用，请稍后重试或联系管理员",
+          : formatKey === "slides"
+            ? "PPT 暂不可用，请稍后重试或联系管理员"
+            : "阅读页暂不可用，请稍后重试或联系管理员",
       );
       return;
     }
@@ -492,7 +544,9 @@ export function KnowledgePanel({
     const fields =
       formatKey === "mind_map"
         ? buildMindMapFields(draft, points)
-        : buildSlidesFields(draft, points);
+        : formatKey === "slides"
+          ? buildSlidesFields(draft, points)
+          : buildReadingFields(draft, points);
     setStudioAction(formatKey);
     createStudioTask.mutate({
       capability_id: cap.id,
@@ -1448,6 +1502,26 @@ export function KnowledgePanel({
                     <>
                       <Presentation className="h-4 w-4 text-primary" />
                       生成幻灯片
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-10 flex-1 gap-1.5 rounded-xl border-primary/25 bg-primary/[0.04] text-xs font-medium text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                  disabled={createStudioTask.isPending || draft.content.points.length === 0}
+                  title="基于已勾选要点生成阅读页"
+                  onClick={() => startStudioExport("reading_page")}
+                >
+                  {studioAction === "reading_page" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      创建中…
+                    </>
+                  ) : (
+                    <>
+                      <BookOpen className="h-4 w-4 text-primary" />
+                      生成阅读页
                     </>
                   )}
                 </Button>

@@ -199,6 +199,26 @@ def _draft_hard_constraints(fields: list) -> str:
     return "\n".join(lines)
 
 
+def _reading_page_hard_constraints(fields: list) -> str:
+    """Keep the reading page a regrouped essay, not a dump of the brief."""
+    title = (_field_map(fields).get("title") or "").strip()
+    lines = [
+        "## 阅读页硬约束",
+        "- 只覆盖 brief 中已给出的要点，不要把未勾选内容或整段字幕铺进正文。",
+        "- 把要点重写成连贯阅读文。section 一般 2–6 个，禁止一条要点一个 section。",
+        "- 每个 step 必须有非空 body（1–3 句）。禁止只把要点原文放进 title。",
+        "- theme 是全文论点（1–2 句）。不要复读要点清单，也不要把「受众 / 结构建议」贴进页面。",
+        "- time 与 video_id 只能从要点行原样抄写；没有可靠时间就省略这两个字段，禁止编造。",
+        "- quote 只用要点里的「原句」短引。例子和「我的评论」写进 aside，不要伪装成原句。",
+        "- diagram 只在流程、对比或因果说得清时使用，全文最多 2 个。",
+        "- 禁止输出 HTML。只交 outputs/page.json 与约定 MANIFEST。",
+        "- MANIFEST.title 必须是短标题（≤20 字），优先用 fields.title。",
+    ]
+    if title:
+        lines.insert(1, f"- 短标题：{title}")
+    return "\n".join(lines)
+
+
 def _slides_hard_constraints(fields: list) -> str | None:
     """Keep brief metadata off the slide canvas; prefer short titles."""
     fmap = _field_map(fields)
@@ -224,6 +244,8 @@ def _prompt(format_key: str, system_prompt: str, fields: list | None = None) -> 
         slides_hard = _slides_hard_constraints(fields or [])
         if slides_hard:
             parts.append(slides_hard)
+    if format_key == "reading_page":
+        parts.append(_reading_page_hard_constraints(fields or []))
     if format_key == "knowledge_draft":
         parts.append(_draft_hard_constraints(fields or []))
     if isinstance(system_prompt, str) and system_prompt.strip():
@@ -903,7 +925,13 @@ async def _store_success(
     main_key, data = _store_main(accepted_path, accepted_mime)
     stored_keys.append(main_key)
     text_content: str | None = None
-    if prepared.format_key in {"mind_map", "structured_notes", "four_panel", "knowledge_draft"}:
+    if prepared.format_key in {
+        "mind_map",
+        "structured_notes",
+        "four_panel",
+        "knowledge_draft",
+        "reading_page",
+    }:
         try:
             text_content = data.decode("utf-8")
         except UnicodeDecodeError:
