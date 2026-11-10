@@ -3,12 +3,14 @@ export { StudioMindmap as MindMapResultView } from "@/components/studio-mindmap"
 export { StudioSlides as SlidesResultView } from "@/components/studio-slides";
 export { StudioComic as FourPanelResultView } from "@/components/studio-comic";
 export { StudioFile as FileResultView } from "@/components/studio-file";
+export { StudioReadingPage as ReadingPageResultView } from "@/studio/plugins/reading_page/ResultView";
 
 import type { ComponentType } from "react";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
 import { StudioComic } from "@/components/studio-comic";
 import { StudioFile } from "@/components/studio-file";
+import { StudioReadingPage } from "@/studio/plugins/reading_page/ResultView";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyProps = any;
@@ -23,6 +25,7 @@ export function isStudioFormatVisible(formatKey: string): boolean {
 export const STUDIO_RESULT_VIEWS: Record<string, ComponentType<AnyProps>> = {
   mind_map: StudioMindmap,
   slides: StudioSlides,
+  reading_page: StudioReadingPage,
   four_panel: StudioComic,
   file: StudioFile,
 };

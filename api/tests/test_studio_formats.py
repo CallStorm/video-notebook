@@ -203,6 +203,101 @@ def test_structured_notes_instructions_cover_schema():
     assert "takeaways" in instructions
     assert "focus" in instructions
 
+def _reading_page(theme: str = "先核对原句，再决定信不信。") -> dict:
+    return {
+        "title": "如何核对",
+        "theme": theme,
+        "lede": "把散落的要点收成一条能读完的线。",
+        "sections": [
+            {
+                "id": "s1",
+                "title": "回到原句",
+                "summary": "先听说话人自己怎么说。",
+                "steps": [
+                    {
+                        "title": "点开时间",
+                        "body": "原句比转述更值得先听一遍。",
+                        "time": "12:04",
+                        "video_id": 3,
+                        "quote": "你得回到原句。",
+                    }
+                ],
+                "diagram": {
+                    "kind": "flow",
+                    "nodes": [
+                        {"label": "原句", "detail": "字幕里的话"},
+                        {"label": "判断", "detail": "撑不撑得住"},
+                    ],
+                },
+            }
+        ],
+        "closing": "核对完再写自己的结论。",
+    }
+
+
+def _write_reading(outputs: Path, payload: object) -> None:
+    _write(outputs, "page.json", json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    (outputs / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "title": "如何核对",
+                "artifacts": [
+                    {"role": "main", "path": "outputs/page.json", "mime": "application/json"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_reading_page_json_manifest_accepted(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    _write_reading(outputs, _reading_page())
+    accepted = accept_outputs(get_format("reading_page"), outputs)
+    assert accepted.title == "如何核对"
+    assert accepted.path.name == "page.json"
+    assert accepted.mime == "application/json"
+
+
+def test_reading_page_rejects_html_and_flat_json(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    _write(outputs, "page.json", b"<!DOCTYPE html><html></html>")
+    (outputs / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "artifacts": [{"role": "main", "path": "outputs/page.json", "mime": "text/html"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(FormatMismatch):
+        accept_outputs(get_format("reading_page"), outputs)
+
+    bad = _reading_page()
+    bad["sections"][0]["steps"] = [{"title": "只有标题"}]
+    _write_reading(outputs, bad)
+    with pytest.raises(FormatMismatch):
+        accept_outputs(get_format("reading_page"), outputs)
+
+    timed = _reading_page()
+    timed["sections"][0]["steps"][0]["time"] = "大约五分钟"
+    _write_reading(outputs, timed)
+    with pytest.raises(FormatMismatch):
+        accept_outputs(get_format("reading_page"), outputs)
+
+
+def test_reading_page_instructions_ask_for_regrouping():
+    instructions = get_format("reading_page").instructions
+    assert "page.json" in instructions
+    assert "theme" in instructions
+    assert "禁止一条要点一个 section" in instructions
+    assert "不要写 HTML" in instructions
+
+
 def test_empty_pptx_zip_is_format_mismatch(tmp_path: Path):
     import io
     import zipfile

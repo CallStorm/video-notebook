@@ -653,6 +653,21 @@ def test_prompt_outline_mode_allows_full_structure():
     assert "根节点必须是" not in hard
 
 
+def test_prompt_injects_reading_page_constraints():
+    from app.studio.runner import _prompt
+
+    fields = [
+        {"key": "title", "label": "短标题", "value": "如何审代码"},
+        {"key": "brief", "label": "描述", "value": "要点：\n1. 先看测试"},
+    ]
+    prompt = _prompt("reading_page", "系统提示", fields)
+    assert "阅读页硬约束" in prompt
+    assert "短标题：如何审代码" in prompt
+    assert "禁止一条要点一个 section" in prompt
+    assert "page.json" in prompt
+    assert prompt.index("阅读页硬约束") < prompt.index("系统提示")
+
+
 def test_prompt_skips_hard_block_without_topic():
     from app.studio.runner import _topic_hard_constraints
 

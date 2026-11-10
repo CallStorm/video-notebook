@@ -1,4 +1,4 @@
-"""Studio capability sync from disk plugins; mind_map/slides always on."""
+"""Studio capability sync from disk plugins; mind_map/slides/reading_page always on."""
 from __future__ import annotations
 
 import re
@@ -15,7 +15,7 @@ _TEXT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _FIELD_TYPES = frozenset({"sources", "language", "text", "select"})
 
 # Product-fixed formats: always available, not admin-togglable.
-ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft"})
+ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft", "reading_page"})
 # Retired from product surface; keep DB/plugin rows but force off.
 ALWAYS_OFF_FORMATS = frozenset({"structured_notes", "four_panel"})
 
@@ -208,7 +208,7 @@ async def disable_capability(session: AsyncSession, capability_id: int) -> Studi
     """Kept for API/tests; always-on formats cannot be disabled."""
     cap = await _get_live(session, capability_id)
     if cap.format_key in ALWAYS_ON_FORMATS:
-        raise ConflictError("PPT 与思维导图固定启用，无法停用")
+        raise ConflictError("阅读页、PPT 与思维导图固定启用，无法停用")
     cap.enabled = False
     session.add(cap)
     await session.commit()
@@ -249,7 +249,7 @@ async def delete_capability(session: AsyncSession, capability_id: int) -> None:
     if cap.is_builtin:
         raise ConflictError("预置能力不能删除；请停用或移除插件目录")
     if cap.format_key in ALWAYS_ON_FORMATS:
-        raise ConflictError("PPT 与思维导图固定启用，不能删除")
+        raise ConflictError("阅读页、PPT 与思维导图固定启用，不能删除")
     has_task = await session.scalar(
         select(StudioTask.id).where(StudioTask.capability_id == capability_id).limit(1)
     )

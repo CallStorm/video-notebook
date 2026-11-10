@@ -170,6 +170,7 @@ function sourceLabel(task: StudioTask): string {
 
 function formatShortLabel(formatKey: string): string {
   if (formatKey === "slides") return "幻";
+  if (formatKey === "reading_page") return "阅";
   if (formatKey === "four_panel") return "漫";
   if (formatKey === "file") return "文";
   if (formatKey === "knowledge_draft") return "稿";
@@ -178,6 +179,7 @@ function formatShortLabel(formatKey: string): string {
 
 function deleteConfirmLabel(formatKey: string): string {
   if (formatKey === "slides") return "删除这个幻灯片？";
+  if (formatKey === "reading_page") return "删除这个阅读页？";
   if (formatKey === "four_panel") return "删除这个四格漫？";
   if (formatKey === "knowledge_draft") return "删除这个底稿任务？";
   return "删除这个导图？";
@@ -185,6 +187,7 @@ function deleteConfirmLabel(formatKey: string): string {
 
 function renameHeading(formatKey: string): string {
   if (formatKey === "slides") return "重命名幻灯片";
+  if (formatKey === "reading_page") return "重命名阅读页";
   if (formatKey === "four_panel") return "重命名四格漫";
   if (formatKey === "knowledge_draft") return "重命名底稿";
   return "重命名导图";
@@ -427,6 +430,29 @@ export function StudioPanel({
     }
   }
 
+  async function downloadReadingPage(task: StudioTask) {
+    try {
+      const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
+        access,
+      });
+      if (!detail.text_content) {
+        await downloadMainFile(task, `${task.title || "阅读页"}.json`);
+        return;
+      }
+      const blob = new Blob([detail.text_content], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${detail.title || task.title || "阅读页"}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : "下载失败");
+    }
+  }
+
   async function downloadMindMap(task: StudioTask) {
     const detail = await api<{ title: string; text_content: string | null }>(`/studio/tasks/${task.id}`, {
       access,
@@ -512,7 +538,7 @@ export function StudioPanel({
           <div className="empty-panel mx-3 mb-3 mt-6 py-8">
             <p className="text-sm font-medium text-foreground">还没有产物</p>
             <p className="mt-1.5 max-w-[16rem] text-xs leading-relaxed text-muted-foreground">
-              在知识里勾选要点后生成导图或幻灯片。
+              在知识里勾选要点后生成导图、幻灯片或阅读页。
             </p>
             {onGoKnowledge ? (
               <button
@@ -537,7 +563,12 @@ export function StudioPanel({
             const icon = capabilityIcon(capabilities.data, task);
             const goKnowledge =
               task.format_key === "knowledge_draft" && task.status === "succeeded" && !!onGoKnowledge;
-            if (isTextStudioFormat(task.format_key) || task.format_key === "slides" || task.format_key === "knowledge_draft") {
+            if (
+              isTextStudioFormat(task.format_key) ||
+              task.format_key === "slides" ||
+              task.format_key === "reading_page" ||
+              task.format_key === "knowledge_draft"
+            ) {
               const when = relativeTime(task.created_at);
               const meta = [sourceLabel(task), when].filter(Boolean).join(" · ");
               const chip = taskStatusChip(task.status);
@@ -591,9 +622,11 @@ export function StudioPanel({
                         : () =>
                         void (task.format_key === "slides"
                           ? downloadSlides(task)
-                          : task.format_key === "file"
-                            ? downloadFile(task)
-                            : downloadMindMap(task))
+                          : task.format_key === "reading_page"
+                            ? downloadReadingPage(task)
+                            : task.format_key === "file"
+                              ? downloadFile(task)
+                              : downloadMindMap(task))
                     }
                   />
                 </div>

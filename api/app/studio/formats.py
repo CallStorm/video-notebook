@@ -152,6 +152,113 @@ def _ensure_valid_main_file(fmt: OutputFormat, path: Path) -> None:
         raise FormatMismatch
     if fmt.key == "slides" and path.suffix == ".pptx":
         _ensure_pptx_has_slides(path)
+    if fmt.key == "reading_page":
+        _ensure_reading_page(path)
+
+
+_READING_CLOCK_RE = re.compile(r"^\d{1,2}:[0-5]?\d(?::[0-5]?\d)?$")
+_READING_DIAGRAM_KINDS = frozenset({"flow", "compare", "sequence"})
+
+
+def _reading_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _reading_video_id(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value > 0
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip()) > 0
+    return False
+
+
+def _ensure_reading_page(path: Path) -> None:
+    """Reject HTML pages and JSON that is not a grouped reading document."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise FormatMismatch from exc
+    stripped = raw.lstrip("\ufeff").lstrip()
+    lowered = stripped[:32].lower()
+    if lowered.startswith("<!doctype") or lowered.startswith("<html") or lowered.startswith("<body"):
+        raise FormatMismatch
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise FormatMismatch from exc
+    if not isinstance(data, dict):
+        raise FormatMismatch
+    if _reading_text(data.get("theme")) is None:
+        raise FormatMismatch
+    for key in ("title", "kicker", "lede", "closing"):
+        if key in data and data[key] is not None and not isinstance(data[key], str):
+            raise FormatMismatch
+    sections = data.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise FormatMismatch
+    for section in sections:
+        _ensure_reading_section(section)
+
+
+def _ensure_reading_section(section: object) -> None:
+    if not isinstance(section, dict):
+        raise FormatMismatch
+    if _reading_text(section.get("title")) is None:
+        raise FormatMismatch
+    if "summary" in section and section["summary"] is not None and not isinstance(section["summary"], str):
+        raise FormatMismatch
+    steps = section.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise FormatMismatch
+    for step in steps:
+        _ensure_reading_step(step)
+    if "diagram" in section and section["diagram"] is not None:
+        _ensure_reading_diagram(section["diagram"])
+
+
+def _ensure_reading_step(step: object) -> None:
+    if not isinstance(step, dict):
+        raise FormatMismatch
+    if _reading_text(step.get("body")) is None:
+        raise FormatMismatch
+    if "title" in step and step["title"] is not None and not isinstance(step["title"], str):
+        raise FormatMismatch
+    for key in ("quote", "aside"):
+        if key in step and step[key] is not None and not isinstance(step[key], str):
+            raise FormatMismatch
+    if "time" in step and step["time"] not in (None, ""):
+        clock = step["time"]
+        if not isinstance(clock, str) or _READING_CLOCK_RE.fullmatch(clock.strip()) is None:
+            raise FormatMismatch
+    if "video_id" in step and step["video_id"] not in (None, "") and not _reading_video_id(step["video_id"]):
+        raise FormatMismatch
+
+
+def _ensure_reading_diagram(diagram: object) -> None:
+    if not isinstance(diagram, dict):
+        raise FormatMismatch
+    kind = diagram.get("kind") or "flow"
+    if not isinstance(kind, str) or kind not in _READING_DIAGRAM_KINDS:
+        raise FormatMismatch
+    if "caption" in diagram and diagram["caption"] is not None and not isinstance(diagram["caption"], str):
+        raise FormatMismatch
+    nodes = diagram.get("nodes")
+    if not isinstance(nodes, list) or not (2 <= len(nodes) <= 6):
+        raise FormatMismatch
+    for node in nodes:
+        if isinstance(node, str):
+            if not node.strip():
+                raise FormatMismatch
+            continue
+        if not isinstance(node, dict) or _reading_text(node.get("label")) is None:
+            raise FormatMismatch
+        if "detail" in node and node["detail"] is not None and not isinstance(node["detail"], str):
+            raise FormatMismatch
 
 
 def _ensure_pptx_has_slides(path: Path) -> None:

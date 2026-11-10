@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 
-/** Studio 能力后台配置已移除；PPT / 思维导图固定启用。 */
+/** Studio 能力后台配置已移除；阅读页 / PPT / 思维导图 / 知识底稿固定启用。 */
 export function AdminStudioPanel() {
   return <Navigate to="/admin" replace />;
 }
