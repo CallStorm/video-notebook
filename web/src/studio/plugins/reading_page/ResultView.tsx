@@ -1,168 +1,42 @@
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, Download, Maximize2, Minimize2, Play, X } from "lucide-react";
+import { Download, Maximize2, Minimize2, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseClockToSeconds } from "@/components/studio-notes";
+import {
+  parseReadingPage,
+  type ReadingCallout,
+  type ReadingCard,
+  type ReadingDiagram,
+  type ReadingSection,
+  type ReadingStep,
+  type SequenceRow,
+} from "@/studio/plugins/reading_page/parse";
 
 export interface ReadingSource {
   id: number;
   title: string;
 }
 
-type DiagramKind = "flow" | "compare" | "sequence";
-
-interface ReadingStep {
-  title?: string;
-  body: string;
-  time?: string;
-  videoId?: number;
-  quote?: string;
-  aside?: string;
+const PAPER_STYLE = `
+.reading-page {
+  background: #f7f4ef;
+  color: #1c1917;
+  font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Source Han Sans SC", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
 }
-
-interface ReadingNode {
-  label: string;
-  detail?: string;
+.reading-page .reading-serif {
+  font-family: "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
 }
-
-interface ReadingDiagram {
-  kind: DiagramKind;
-  caption?: string;
-  nodes: ReadingNode[];
+.reading-page article { container-type: inline-size; }
+.reading-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 20px;
 }
-
-interface ReadingSection {
-  id: string;
-  title: string;
-  summary?: string;
-  steps: ReadingStep[];
-  diagram?: ReadingDiagram;
+@container (min-width: 34rem) {
+  .reading-cards { grid-template-columns: 1fr 1fr; }
 }
-
-interface ReadingPageData {
-  title?: string;
-  kicker?: string;
-  theme: string;
-  lede?: string;
-  sections: ReadingSection[];
-  closing?: string;
-}
-
-function textOf(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const text = value.trim();
-  return text || undefined;
-}
-
-function videoIdOf(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
-  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
-    const id = Number(value.trim());
-    return id > 0 ? id : undefined;
-  }
-  return undefined;
-}
-
-function clockOf(value: unknown): string | undefined {
-  const text = textOf(value);
-  if (!text || parseClockToSeconds(text) == null) return undefined;
-  return text;
-}
-
-function sectionId(value: unknown, index: number): string {
-  const text = textOf(value);
-  if (text && /^[A-Za-z][\w-]{0,40}$/.test(text)) return text;
-  return `section-${index + 1}`;
-}
-
-function parseNodes(value: unknown): ReadingNode[] {
-  if (!Array.isArray(value)) return [];
-  const nodes: ReadingNode[] = [];
-  for (const item of value) {
-    if (typeof item === "string") {
-      const label = item.trim();
-      if (label) nodes.push({ label });
-      continue;
-    }
-    if (!item || typeof item !== "object") continue;
-    const row = item as Record<string, unknown>;
-    const label = textOf(row.label);
-    if (!label) continue;
-    nodes.push({ label, detail: textOf(row.detail) });
-  }
-  return nodes;
-}
-
-function parseDiagram(value: unknown): ReadingDiagram | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const row = value as Record<string, unknown>;
-  const nodes = parseNodes(row.nodes);
-  if (nodes.length < 2) return undefined;
-  const kind = row.kind === "compare" || row.kind === "sequence" || row.kind === "flow" ? row.kind : "flow";
-  return { kind, caption: textOf(row.caption), nodes: nodes.slice(0, 6) };
-}
-
-function parseStep(value: unknown): ReadingStep | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  const body = textOf(row.body);
-  const title = textOf(row.title);
-  if (!body && !title) return null;
-  return {
-    title,
-    body: body || title || "",
-    time: clockOf(row.time),
-    videoId: videoIdOf(row.video_id),
-    quote: textOf(row.quote),
-    aside: textOf(row.aside),
-  };
-}
-
-function parseSections(value: unknown): ReadingSection[] {
-  if (!Array.isArray(value)) return [];
-  const sections: ReadingSection[] = [];
-  value.forEach((item) => {
-    if (!item || typeof item !== "object") return;
-    const row = item as Record<string, unknown>;
-    const title = textOf(row.title);
-    if (!title) return;
-    const steps = Array.isArray(row.steps)
-      ? row.steps.map(parseStep).filter((step): step is ReadingStep => step != null)
-      : [];
-    if (steps.length === 0) return;
-    const id = sectionId(row.id, sections.length);
-    sections.push({
-      id: sections.some((section) => section.id === id) ? `section-${sections.length + 1}` : id,
-      title,
-      summary: textOf(row.summary),
-      steps,
-      diagram: parseDiagram(row.diagram),
-    });
-  });
-  return sections;
-}
-
-function parseReadingPage(text: string | null): ReadingPageData | null {
-  if (!text) return null;
-  const trimmed = text.trim().replace(/^\uFEFF/, "");
-  if (!trimmed.startsWith("{")) return null;
-  try {
-    const data = JSON.parse(trimmed) as unknown;
-    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-    const row = data as Record<string, unknown>;
-    const sections = parseSections(row.sections);
-    if (sections.length === 0) return null;
-    return {
-      title: textOf(row.title),
-      kicker: textOf(row.kicker),
-      theme: textOf(row.theme) || "",
-      lede: textOf(row.lede),
-      sections,
-      closing: textOf(row.closing),
-    };
-  } catch {
-    return null;
-  }
-}
+`;
 
 function seekVideoId(step: ReadingStep, videos: ReadingSource[]): number | null {
   if (step.videoId != null) return step.videoId;
@@ -206,10 +80,7 @@ export function StudioReadingPage({
   const docTitle = page?.title || title || "阅读页";
   const seekableCount =
     page?.sections.reduce((count, section) => {
-      return (
-        count +
-        section.steps.filter((step) => step.time && seekVideoId(step, videos) != null).length
-      );
+      return count + section.steps.filter((step) => step.time && seekVideoId(step, videos) != null).length;
     }, 0) ?? 0;
 
   function scrollToSection(id: string) {
@@ -242,29 +113,36 @@ export function StudioReadingPage({
   }
 
   const shell = expanded
-    ? "fixed inset-0 z-40 flex flex-col bg-background"
-    : "flex min-h-0 flex-1 flex-col bg-background";
+    ? "reading-page fixed inset-0 z-40 flex flex-col"
+    : "reading-page flex min-h-0 flex-1 flex-col";
 
   return (
     <div className={shell}>
-      <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
-        <p className="min-w-0 truncate text-sm text-muted-foreground">
-          <button type="button" className="hover:text-foreground hover:underline" onClick={onBack}>
+      <style>{PAPER_STYLE}</style>
+      <div className="flex h-[52px] shrink-0 items-center justify-between gap-3 border-b border-[#e8e2d9] bg-[#fbf9f6] px-5 sm:px-[22px]">
+        <p className="min-w-0 truncate text-[13px] text-[#78716c]">
+          <button type="button" className="hover:text-[#1c1917] hover:underline" onClick={onBack}>
             产物
           </button>
           <span className="px-1.5">›</span>
-          <span className="text-foreground">{crumb}</span>
+          <span className="font-medium text-[#44403c]">{crumb}</span>
         </p>
         <div className="flex shrink-0 items-center">
           {text ? (
-            <Button size="icon" variant="ghost" className="h-7 w-7" title="下载" onClick={download}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 text-[#44403c] hover:bg-[#efeae3] hover:text-[#1c1917]"
+              title="下载"
+              onClick={download}
+            >
               <Download className="h-3.5 w-3.5" />
             </Button>
           ) : null}
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-7 w-7 text-[#44403c] hover:bg-[#efeae3] hover:text-[#1c1917]"
             title={expanded ? "还原" : "铺满"}
             onClick={onToggleExpanded}
           >
@@ -273,7 +151,7 @@ export function StudioReadingPage({
           <button
             type="button"
             title="关闭"
-            className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-full p-1.5 text-[#78716c] hover:bg-[#efeae3] hover:text-[#1c1917]"
             onClick={onBack}
           >
             <X className="h-4 w-4" />
@@ -282,37 +160,43 @@ export function StudioReadingPage({
       </div>
 
       {notice ? (
-        <p className={`px-6 py-8 text-sm ${noticeError ? "text-destructive" : "text-muted-foreground"}`}>{notice}</p>
+        <p className={`px-6 py-8 text-sm ${noticeError ? "text-[#9a3412]" : "text-[#78716c]"}`}>{notice}</p>
       ) : !page ? (
-        <p className="px-6 py-8 text-sm text-muted-foreground">阅读页内容无法解析</p>
+        <p className="px-6 py-8 text-sm text-[#78716c]">阅读页内容无法解析</p>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <article className="mx-auto w-full max-w-[40rem] px-6 py-8 sm:px-8 sm:py-10">
+          <article className="mx-auto w-[min(44rem,calc(100%-3rem))] pb-20 pt-12">
             {page.kicker ? (
-              <p className="text-xs font-medium tracking-[0.14em] text-primary">{page.kicker}</p>
+              <p className="text-xs font-semibold tracking-[0.16em] text-[#0f766e]">{page.kicker}</p>
             ) : null}
             <h1
-              className={`text-[1.65rem] font-semibold leading-tight tracking-tight text-foreground ${page.kicker ? "mt-2" : ""} ${expanded ? "sm:text-3xl" : ""}`}
+              className={`reading-serif text-[2rem] font-bold leading-[1.3] tracking-[-0.02em] text-[#1c1917] ${page.kicker ? "mt-2.5" : ""}`}
             >
               {docTitle}
             </h1>
-            {sourceCount > 0 ? (
-              <div className="relative mt-4">
-                <button
-                  type="button"
-                  className="rounded-full border border-border/70 bg-card px-3 py-1 text-xs text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                  onClick={() => setSourcesOpen((open) => !open)}
-                >
-                  {sourceCount === 1 ? "1 个来源" : `${sourceCount} 个来源`}
-                  {seekableCount > 0 ? ` · ${seekableCount} 处可跳转` : ""}
-                </button>
-                {sourcesOpen ? (
-                  <div className="absolute left-0 top-full z-10 mt-2 w-64 overflow-hidden rounded-xl border bg-popover py-1 text-popover-foreground shadow-lg">
+            {sourceCount > 0 || seekableCount > 0 ? (
+              <div className="relative mt-[18px] flex flex-wrap gap-2">
+                {sourceCount > 0 ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center rounded-full border border-[#e8e2d9] bg-[#fffcf8] px-[11px] text-xs text-[#44403c] hover:border-[#0f766e55]"
+                    onClick={() => setSourcesOpen((open) => !open)}
+                  >
+                    {sourceCount === 1 ? "1 个来源" : `${sourceCount} 个来源`}
+                  </button>
+                ) : null}
+                {seekableCount > 0 ? (
+                  <span className="inline-flex h-7 items-center rounded-full border border-[#e8e2d9] bg-[#fffcf8] px-[11px] text-xs text-[#44403c]">
+                    {seekableCount === 1 ? "1 处可跳转原片" : `${seekableCount} 处可跳转原片`}
+                  </span>
+                ) : null}
+                {sourcesOpen && sourceCount > 0 ? (
+                  <div className="absolute left-0 top-full z-10 mt-2 w-64 overflow-hidden rounded-xl border border-[#e8e2d9] bg-[#fffcf8] py-1 text-[#1c1917] shadow-[0_8px_24px_-12px_rgba(28,25,23,0.28)]">
                     {videos.map((video) => (
                       <button
                         key={`video-${video.id}`}
                         type="button"
-                        className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
+                        className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-[#f3eee6]"
                         onClick={() => {
                           setSourcesOpen(false);
                           onOpenVideo(video.id);
@@ -325,7 +209,7 @@ export function StudioReadingPage({
                       <button
                         key={`note-${note.id}`}
                         type="button"
-                        className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
+                        className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-[#f3eee6]"
                         onClick={() => {
                           setSourcesOpen(false);
                           onOpenNote(note.id);
@@ -340,28 +224,26 @@ export function StudioReadingPage({
             ) : null}
 
             {page.theme ? (
-              <aside className="mt-7 border-l-4 border-primary bg-primary/[0.06] px-4 py-3.5">
-                <p className="text-xs font-semibold tracking-wide text-primary">主题</p>
-                <p className="mt-1.5 text-base font-medium leading-7 text-foreground">{page.theme}</p>
+              <aside className="mt-7 rounded-r-xl border-l-4 border-[#0f766e] bg-[linear-gradient(90deg,#0f766e14,transparent_92%)] px-5 py-4">
+                <p className="text-[11px] font-bold tracking-[0.12em] text-[#0f766e]">主题</p>
+                <p className="mt-1.5 text-base font-medium leading-[1.7] text-[#1c1917]">{page.theme}</p>
               </aside>
             ) : null}
 
-            {page.lede ? (
-              <p className="mt-6 text-[15px] leading-7 text-foreground/90">{page.lede}</p>
-            ) : null}
+            {page.lede ? <p className="mt-[22px] text-base leading-[1.8] text-[#44403c]">{page.lede}</p> : null}
 
             {page.sections.length > 1 ? (
               <nav aria-label="目录" className="mt-8">
-                <p className="text-xs font-semibold tracking-wide text-muted-foreground">目录</p>
-                <ol className="mt-2.5 space-y-1.5 border-l border-border pl-4">
+                <p className="text-[11px] font-bold tracking-[0.12em] text-[#78716c]">目录</p>
+                <ol className="mt-2.5 list-none border-l border-[#e8e2d9] pl-[18px]">
                   {page.sections.map((section, index) => (
-                    <li key={section.id}>
+                    <li key={section.id} className="mb-2 text-sm leading-normal text-[#44403c]">
                       <button
                         type="button"
-                        className="text-left text-sm leading-6 text-foreground/90 hover:text-primary"
+                        className="text-left hover:text-[#0f766e]"
                         onClick={() => scrollToSection(section.id)}
                       >
-                        <span className="mr-2 font-mono text-xs text-muted-foreground">
+                        <span className="mr-1 inline-block w-[1.6rem] font-mono text-xs text-[#78716c]">
                           {String(index + 1).padStart(2, "0")}
                         </span>
                         {section.title}
@@ -373,74 +255,22 @@ export function StudioReadingPage({
             ) : null}
 
             {page.sections.map((section, sectionIndex) => (
-              <section
+              <ReadingSectionView
                 key={section.id}
-                id={section.id}
-                ref={(node) => {
+                section={section}
+                index={sectionIndex}
+                videos={videos}
+                onJump={jump}
+                sectionRef={(node) => {
                   sectionRefs.current[section.id] = node;
                 }}
-                className="mt-11 scroll-mt-6"
-              >
-                <h2 className="text-xl font-semibold tracking-tight text-foreground">
-                  <span className="mr-2 font-mono text-sm font-medium text-primary/80">
-                    {String(sectionIndex + 1).padStart(2, "0")}
-                  </span>
-                  {section.title}
-                </h2>
-                {section.summary ? (
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{section.summary}</p>
-                ) : null}
-                <div className="mt-5 space-y-6">
-                  {section.steps.map((step, stepIndex) => {
-                    const canSeek = step.time != null && seekVideoId(step, videos) != null;
-                    return (
-                      <div key={`${section.id}-${stepIndex}`} className="grid grid-cols-[1.6rem_minmax(0,1fr)] gap-x-3">
-                        <div className="pt-0.5 text-sm font-semibold text-primary">{stepIndex + 1}</div>
-                        <div className="min-w-0">
-                          {step.title && step.title !== step.body ? (
-                            <h3 className="text-[15px] font-semibold leading-6 text-foreground">{step.title}</h3>
-                          ) : null}
-                          <p className={`${step.title && step.title !== step.body ? "mt-1.5" : ""} text-[15px] leading-7 text-foreground/90`}>
-                            {step.body}
-                          </p>
-                          {step.quote ? (
-                            <blockquote className="mt-3 border-l-2 border-primary/35 pl-3 text-sm italic leading-7 text-muted-foreground">
-                              {step.quote}
-                            </blockquote>
-                          ) : null}
-                          {step.aside ? (
-                            <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.aside}</p>
-                          ) : null}
-                          {step.time ? (
-                            canSeek ? (
-                              <button
-                                type="button"
-                                className="mt-2 inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
-                                title="跳到原片"
-                                onClick={() => jump(step)}
-                              >
-                                <Play className="h-3 w-3 fill-current" />
-                                {step.time}
-                              </button>
-                            ) : (
-                              <span className="mt-2 inline-flex items-center gap-1 font-mono text-xs text-muted-foreground">
-                                {step.time}
-                              </span>
-                            )
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {section.diagram ? <ReadingDiagramView diagram={section.diagram} /> : null}
-              </section>
+              />
             ))}
 
             {page.closing ? (
-              <section className="mt-12 border-t border-border/80 pt-6">
-                <h2 className="text-lg font-semibold tracking-tight">收束</h2>
-                <p className="mt-3 text-[15px] leading-7 text-foreground/90">{page.closing}</p>
+              <section className="mt-[52px] border-t border-[#e8e2d9] pt-6">
+                <h2 className="reading-serif text-[1.15rem] font-bold leading-snug text-[#1c1917]">收束</h2>
+                <p className="mt-4 text-[15.5px] leading-[1.85] text-[#1c1917]">{page.closing}</p>
               </section>
             ) : null}
           </article>
@@ -450,61 +280,314 @@ export function StudioReadingPage({
   );
 }
 
+function ReadingSectionView({
+  section,
+  index,
+  videos,
+  onJump,
+  sectionRef,
+}: {
+  section: ReadingSection;
+  index: number;
+  videos: ReadingSource[];
+  onJump: (step: ReadingStep) => void;
+  sectionRef: (node: HTMLElement | null) => void;
+}) {
+  return (
+    <section
+      id={section.id}
+      ref={sectionRef}
+      className="mt-12 scroll-mt-6"
+    >
+      <h2 className="reading-serif text-[1.35rem] font-bold leading-[1.4] text-[#1c1917]">
+        <span className="mr-2 font-mono text-[13px] font-semibold text-[#0f766e]">
+          {String(index + 1).padStart(2, "0")}
+        </span>
+        {section.title}
+      </h2>
+      {section.summary ? <p className="mt-2 text-sm leading-[1.7] text-[#78716c]">{section.summary}</p> : null}
+      {section.prose.map((paragraph, paragraphIndex) => (
+        <p key={`${section.id}-prose-${paragraphIndex}`} className="mt-4 text-[15.5px] leading-[1.85] text-[#1c1917]">
+          {paragraph}
+        </p>
+      ))}
+      {section.diagram ? <ReadingDiagramView diagram={section.diagram} /> : null}
+      {section.steps.length > 0 ? (
+        <div className="mt-[22px] flex flex-col gap-3.5">
+          {section.steps.map((step, stepIndex) => (
+            <StepCard
+              key={`${section.id}-step-${stepIndex}`}
+              step={step}
+              number={stepIndex + 1}
+              canSeek={step.time != null && seekVideoId(step, videos) != null}
+              onJump={() => onJump(step)}
+            />
+          ))}
+        </div>
+      ) : null}
+      {section.cards.length > 0 ? <PropertyCards cards={section.cards} /> : null}
+      {section.callout ? <CalloutView callout={section.callout} /> : null}
+    </section>
+  );
+}
+
+function StepCard({
+  step,
+  number,
+  canSeek,
+  onJump,
+}: {
+  step: ReadingStep;
+  number: number;
+  canSeek: boolean;
+  onJump: () => void;
+}) {
+  const showTitle = Boolean(step.title && step.title !== step.body);
+  return (
+    <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-2xl border border-[#e8e2d9] bg-[#fffcf8] py-4 pl-3.5 pr-4">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#0f766e] text-[13px] font-bold text-white">
+        {number}
+      </div>
+      <div className="min-w-0">
+        {showTitle ? <h3 className="mt-0.5 text-[15.5px] font-bold leading-snug text-[#1c1917]">{step.title}</h3> : null}
+        <p className={`${showTitle ? "mt-1.5" : "mt-0.5"} text-[14.5px] leading-[1.75] text-[#44403c]`}>{step.body}</p>
+        {step.quote ? (
+          <blockquote className="mt-2.5 border-l-2 border-[#0f766e73] pl-3 text-[13.5px] italic leading-[1.7] text-[#78716c]">
+            {step.quote}
+          </blockquote>
+        ) : null}
+        {step.aside ? <p className="mt-2 text-sm leading-6 text-[#78716c]">{step.aside}</p> : null}
+        {step.time ? (
+          canSeek ? (
+            <button
+              type="button"
+              className="mt-2.5 inline-flex items-center gap-[5px] font-mono text-xs text-[#0f766e] hover:underline"
+              title="跳到原片"
+              onClick={onJump}
+            >
+              <Play className="h-3 w-3 fill-current" />
+              {step.time} 跳到原片
+            </button>
+          ) : (
+            <span className="mt-2.5 inline-flex items-center gap-[5px] font-mono text-xs text-[#78716c]">{step.time}</span>
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CalloutView({ callout }: { callout: ReadingCallout }) {
+  const warn = callout.tone === "warn";
+  return (
+    <aside
+      className={`mt-5 rounded-xl px-4 py-3.5 ${
+        warn ? "border border-[#9a341233] bg-[#9a341214]" : "border border-[#0f766e2a] bg-[#0f766e14]"
+      }`}
+    >
+      <p className={`text-xs font-bold tracking-[0.08em] ${warn ? "text-[#9a3412]" : "text-[#0f766e]"}`}>
+        {callout.label || (warn ? "注意" : "要点")}
+      </p>
+      <p className="mt-1.5 text-[14.5px] leading-[1.7] text-[#1c1917]">{callout.body}</p>
+    </aside>
+  );
+}
+
+function PropertyCards({ cards }: { cards: ReadingCard[] }) {
+  return (
+    <div className="reading-cards">
+      {cards.map((card, index) => (
+        <div key={`${card.title}-${index}`} className="rounded-[14px] border border-[#e8e2d9] bg-[#fffcf8] px-3.5 pb-[13px] pt-3.5">
+          <div className="text-xs font-bold text-[#0f766e]">{card.title}</div>
+          <p className="mt-1.5 text-[13.5px] leading-[1.65] text-[#44403c]">{card.body}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ReadingDiagramView({ diagram }: { diagram: ReadingDiagram }) {
-  if (diagram.kind === "compare") {
-    return (
-      <figure className="mt-6">
-        <div className={`grid gap-3 ${diagram.nodes.length === 2 ? "grid-cols-2" : "sm:grid-cols-2"}`}>
+  if (diagram.kind === "compare") return <CompareTable diagram={diagram} />;
+  if (diagram.kind === "sequence") return <SequenceDiagram diagram={diagram} />;
+  return <FlowDiagram diagram={diagram} />;
+}
+
+function DiagramCaption({ caption }: { caption?: string }) {
+  if (!caption) return null;
+  return <figcaption className="mt-2 text-center text-xs text-[#78716c]">{caption}</figcaption>;
+}
+
+function FlowDiagram({ diagram }: { diagram: ReadingDiagram }) {
+  return (
+    <figure className="mt-[22px]">
+      <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9] bg-[#fffcf8] px-4 py-[18px]">
+        <div
+          className="grid w-max min-w-full items-stretch"
+          style={{
+            gridTemplateColumns: diagram.nodes
+              .map((_, index) => (index === 0 ? "minmax(7.25rem,1fr)" : "1.75rem minmax(7.25rem,1fr)"))
+              .join(" "),
+          }}
+        >
           {diagram.nodes.map((node, index) => (
-            <div key={`${node.label}-${index}`} className="rounded-xl border border-border/80 bg-card px-3 py-3">
-              <div className="text-sm font-semibold leading-6">{node.label}</div>
-              {node.detail ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{node.detail}</p> : null}
+            <div key={`${node.label}-${index}`} className="contents">
+              {index > 0 ? (
+                <div className="flex items-center justify-center text-lg text-[#0f766e]" aria-hidden>
+                  →
+                </div>
+              ) : null}
+              <div className="flex flex-col justify-center rounded-xl border border-[#0f766e2a] bg-[#f3faf8] px-2.5 py-3 text-center">
+                <strong className="block text-[13.5px] font-bold leading-snug text-[#1c1917]">{node.label}</strong>
+                {node.detail ? (
+                  <span className="mt-1 block text-[11.5px] leading-snug text-[#78716c]">{node.detail}</span>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
-        {diagram.caption ? <figcaption className="mt-2 text-xs leading-5 text-muted-foreground">{diagram.caption}</figcaption> : null}
-      </figure>
+      </div>
+      <DiagramCaption caption={diagram.caption} />
+    </figure>
+  );
+}
+
+function CompareTable({ diagram }: { diagram: ReadingDiagram }) {
+  const columns = diagram.columns ?? ["对照", "说明"];
+  const contrast = diagram.tone === "contrast";
+  return (
+    <figure className="mt-5">
+      <div className="overflow-hidden rounded-[14px] border border-[#e8e2d9] bg-[#fffcf8]">
+        <table className="w-full border-separate border-spacing-0">
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th
+                  key={column}
+                  scope="col"
+                  className="bg-[#f3eee6] px-3.5 py-[11px] text-left text-xs tracking-[0.06em] text-[#44403c] [&+th]:border-l [&+th]:border-[#e8e2d9]"
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {diagram.nodes.map((node, index) => (
+              <tr key={`${node.label}-${index}`}>
+                <td
+                  className={`border-t border-[#e8e2d9] px-3.5 py-[11px] align-top text-[13.5px] leading-[1.65] ${
+                    contrast ? "text-[#9a3412]" : "text-[#1c1917]"
+                  }`}
+                >
+                  {node.label}
+                </td>
+                <td
+                  className={`border-l border-t border-[#e8e2d9] px-3.5 py-[11px] align-top text-[13.5px] leading-[1.65] ${
+                    contrast ? "text-[#166534]" : "text-[#44403c]"
+                  }`}
+                >
+                  {node.detail || ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <DiagramCaption caption={diagram.caption} />
+    </figure>
+  );
+}
+
+function SequenceDiagram({ diagram }: { diagram: ReadingDiagram }) {
+  const rich = diagram.lanes && diagram.lanes.length >= 2 && diagram.rows && diagram.rows.length >= 2;
+  if (rich && diagram.lanes && diagram.rows) {
+    return (
+      <SequenceChart
+        lanes={diagram.lanes}
+        rows={diagram.rows}
+        rowHeader={diagram.rowHeader || "节奏"}
+        caption={diagram.caption}
+      />
     );
   }
-
-  if (diagram.kind === "sequence") {
-    return (
-      <figure className="mt-6">
-        <ol className="flex flex-wrap items-center gap-2">
+  return (
+    <figure className="mt-5">
+      <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9] bg-[#fffcf8] px-4 py-4">
+        <ol className="flex w-max min-w-full items-stretch">
           {diagram.nodes.map((node, index) => (
-            <li key={`${node.label}-${index}`} className="flex items-center gap-2">
-              {index > 0 ? <span className="text-sm text-muted-foreground">→</span> : null}
-              <span className="rounded-full border border-border/80 bg-card px-3 py-1 text-sm">
-                <span className="mr-1.5 font-mono text-xs text-primary">{index + 1}</span>
-                {node.label}
+            <li key={`${node.label}-${index}`} className="flex min-w-[8.5rem] flex-1 items-stretch">
+              {index > 0 ? (
+                <span className="flex w-7 shrink-0 items-center justify-center text-[#0f766e]" aria-hidden>
+                  →
+                </span>
+              ) : null}
+              <span className="flex flex-1 flex-col justify-center rounded-xl border border-[#0f766e2a] bg-[#f3faf8] px-3 py-2.5 text-center">
+                <span className="font-mono text-xs font-semibold text-[#0f766e]">{index + 1}</span>
+                <span className="mt-1 block text-sm font-semibold leading-snug text-[#1c1917]">{node.label}</span>
+                {node.detail ? (
+                  <span className="mt-1 block text-[11.5px] leading-snug text-[#78716c]">{node.detail}</span>
+                ) : null}
               </span>
             </li>
           ))}
         </ol>
-        {diagram.caption ? <figcaption className="mt-2 text-xs leading-5 text-muted-foreground">{diagram.caption}</figcaption> : null}
-      </figure>
-    );
-  }
-
-  return (
-    <figure className="mt-6">
-      <div className="space-y-1">
-        {diagram.nodes.map((node, index) => (
-          <div key={`${node.label}-${index}`}>
-            {index > 0 ? (
-              <div className="flex justify-center py-0.5 text-primary/60" aria-hidden>
-                <ChevronDown className="h-4 w-4" />
-              </div>
-            ) : null}
-            <div className="rounded-xl border border-border/80 bg-card px-3 py-2.5">
-              <div className="text-sm font-medium leading-6">{node.label}</div>
-              {node.detail ? <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{node.detail}</p> : null}
-            </div>
-          </div>
-        ))}
       </div>
-      {diagram.caption ? <figcaption className="mt-2 text-xs leading-5 text-muted-foreground">{diagram.caption}</figcaption> : null}
+      <DiagramCaption caption={diagram.caption} />
     </figure>
+  );
+}
+
+function SequenceChart({
+  lanes,
+  rows,
+  rowHeader,
+  caption,
+}: {
+  lanes: string[];
+  rows: SequenceRow[];
+  rowHeader: string;
+  caption?: string;
+}) {
+  return (
+    <figure className="mt-5">
+      <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9] bg-[#fffcf8] px-4 pb-2 pt-4">
+        <div
+          className="grid w-max min-w-full items-center gap-x-2 gap-y-1"
+          style={{ gridTemplateColumns: `5.2rem repeat(${lanes.length}, minmax(6.5rem, 1fr))` }}
+        >
+          <span className="text-xs font-medium text-[#78716c]">{rowHeader}</span>
+          {lanes.map((lane) => (
+            <span key={lane} className="text-center text-xs font-bold text-[#44403c]">
+              {lane}
+            </span>
+          ))}
+          {rows.map((row, rowIndex) => (
+            <SequenceRowCells key={`${row.label}-${rowIndex}`} row={row} lanes={lanes} />
+          ))}
+        </div>
+      </div>
+      <DiagramCaption caption={caption} />
+    </figure>
+  );
+}
+
+function SequenceRowCells({ row, lanes }: { row: SequenceRow; lanes: string[] }) {
+  return (
+    <>
+      <span className="self-center font-mono text-[11px] text-[#78716c]">{row.label}</span>
+      {lanes.map((lane) => {
+        const cell = row.cells.find((item) => item.lane === lane);
+        return (
+          <span key={lane} className="flex min-h-11 items-center justify-center">
+            {cell ? (
+              <span className="rounded-lg bg-[#0f766e14] px-2 py-[5px] text-center text-[11.5px] leading-[1.4] text-[#1c1917]">
+                {cell.text}
+              </span>
+            ) : null}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

@@ -2,7 +2,7 @@
   "id": "reading_page",
   "name": "阅读页",
   "icon": "📖",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": true,
   "timeout_seconds": 900,
   "skill": "reading-page",
