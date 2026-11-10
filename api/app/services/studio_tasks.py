@@ -17,7 +17,9 @@ _ALLOWED_LANGUAGES = frozenset({"中文", "English"})
 # Retired from product surface; keep plugin/code for potential restore but hide from Studio UI/API lists.
 _HIDDEN_FORMATS = frozenset({"structured_notes", "four_panel"})
 # Product-fixed: always treated as enabled (admin toggle removed).
-_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft"})
+_ALWAYS_ON_FORMATS = frozenset({"mind_map", "slides", "knowledge_draft", "reading_page"})
+# Succeeded tasks whose main artifact text is returned for in-app preview.
+_TEXT_PREVIEW_FORMATS = frozenset({"mind_map", "structured_notes", "four_panel", "reading_page"})
 
 
 def enqueue_studio_task(task_id: int) -> None:
@@ -68,7 +70,7 @@ async def get_task(session: AsyncSession, *, owner_id: int, task_id: int) -> Tas
     if task is None or task.deleted_at is not None or task.owner_id != owner_id:
         raise NotFoundError("任务不存在")
     text_content: str | None = None
-    if task.format_key in {"mind_map", "structured_notes", "four_panel"} and task.status == "succeeded":
+    if task.format_key in _TEXT_PREVIEW_FORMATS and task.status == "succeeded":
         artifact = await session.scalar(
             select(StudioArtifact)
             .where(

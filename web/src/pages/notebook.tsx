@@ -34,6 +34,7 @@ import { KnowledgePanel } from "@/components/knowledge-panel";
 import { RightPanelTabs } from "@/components/right-panel-tabs";
 import { StudioMindmap } from "@/components/studio-mindmap";
 import { StudioSlides } from "@/components/studio-slides";
+import { StudioReadingPage } from "@/studio/plugins/reading_page/ResultView";
 import { displayStudioTaskTitle } from "@/components/studio-panel";
 import { isStudioFormatVisible } from "@/studio/plugins/registry";
 import { StudioFile } from "@/components/studio-file";
@@ -972,6 +973,40 @@ export default function NotebookPage() {
                     setOpenNoteId(noteId);
                   }}
                 />
+              ) : previewTaskId != null && previewFormat === "reading_page" ? (
+                <StudioReadingPage
+                  title={displayStudioTaskTitle(preview.data?.title) || "阅读页"}
+                  crumb={nb.title}
+                  text={readingNotice(preview.isLoading, preview.isError, preview.error, preview.data) ? null : (preview.data?.text_content ?? null)}
+                  notice={readingNotice(preview.isLoading, preview.isError, preview.error, preview.data)}
+                  noticeError={preview.isError}
+                  videos={snapshotVideos(idList(preview.data?.params_json?.video_ids), nb.sources)}
+                  notes={snapshotNotes(idList(preview.data?.params_json?.note_ids), notes)}
+                  expanded={previewExpanded}
+                  onBack={() => {
+                    setPreviewTaskId(null);
+                    setPreviewFormat(null);
+                    setPreviewExpanded(false);
+                  }}
+                  onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+                  onOpenVideo={(videoId) => {
+                    setPreviewExpanded(false);
+                    setLeftCollapsed(false);
+                    setFocusCue(null);
+                    setSelectedVideoId(videoId);
+                  }}
+                  onOpenNote={(noteId) => {
+                    setPreviewExpanded(false);
+                    setRightCollapsed(false);
+                    setOpenNoteId(noteId);
+                  }}
+                  onSeekVideo={(videoId, timeSec) => {
+                    setPreviewExpanded(false);
+                    setLeftCollapsed(false);
+                    setSelectedVideoId(videoId);
+                    setFocusCue({ videoId, timeSec, nonce: Date.now() });
+                  }}
+                />
               ) : previewTaskId != null && previewFormat && !isStudioFormatVisible(previewFormat) ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
                   <p className="text-sm font-medium">此产物格式已停用</p>
@@ -1264,6 +1299,22 @@ function snapshotNotes(ids: number[], notes: NoteRead[]): { id: number; title: s
   }));
 }
 
+
+function readingNotice(
+  loading: boolean,
+  failed: boolean,
+  error: unknown,
+  task: StudioTaskDetail | undefined,
+): string | null {
+  if (!task) {
+    if (loading) return "加载阅读页…";
+    if (error instanceof ApiError) return error.message;
+    if (failed) return "加载失败";
+    return "加载阅读页…";
+  }
+  if (task.text_content == null) return "没有阅读页内容";
+  return null;
+}
 
 function mindMapNotice(
   loading: boolean,

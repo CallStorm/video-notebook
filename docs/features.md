@@ -2,6 +2,8 @@
 
 按**当前实现**介绍。产品边界见 [requirements.md](requirements.md)。
 
+同一后端支撑三端：**PC 网页**（下文前半）、**微信小程序**（[miniapp.md](miniapp.md)）、**对外 Agent**（下文专节与 [agent.md](agent.md)）。总览见根 [README](../README.md)。
+
 ## 笔记本与来源
 
 - **笔记本**：创建 / 列表 / 置顶 / 公开 / 删除；封面；打开后三栏（来源 · 对话 · 知识/产物）。
@@ -63,6 +65,7 @@ Cookie / 代理在 **后台 → 抓取与网络** 按平台配置。
 - 账号由管理员创建；手机号 + 密码；角色：用户 / 管理员。
 - 后台：模型（LLM/ASR）、抓取与网络、向量、底稿策略、账号、运行观测（流水线 / LLM traces）等。
 - 健康检查：`GET /api/health`、`GET /api/health/ready`。
+
 ## 微信小程序
 
 手机端收集入口（抖音分享文案抽链 → 新建/加入笔记本 → 自动抓取）。演示与截图见 [miniapp.md](miniapp.md)；工程说明见 [miniapp/README.md](../miniapp/README.md)。
