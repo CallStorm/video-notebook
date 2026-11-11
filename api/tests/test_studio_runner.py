@@ -664,6 +664,9 @@ def test_prompt_injects_reading_page_constraints():
     assert "阅读页硬约束" in prompt
     assert "短标题：如何审代码" in prompt
     assert "禁止一条要点一个 section" in prompt
+    assert "全文最多 3 个" in prompt
+    assert "属性卡" in prompt
+    assert "lanes" in prompt
     assert "page.json" in prompt
     assert prompt.index("阅读页硬约束") < prompt.index("系统提示")
 

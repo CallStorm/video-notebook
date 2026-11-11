@@ -305,7 +305,7 @@ function buildReadingBrief(draft: KnowledgeDraft, points: DraftPoint[]): string 
   const theme = (draft.content.theme || "").trim() || "知识要点";
   const parts: string[] = [
     "受众：自学复盘",
-    "结构建议：开篇论点 → 按主题分组的步骤 → 收束",
+    "结构建议：开篇论点 → 按主题分组 → 必要时用流程、时序、对照、属性卡或提示，不要每种都堆上 → 收束",
     `主题：${theme}`,
     "",
     "请把下列已勾选要点重组成一篇阅读页，按主题合并，不要按条平铺。",

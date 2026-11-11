@@ -210,7 +210,10 @@ def _reading_page_hard_constraints(fields: list) -> str:
         "- theme 是全文论点（1–2 句）。不要复读要点清单，也不要把「受众 / 结构建议」贴进页面。",
         "- time 与 video_id 只能从要点行原样抄写；没有可靠时间就省略这两个字段，禁止编造。",
         "- quote 只用要点里的「原句」短引。例子和「我的评论」写进 aside，不要伪装成原句。",
-        "- diagram 只在流程、对比或因果说得清时使用，全文最多 2 个。",
+        "- 图示沿用 diagram，kind 仍是 flow / compare / sequence。材料够用才加，全文最多 3 个，同一种最多 2 个。",
+        "- 流程用 flow 的 nodes。对错或两边对照用 compare（columns 两列，错对分明时 tone 为 contrast）。多角色节奏用 sequence 的 lanes + rows。",
+        "- 一段解释写 prose，提醒写 callout（全文最多 3 个），并列属性写 cards（最多 2 组，每组 2–6 张）。不要把每种块都堆进同一页。",
+        "- 没有步骤的一组可以只有 prose、图示、cards 或 callout。有步骤时每步仍要有 body。",
         "- 禁止输出 HTML。只交 outputs/page.json 与约定 MANIFEST。",
         "- MANIFEST.title 必须是短标题（≤20 字），优先用 fields.title。",
     ]
