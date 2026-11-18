@@ -10,13 +10,23 @@ from app.llm.provider_registry import (
 )
 
 
-def test_registry_has_four_providers():
-    assert provider_names() == ["minimax", "openai", "deepseek", "whisper"]
+def test_registry_lists_providers():
+    assert provider_names() == [
+        "minimax",
+        "openai",
+        "deepseek",
+        "whisper",
+        "local",
+        "ollama",
+        "faster_whisper",
+        "whisper_cpp",
+        "asr_server",
+    ]
 
 
 def test_default_base_urls_for_openai_compat_end_with_v1():
     """OpenAI-兼容路径（openai/minimax/whisper/deepseek）的 base_url 必须以 /v1 结尾。"""
-    for name in ("openai", "minimax", "whisper", "deepseek"):
+    for name in ("openai", "minimax", "whisper", "deepseek", "local"):
         spec = PROVIDERS[name]
         assert spec.default_base_url and spec.default_base_url.endswith("/v1"), (
             f"{name} default_base_url={spec.default_base_url} 应以 /v1 结尾"
@@ -25,7 +35,7 @@ def test_default_base_urls_for_openai_compat_end_with_v1():
 
 def test_test_url_path_does_not_double_v1():
     """确保 test_url_path 拼到 base_url 后只出现一次 /v1（OpenAI-兼容的 provider）。"""
-    for name in ("openai", "minimax", "whisper", "deepseek"):
+    for name in ("openai", "minimax", "whisper", "deepseek", "local"):
         spec = PROVIDERS[name]
         base = (spec.default_base_url or "").rstrip("/")
         url = f"{base}{spec.test_url_path}"

@@ -1,4 +1,9 @@
-"""ASR adapter 接口。
+"""旧的 ASR adapter 草图，字幕流水线不再调用。
+
+当前转写后端在 settings.py、engines.py、http_server.py，由 subtitles.transcribe 选择。
+本文件仍引用已经不存在的 app.models.model_config，新代码不要 import 这里。
+
+ASR adapter 接口。
 
 设计 §3.2 与 §7.2 描述了视频字幕的 ASR 流水线。
 本接口的最小集：异步提交 → 拉取 SRT/JSON 结果。

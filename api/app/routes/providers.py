@@ -24,6 +24,7 @@ async def list_providers() -> list[ProviderInfo]:
             test_model=spec.test_model,
             docs_url=spec.docs_url,
             anthropic_compat=spec.anthropic_compat,
+            requires_api_key=spec.requires_api_key,
         )
         for spec in PROVIDERS.values()
     ]

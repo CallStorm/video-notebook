@@ -71,7 +71,7 @@ AppID `wx807def5a62c2af59` 用于内网、开发或体验入口，不必正式�
 | `STORAGE_ROOT` / `SKILLS_ROOT` | `./storage` / `./skills` |
 | `SEED_ADMIN_*` | 首个管理员 |
 
-LLM / 语音转文字的 Key、抓取 Cookie、向量地址也可以在**后台配置**里改（向量默认常为 `http://127.0.0.1:6333`）。
+LLM / 语音转文字的 Key、抓取 Cookie、向量地址也可以在**后台配置**里改（向量默认常为 `http://127.0.0.1:6333`）。本地对话模型见下文 [本地 LLM](#local-llm)。 自建 ASR 的配置见[语音转文字](asr.md)。
 
 Celery 的 `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` 若未单独配置，一般跟 Redis 约定（见 api 配置）。
 
@@ -86,6 +86,54 @@ Celery 的 `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` 若未单独配置，�
 | `make up` / `make down-all` | 全栈 Compose 起 / 停（不是当前主路径） |
 
 `make help` 看完整列表。
+
+<a id="local-llm"></a>
+
+## 本地 LLM
+
+对话、来源概览、笔记辅助、知识底稿（生成、修复、要点追问、结论核对）、底稿策略试跑、标签整理，以及未单独指定时的图标，都走当前的**聊天模型**。MiniMax 仍走 Anthropic 兼容接口。OpenAI、DeepSeek 和本机服务走 OpenAI Chat Completions（`/v1/chat/completions`）。
+
+可以接 Ollama、LM Studio、vLLM、llama.cpp server，或任何提供该接口的进程。封面文生图、向量模型和语音转文字仍用各自的默认项，不会跟着聊天模型改。
+
+### 后台
+
+1. 打开后台的模型配置，为 Ollama 选择 **Ollama**，为 LM Studio、vLLM 或 llama.cpp 选择 **本地 OpenAI 兼容**，添加凭证。
+2. Base URL 可填完整 API 前缀。只填主机和端口时自动补 `/v1`。API Key 可留空；服务要求鉴权时再填。
+3. 「发现模型」或手动填写模型名（例如 `qwen2.5`），类型为对话。
+4. 把该模型设为 **聊天模型**。如需向量检索，可用同一凭证注册单独的 embedding 模型，并设为**向量模型**。
+
+| 服务 | Base URL 示例 |
+|------|----------------|
+| Ollama | `http://127.0.0.1:11434/v1` |
+| LM Studio | `http://127.0.0.1:1234/v1` |
+| vLLM | `http://127.0.0.1:8001/v1`（本机 API 已占用 8000） |
+| llama.cpp server | `http://127.0.0.1:8080/v1` |
+
+API 或 worker 运行在容器中时，回环地址指向容器自身。模型运行在另一台机器时，填写 API 和 worker 都能访问的私网地址，例如 `http://<模型主机>:11434/v1`。Studio 的 Claude Code 引擎有独立配置。
+
+Ollama 示例：
+
+```bash
+ollama serve
+ollama pull qwen2.5
+# 凭证 Base URL: http://127.0.0.1:11434/v1
+# 模型名: qwen2.5
+```
+
+本地上下文通常比云端模型短。底稿默认 `max_tokens` 很大，服务拒绝时把环境变量 `DRAFT_MAX_TOKENS` 或后台「底稿策略」里的上限调低。
+
+### 环境变量
+
+库里还没有默认聊天模型时，才读取下面四项。后台已经指定聊天模型时，以后台为准。
+
+```bash
+LLM_PROVIDER=ollama
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_MODEL_NAME=qwen2.5
+LLM_API_KEY=
+```
+
+`LLM_PROVIDER` 也可以是 `openai` 或 `deepseek`，这时需要 `LLM_API_KEY`。未填模型名时不会偷偷启用。
 
 ## 目录约定
 

@@ -22,6 +22,8 @@ import time
 
 import httpx
 
+from app.llm.base import LlmError
+from app.llm.openai_compat import openai_auth_headers, openai_compat_base_url
 from app.llm.provider_registry import PROVIDERS, ProviderSpec
 
 
@@ -31,10 +33,7 @@ async def _test_openai_compat(spec: ProviderSpec, api_key: str, base_url: str) -
         base = base_url.rstrip("/")
         url = f"{base}{spec.test_url_path}"
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                url,
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
+            resp = await client.get(url, headers=openai_auth_headers(api_key))
         elapsed = int((time.monotonic() - started) * 1000)
         if resp.status_code == 200:
             data = resp.json().get("data", [])
@@ -140,6 +139,8 @@ async def test_credential(
     api_key: str,
     *,
     base_url: str | None = None,
+    config: dict | None = None,
+    model_name: str | None = None,
 ) -> dict:
     """统一入口：根据 provider 分发到合适的测试方式。"""
     spec = PROVIDERS.get(provider)
@@ -150,14 +151,24 @@ async def test_credential(
             "provider": provider,
             "error": f"unknown provider: {provider}",
         }
-    if not api_key:
+    if spec.name in {"faster_whisper", "whisper_cpp", "asr_server"}:
+        from app.asr.probe import probe_stt
+
+        return await probe_stt(
+            provider=spec.name,
+            api_key=api_key,
+            base_url=base_url or spec.default_base_url,
+            config=config,
+            model_name=model_name,
+        )
+    if spec.requires_api_key and not (api_key or "").strip():
         return {
             "ok": False,
             "latency_ms": 0,
             "provider": provider,
             "error": "缺少 api_key",
         }
-    base = (base_url or spec.default_base_url or "").rstrip("/")
+    base = (base_url or spec.default_base_url or "").strip()
     if not base:
         return {
             "ok": False,
@@ -165,6 +176,18 @@ async def test_credential(
             "provider": provider,
             "error": "缺少 base_url，且 provider 没有 default_base_url",
         }
+    if spec.openai_compat:
+        try:
+            base = openai_compat_base_url(base)
+        except LlmError as exc:
+            return {
+                "ok": False,
+                "latency_ms": 0,
+                "provider": provider,
+                "error": str(exc),
+            }
+    else:
+        base = base.rstrip("/")
 
     if spec.name == "anthropic":
         return await _test_anthropic(spec, api_key, base)

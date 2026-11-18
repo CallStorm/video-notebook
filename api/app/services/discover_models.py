@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.llm.base import LlmError
+from app.llm.openai_compat import openai_auth_headers, openai_compat_base_url
 from app.llm.provider_registry import PROVIDERS
 from app.models.credential import Credential
 
@@ -44,19 +46,23 @@ async def discover_models(credential: Credential) -> DiscoveryResult:
     spec = PROVIDERS.get(credential.provider)
     if spec is None:
         return DiscoveryResult(items=[], error=f"unknown provider: {credential.provider}")
-    base = (credential.base_url or spec.default_base_url or "").rstrip("/")
+    base = (credential.base_url or spec.default_base_url or "").strip()
     if not base:
         return DiscoveryResult(items=[], error="缺少 base_url")
+    if spec.openai_compat:
+        try:
+            base = openai_compat_base_url(base)
+        except LlmError as exc:
+            return DiscoveryResult(items=[], error=str(exc))
+    else:
+        base = base.rstrip("/")
 
     # 复用 registry 的 test_url_path（默认 /models；base_url 已含 /v1）
     url = f"{base}{spec.test_url_path}"
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                url,
-                headers={"Authorization": f"Bearer {credential.get_api_key()}"},
-            )
+            resp = await client.get(url, headers=openai_auth_headers(credential.get_api_key()))
     except Exception as exc:  # noqa: BLE001
         return DiscoveryResult(
             items=[],

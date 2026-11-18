@@ -45,6 +45,8 @@ class ProviderSpec:
     # ─── 厂商特性 ────────────────────────────────────────────────────
     anthropic_compat: bool = False
     """Provider 走 Anthropic-兼容 SDK（minimax 走这种）。"""
+    openai_compat: bool = False
+    """Provider 走 OpenAI Chat Completions（/v1/chat/completions）。"""
     requires_api_key: bool = True
 
     # 一些 provider 有额外字段（如 Azure 的 api_version）。v1 用 config 字典承载。
@@ -52,11 +54,6 @@ class ProviderSpec:
 
 
 # ─── Provider 元数据 ─────────────────────────────────────────────────────
-# v1 锁 4 个 provider：
-# - minimax : chat + tts （走 Anthropic-兼容 SDK）
-# - openai   : chat + tts + stt + embedding
-# - deepseek : chat （OpenAI 兼容）
-# - whisper  : stt （OpenAI Whisper API）
 _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         name="minimax",
@@ -74,6 +71,7 @@ _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
         default_base_url="https://api.openai.com/v1",
         test_model="gpt-3.5-turbo",
         docs_url="https://platform.openai.com/api-keys",
+        openai_compat=True,
     ),
     ProviderSpec(
         name="deepseek",
@@ -82,6 +80,7 @@ _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
         default_base_url="https://api.deepseek.com/v1",
         test_model="deepseek-chat",
         docs_url="https://platform.deepseek.com/api_keys",
+        openai_compat=True,
     ),
     ProviderSpec(
         name="whisper",
@@ -90,6 +89,45 @@ _PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
         default_base_url="https://api.openai.com/v1",
         test_model=None,
         docs_url="https://platform.openai.com/api-keys",
+    ),
+    ProviderSpec(
+        name="local",
+        display_name="本地 OpenAI 兼容",
+        modalities=(LLM, EMBEDDING),
+        default_base_url="http://127.0.0.1:11434/v1",
+        test_model=None,
+        docs_url="https://github.com/ollama/ollama/blob/main/docs/openai.md",
+        openai_compat=True,
+        requires_api_key=False,
+    ),
+    ProviderSpec(
+        name="ollama",
+        display_name="Ollama",
+        modalities=(LLM, EMBEDDING),
+        default_base_url="http://127.0.0.1:11434/v1",
+        docs_url="https://docs.ollama.com/api/openai-compatibility",
+        openai_compat=True,
+        requires_api_key=False,
+    ),
+    ProviderSpec(
+        name="faster_whisper",
+        display_name="faster-whisper（本地进程）",
+        modalities=STT_ONLY,
+        requires_api_key=False,
+        docs_url="https://github.com/SYSTRAN/faster-whisper",
+    ),
+    ProviderSpec(
+        name="whisper_cpp",
+        display_name="whisper.cpp（本地进程）",
+        modalities=STT_ONLY,
+        requires_api_key=False,
+        docs_url="https://github.com/ggml-org/whisper.cpp",
+    ),
+    ProviderSpec(
+        name="asr_server",
+        display_name="ASR 服务（本地 / 自建）",
+        modalities=STT_ONLY,
+        requires_api_key=False,
     ),
 )
 

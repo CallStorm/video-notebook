@@ -120,6 +120,9 @@ async def _clean_db():
     """每个 test 后清理 users + model_configs 表，让 auth/admin_seed 不互相污染。"""
 
     yield
+    from app.llm.config_service import invalidate as invalidate_llm_cache
+
+    invalidate_llm_cache()
     async with _test_sessionmaker() as s:
         from sqlalchemy import text
 

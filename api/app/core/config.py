@@ -99,9 +99,11 @@ class Settings(BaseSettings):
             path = (_REPO_ROOT / path).resolve()
         return path
 
-    # ─── 第三方服务（先放环境变量；Phase 3 起从 DB 读 model_configs） ──────
+    # ─── 第三方服务 ──────────────────────────────────────────────────────
+    # 后台「聊天模型」优先。库里还没有 chat 默认模型时，才用下面四项
+    # （本地 OpenAI 兼容服务：LLM_PROVIDER=local，API Key 可空）。
     llm_provider: str = "minimax"
-    llm_base_url: str | None = None   # Anthropic-兼容 base_url
+    llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model_name: str | None = None
 

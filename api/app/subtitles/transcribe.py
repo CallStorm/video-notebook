@@ -1,9 +1,12 @@
 """用后台配置的语音转文字模型转写本地音频。
 
-只支持 OpenAI 兼容的 /audio/transcriptions（provider=openai 或 whisper）。
+默认仍是 OpenAI 兼容的 /audio/transcriptions（provider=openai 或 whisper）。
 模型若能返回 segments / srt，就用它的时间轴。
 像硅基流动 SenseVoice 这种只回整段 text 的，按停顿把音频切开再转写，
 然后在每一段里按句子把时间分下去。
+
+provider 为 faster_whisper、whisper_cpp、asr_server 时走本地进程或本地 HTTP 服务，
+最后同样得到 list[Cue]。凭证 config.backend 也可以改这一选择。
 """
 from __future__ import annotations
 
@@ -15,9 +18,10 @@ from pathlib import Path
 
 import httpx
 
+from app.asr.settings import AsrConfigError, backend_kind, language_from_config
 from app.llm.config_service import SttResolved
-from app.subtitles.cues import distribute, expand_cues, split_subtitle_lines
 from app.subtitle_slice_settings.runtime import get_settings_fresh
+from app.subtitles.cues import distribute, expand_cues, split_subtitle_lines
 from app.subtitles.media import (
     build_speech_ranges,
     cut_slice,
@@ -59,18 +63,54 @@ def resolve_model_name(name: str | None) -> str:
     return cleaned
 
 
-async def transcribe_file(stt: SttResolved, audio_path: str) -> tuple[list[Cue], str | None]:
-    if stt.provider not in ("openai", "whisper"):
-        raise TranscribeError(f"当前语音转文字供应商 {stt.provider} 还不支持自动转写")
-    if not stt.api_key:
-        raise TranscribeError("语音转文字凭证没有 API Key")
+def request_model_name(stt: SttResolved) -> str:
+    """公开 Whisper API 把尺寸名改成 whisper-1；自建服务保留用户填的名字。"""
+    if stt.provider in ("openai", "whisper"):
+        return resolve_model_name(stt.model_name)
+    cleaned = (stt.model_name or "").strip()
+    return cleaned or "whisper-1"
 
+
+async def transcribe_file(stt: SttResolved, audio_path: str) -> tuple[list[Cue], str | None]:
+    try:
+        kind = backend_kind(stt)
+    except AsrConfigError as exc:
+        raise TranscribeError(str(exc)) from exc
+    logger.info(
+        "asr backend=%s provider=%s model=%s",
+        kind,
+        stt.provider,
+        stt.model_name,
+    )
+    if kind == "openai_compat":
+        if not stt.api_key:
+            raise TranscribeError("语音转文字凭证没有 API Key")
+        return await _transcribe_openai_file(stt, audio_path)
+    if kind == "http_openai":
+        if not (stt.base_url or "").strip():
+            raise TranscribeError("本地 ASR 服务需要填写 endpoint URL（凭证的 Base URL）")
+        return await _transcribe_openai_file(stt, audio_path)
+    from app.asr.runtime import transcribe_custom
+
+    return await transcribe_custom(stt, audio_path, kind)
+
+
+async def _transcribe_openai_file(
+    stt: SttResolved, audio_path: str
+) -> tuple[list[Cue], str | None]:
     path = Path(audio_path)
     duration_ms = await asyncio.to_thread(probe_duration_ms, path)
     if duration_ms <= 0:
         duration_ms = 1000
 
-    timeout = httpx.Timeout(600.0, connect=30.0)
+    timeout_s = 600.0
+    cfg = stt.config if isinstance(stt.config, dict) else {}
+    if cfg.get("timeout_seconds") is not None:
+        try:
+            timeout_s = float(cfg["timeout_seconds"])
+        except (TypeError, ValueError):
+            timeout_s = 600.0
+    timeout = httpx.Timeout(timeout_s if timeout_s > 0 else 600.0, connect=30.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         # 先拿一小段探测。能返回时间轴就整段转；否则不要先把整集传上去白跑一遍。
         probe_ms = min(duration_ms, 12_000)
@@ -218,13 +258,20 @@ async def _post_audio(
 ) -> httpx.Response:
     base = (stt.base_url or "https://api.openai.com/v1").rstrip("/")
     url = f"{base}/audio/transcriptions"
-    model = resolve_model_name(stt.model_name)
+    model = request_model_name(stt)
+    data = {"model": model, **fields}
+    language = language_from_config(stt.config)
+    if language:
+        data["language"] = language
+    headers: dict[str, str] = {}
+    if stt.api_key:
+        headers["Authorization"] = f"Bearer {stt.api_key}"
     last: httpx.Response | None = None
     for attempt in range(4):
         response = await client.post(
             url,
-            headers={"Authorization": f"Bearer {stt.api_key}"},
-            data={"model": model, **fields},
+            headers=headers,
+            data=data,
             files={"file": (filename, payload, "application/octet-stream")},
         )
         last = response

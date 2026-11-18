@@ -10,9 +10,10 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.crypto import decrypt
 from app.core.errors import NotFoundError
-from app.llm.provider_registry import get_provider
+from app.llm.provider_registry import LLM, get_provider
 from app.models.credential import Credential
 from app.models.default_model import DefaultModel
 from app.models.model import Model
@@ -94,12 +95,41 @@ async def _resolve_default(
 
 
 def _to_llm(m: Model, cred: Credential) -> LlmResolved:
+    spec = get_provider(m.provider)
+    base = (cred.base_url or "").strip() or (spec.default_base_url if spec else None)
     return LlmResolved(
         provider=m.provider,
-        base_url=cred.base_url,
+        base_url=base,
         api_key=decrypt(cred.api_key_enc or ""),
         model_name=m.name,
         params_json=cred.config,
+    )
+
+
+def llm_from_env() -> LlmResolved | None:
+    """库里还没有默认聊天模型时，用 LLM_PROVIDER / LLM_BASE_URL / LLM_MODEL_NAME / LLM_API_KEY。
+
+    已在后台指定 chat 默认模型时不会走到这里。缺模型名、provider 不支持对话，
+    或该 provider 要求 key 但没配，都返回 None，调用方继续报「没有默认模型」。
+    """
+    settings = get_settings()
+    provider = (settings.llm_provider or "").strip()
+    model_name = (settings.llm_model_name or "").strip()
+    if not provider or not model_name:
+        return None
+    spec = get_provider(provider)
+    if spec is None or LLM not in spec.modalities:
+        return None
+    api_key = (settings.llm_api_key or "").strip()
+    if spec.requires_api_key and not api_key:
+        return None
+    base = (settings.llm_base_url or "").strip() or spec.default_base_url
+    return LlmResolved(
+        provider=spec.name,
+        base_url=base,
+        api_key=api_key,
+        model_name=model_name,
+        params_json=None,
     )
 
 
@@ -107,8 +137,16 @@ async def get_active_llm(session: AsyncSession) -> LlmResolved:
     cached = _llm_cache.get("active")
     if cached:
         return cached
-    m, cred = await _resolve_default(session, "chat")
-    resolved = _to_llm(m, cred)
+    default_row = (
+        await session.execute(select(DefaultModel).where(DefaultModel.role == "chat"))
+    ).scalar_one_or_none()
+    if default_row is None:
+        resolved = llm_from_env()
+        if resolved is None:
+            raise NotFoundError("role=chat 没有默认模型（请在 admin 配置）")
+    else:
+        m, cred = await _resolve_default(session, "chat")
+        resolved = _to_llm(m, cred)
     _llm_cache.put("active", resolved)
     return resolved
 
@@ -123,9 +161,9 @@ async def get_active_logo_llm(session: AsyncSession) -> LlmResolved:
     ).scalar_one_or_none()
     if d is not None:
         m, cred = await _resolve_default(session, "logo")
+        resolved = _to_llm(m, cred)
     else:
-        m, cred = await _resolve_default(session, "chat")
-    resolved = _to_llm(m, cred)
+        resolved = await get_active_llm(session)
     _logo_cache.put("active", resolved)
     return resolved
 

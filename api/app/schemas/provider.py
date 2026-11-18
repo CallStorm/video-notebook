@@ -15,6 +15,7 @@ class ProviderInfo(BaseModel):
     test_model: str | None = None
     docs_url: str | None = None
     anthropic_compat: bool = False
+    requires_api_key: bool = True
 
 
 # ─── Credential ──────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ class CredentialRead(BaseModel):
 class CredentialCreate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     provider: str = Field(min_length=1, max_length=32)
-    api_key: str = Field(min_length=1)
+    api_key: str | None = None
     modalities: list[str] | None = None
     base_url: str | None = None
     config: dict | None = None

@@ -6,6 +6,8 @@ import logging
 import httpx
 
 from app.llm.config_service import EmbeddingResolved
+from app.llm.openai_compat import openai_auth_headers, openai_compat_base_url
+from app.llm.provider_registry import get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +32,14 @@ async def embed_texts(
     """对多段文本做 embedding，返回与 texts 同序的向量列表。"""
     if not texts:
         return []
-    if not resolved.api_key:
+    spec = get_provider(resolved.provider)
+    if not resolved.api_key and (spec is None or spec.requires_api_key):
         raise EmbeddingError("向量模型凭证没有 API Key")
-    url = _embeddings_url(resolved.base_url)
-    headers = {
-        "Authorization": f"Bearer {resolved.api_key}",
-        "Content-Type": "application/json",
-    }
+    base = resolved.base_url
+    if spec and spec.openai_compat and not spec.requires_api_key:
+        base = openai_compat_base_url(base or spec.default_base_url)
+    url = _embeddings_url(base)
+    headers = openai_auth_headers(resolved.api_key, json_body=True)
     # 部分兼容网关要求 input 为单字符串；多段时分批或一次数组均可。
     # OpenAI 官方支持 list[str]。
     payload = {
