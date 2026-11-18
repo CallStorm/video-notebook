@@ -115,7 +115,7 @@ whisper-server -m "$HOME/models/ggml-base.bin" --host 127.0.0.1 --port 8080 \
   --vad --vad-model "$HOME/models/ggml-silero-v6.2.0.bin"
 ```
 
-VAD 会在转写前检测语音。对于带置信度的响应，应用会过滤低置信度且高度疑似非语音的片段，并收敛长时间重复的短句循环。
+VAD 会在转写前检测语音。对于带置信度的响应，应用会过滤低置信度且高度疑似非语音的片段，并收敛长时间重复的短句循环。若 whisper.cpp 返回跨越长停顿的异常长字幕，media-worker 会分段复听该区间，并把识别时间映射回原音频。
 
 Base URL 填 `http://127.0.0.1:8080`，协议选 whisper.cpp（`config.protocol` 为 `whisper_cpp`）。请求发到 `POST /inference`。如果 media-worker 与 ASR 分别运行在 NAS 和 Mac 上，请将示例中的回环地址改为两台主机之间可达的私网地址。模型由 server 启动参数决定，后台里的模型名只是一条记录，方便选成默认语音转文字。
 

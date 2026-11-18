@@ -440,3 +440,40 @@ def test_whisper_cpp_filters_non_speech_and_collapses_sustained_loops():
 
     body = json.dumps({"segments": [segments[1]], "text": "疑似背景声"}).encode()
     assert parse_http_transcript(body, "application/json") == ([], None, True)
+
+
+@pytest.mark.parametrize("timed_repair", [True, False])
+async def test_whisper_cpp_retranscribes_cue_across_vad_gap(tmp_path, monkeypatch, timed_repair):
+    import httpx
+
+    from app.asr.http_server import _repair_long_cues
+
+    original = [Cue(0, 9000, "前段"), Cue(9000, 100000, "后段"), Cue(100000, 103000, "结尾")]
+    audio = tmp_path / "source.mp3"
+    cuts = []
+
+    def cut(path, start, end):
+        assert path == audio
+        cuts.append((start, end))
+        clip = tmp_path / f"{start}.mp3"
+        clip.touch()
+        return clip
+
+    async def request(clip):
+        if clip.stem == "89000":
+            if not timed_repair:
+                return httpx.Response(200, text="没有时间信息")
+            return httpx.Response(200, json={"segments": [
+                {"start": 9, "end": 12, "text": "后段"},
+            ]})
+        return httpx.Response(200, json={"segments": [], "text": ""})
+
+    monkeypatch.setattr("app.asr.http_server.probe_duration_ms", lambda path: 103000)
+    monkeypatch.setattr("app.asr.http_server.cut_slice", cut)
+    result = await _repair_long_cues(audio, original, request)
+
+    assert cuts == [(9000, 29000), (29000, 49000), (49000, 69000), (69000, 89000), (89000, 100000)]
+    assert not list(tmp_path.glob("*.mp3"))
+    assert result == (
+        [original[0], Cue(98000, 100000, "后段"), original[2]] if timed_repair else original
+    )
