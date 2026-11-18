@@ -96,7 +96,7 @@ async def test_pipeline_auto_overview_when_enabled(db_session, monkeypatch):
         lambda _path: ([Cue(0, 1500, "今天讲减脂")], "zh"),
     )
 
-    async def fake_overview(session, lines, *, video=None):
+    async def fake_overview(session, lines, *, video=None, notebook_id=None):
         assert any("减脂" in (ln.text or "") for ln in lines)
         return "这是自动生成的概览。"
 
@@ -159,3 +159,13 @@ async def test_pipeline_skips_overview_when_auto_off(db_session, monkeypatch):
     assert video.subtitle_status == "ready"
     assert video.overview_status == "pending"
     assert called["n"] == 0
+
+
+def test_overview_renders_only_selected_subtitles():
+    from app.subtitles.overview import _render_overview
+
+    excerpts = ["讲者介绍项目。", "随后开始测试。", "下次继续。"]
+    assert _render_overview(excerpts, '[3, true, 1, 3, 0, 42, "编造的日期"]') == (
+        "讲者介绍项目。\n下次继续。"
+    )
+    assert _render_overview(excerpts[:1], "编造的日期是 2030 年。") == excerpts[0]

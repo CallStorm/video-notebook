@@ -108,11 +108,14 @@ OpenAI 兼容（speaches、faster-whisper-server、LocalAI 等）把地址填到
 
 Base URL 示例：`http://127.0.0.1:8000/v1`。模型名按该服务的要求填，例如 `Systran/faster-whisper-small`。这里不会把 `large-v3` 改写成 `whisper-1`。
 
-whisper.cpp 自带的 server：
+whisper.cpp 自带的 server 支持 Silero VAD。将[兼容的 GGML VAD 模型](https://huggingface.co/ggml-org/whisper-vad)下载到模型目录，然后用以下参数启动。
 
 ```bash
-whisper-server -m "$HOME/models/ggml-base.bin" --host 127.0.0.1 --port 8080
+whisper-server -m "$HOME/models/ggml-base.bin" --host 127.0.0.1 --port 8080 \
+  --vad --vad-model "$HOME/models/ggml-silero-v6.2.0.bin"
 ```
+
+VAD 会在转写前检测语音。对于带置信度的响应，应用会过滤低置信度且高度疑似非语音的片段，并收敛长时间重复的短句循环。
 
 Base URL 填 `http://127.0.0.1:8080`，协议选 whisper.cpp（`config.protocol` 为 `whisper_cpp`）。请求发到 `POST /inference`。如果 media-worker 与 ASR 分别运行在 NAS 和 Mac 上，请将示例中的回环地址改为两台主机之间可达的私网地址。模型由 server 启动参数决定，后台里的模型名只是一条记录，方便选成默认语音转文字。
 

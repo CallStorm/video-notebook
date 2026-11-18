@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from itertools import groupby, pairwise
 from pathlib import Path
 
 from app.asr.settings import AsrSettings, settings_from_stt
@@ -89,6 +90,15 @@ def cues_from_whisper_cpp_json(data: dict) -> tuple[list[Cue], str | None]:
     for row in rows:
         if not isinstance(row, dict):
             continue
+        no_speech = row.get("no_speech_prob")
+        logprob = row.get("avg_logprob")
+        if (
+            isinstance(no_speech, (int, float))
+            and no_speech > 0.6
+            and isinstance(logprob, (int, float))
+            and logprob < -1.0
+        ):
+            continue
         text = str(row.get("text") or "").strip()
         if not text:
             continue
@@ -106,7 +116,27 @@ def cues_from_whisper_cpp_json(data: dict) -> tuple[list[Cue], str | None]:
         if end_ms <= start_ms:
             end_ms = start_ms + 1000
         cues.append(Cue(start_ms=start_ms, end_ms=end_ms, text=text))
-    return cues, language
+    return _remove_stuck_repetitions(cues), language
+
+
+def _remove_stuck_repetitions(cues: list[Cue]) -> list[Cue]:
+    """Collapse a sustained decoder loop while retaining brief repetitions."""
+    clean: list[Cue] = []
+    for phrase, group in groupby(cues, key=lambda cue: "".join(
+        char for char in cue.text.casefold() if char.isalnum()
+    )):
+        run = list(group)
+        if (
+            0 < len(phrase) <= 12
+            and len(run) >= 5
+            and run[-1].end_ms - run[0].start_ms >= 10_000
+            and all(-1000 <= b.start_ms - a.end_ms <= 1000 for a, b in pairwise(run))
+        ):
+            # Retain the first occurrence in case the phrase was actually spoken.
+            clean.append(run[0])
+        else:
+            clean.extend(run)
+    return clean
 
 
 def _lock_for(bucket: dict[tuple, threading.Lock], key: tuple) -> threading.Lock:

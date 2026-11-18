@@ -44,7 +44,8 @@ def parse_http_transcript(body: bytes, content_type: str) -> tuple[list[Cue], st
             raise TranscribeError("本地 ASR 服务返回的不是 JSON") from exc
         if isinstance(data, dict):
             cues, language = cues_from_whisper_cpp_json(data)
-            if cues:
+            if cues or any(isinstance(data.get(key), list) and data[key] for key in ("segments", "transcription")):
+                # An empty timestamped result can be a VAD rejection. Do not reuse raw text.
                 return cues, language, True
             parsed = parse_transcript_body(body, "json")
             if parsed.timestamped:

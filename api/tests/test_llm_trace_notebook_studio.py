@@ -78,7 +78,7 @@ async def test_overview_start_llm_trace_includes_notebook_id(monkeypatch, db_ses
         last_usage = None
 
         async def complete(self, *args, **kwargs):
-            return "这是概览"
+            return "[1, 42]"
 
     async def fake_llm(session):
         return SimpleNamespace(
@@ -103,7 +103,7 @@ async def test_overview_start_llm_trace_includes_notebook_id(monkeypatch, db_ses
     text = await overview_mod.write_overview(
         db_session, [line], video=video, notebook_id=88
     )
-    assert text.startswith("这是")
+    assert text == "字幕一行"
     assert calls and calls[0]["kind"] == "overview"
     assert calls[0]["notebook_id"] == 88
     assert calls[0]["video_id"] == 5

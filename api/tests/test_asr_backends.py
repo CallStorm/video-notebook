@@ -416,3 +416,27 @@ async def test_probe_and_admin_local_credential(client: AsyncClient, db_session,
     assert listed["whisper"]["requires_api_key"] is True
     assert listed["faster_whisper"]["requires_api_key"] is False
     assert listed["asr_server"]["requires_api_key"] is False
+
+
+def test_whisper_cpp_filters_non_speech_and_collapses_sustained_loops():
+    from app.asr.http_server import parse_http_transcript
+
+    segments = [
+        {"start": 0, "end": 1, "text": "开始"},
+        {"start": 1, "end": 2, "text": "疑似背景声", "no_speech_prob": 0.8, "avg_logprob": -1.5},
+        {"start": 2, "end": 3, "text": "继续"},
+        {"start": 3, "end": 4, "text": "继续"},
+        *[{"start": n, "end": n + 2, "text": "重复。"} for n in range(4, 16, 2)],
+        {"start": 16, "end": 17, "text": "结束", "no_speech_prob": 0.8, "avg_logprob": -0.1},
+    ]
+    cues, _, timestamped = parse_http_transcript(
+        json.dumps({"segments": segments}).encode(), "application/json"
+    )
+    assert timestamped
+    assert cues == [
+        Cue(0, 1000, "开始"), Cue(2000, 3000, "继续"), Cue(3000, 4000, "继续"),
+        Cue(4000, 6000, "重复。"), Cue(16000, 17000, "结束"),
+    ]
+
+    body = json.dumps({"segments": [segments[1]], "text": "疑似背景声"}).encode()
+    assert parse_http_transcript(body, "application/json") == ([], None, True)
