@@ -1,7 +1,7 @@
 """OpenAI Chat Completions 兼容客户端。
 
 Ollama、LM Studio、vLLM、llama.cpp server，以及 OpenAI / DeepSeek 官方接口，
-都走 `{base}/chat/completions`。`base` 允许不带 `/v1`，调用前会补上。
+都走 `{base}/chat/completions`。根地址自动补 `/v1`，显式填写的 API 前缀原样保留。
 
 API Key 可空：本地服务通常不校验；有值时才带 `Authorization: Bearer`。
 """
@@ -28,24 +28,23 @@ _STRIP_SUFFIXES = (
 
 
 def openai_compat_base_url(base_url: str | None) -> str:
-    """归一成以 `/v1` 结尾的 OpenAI 兼容 base，不重复追加。"""
+    """仅为根地址补 /v1，保留网关自定义的版本与路径。"""
     raw = (base_url or "").strip()
     if not raw:
         raise LlmError("缺少 base_url")
     if "://" not in raw:
         raw = "http://" + raw
     parsed = urlsplit(raw)
-    if not parsed.netloc:
-        raise LlmError(f"无法解析 base_url: {base_url}")
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise LlmError("Base URL 须为 HTTP(S) 地址，不包含凭据、查询参数或片段")
     path = parsed.path.rstrip("/")
     lowered = path.lower()
     for suffix in _STRIP_SUFFIXES:
         if lowered.endswith(suffix):
             path = path[: -len(suffix)].rstrip("/")
-            lowered = path.lower()
             break
-    if not lowered.endswith("/v1"):
-        path = f"{path}/v1" if path else "/v1"
+    if not path:
+        path = "/v1"
     scheme = parsed.scheme or "http"
     return urlunsplit((scheme, parsed.netloc, path, parsed.query, "")).rstrip("/")
 
@@ -153,9 +152,11 @@ class OpenAICompatProvider(LlmProvider):
         body: dict[str, Any] = {
             "model": self.model_name,
             "messages": self._messages(prompt, system, merged.get("history")),
-            "max_tokens": _max_tokens(merged),
+            ("max_completion_tokens" if self.provider_name == "openai" else "max_tokens"): _max_tokens(merged),
             "stream": stream,
         }
+        if stream and self.provider_name in {"openai", "deepseek", "ollama"}:
+            body["stream_options"] = {"include_usage": True}
         body.update(_sampling(merged))
         return body
 
@@ -163,6 +164,7 @@ class OpenAICompatProvider(LlmProvider):
         return httpx.Timeout(connect=15.0, read=_read_timeout(merged), write=60.0, pool=15.0)
 
     async def complete(self, prompt: str, *, system: str | None = None, **kwargs: Any) -> str:
+        self.last_usage = None
         merged = self._merged(kwargs)
         url = openai_chat_completions_url(self.base_url)
         payload = self._payload(prompt, system, merged, stream=False)
@@ -190,9 +192,10 @@ class OpenAICompatProvider(LlmProvider):
         if not isinstance(choices, list) or not choices:
             raise LlmError(f"{self.provider_name}/{self.model_name} 响应缺少 choices")
         message = choices[0].get("message") if isinstance(choices[0], dict) else None
-        if not isinstance(message, dict):
-            return ""
-        return _content_text(message.get("content"))
+        text = _content_text(message.get("content")) if isinstance(message, dict) else ""
+        if not text:
+            raise LlmError("模型响应缺少助手正文")
+        return text
 
     async def stream_chat(
         self,
@@ -220,6 +223,7 @@ class OpenAICompatProvider(LlmProvider):
                             f"{self.provider_name}/{self.model_name} HTTP {resp.status_code}: "
                             f"{_error_message(parsed, raw)}"
                         )
+                    has_text = False
                     async for payload_obj in _iter_stream_payloads(resp):
                         usage = parse_usage(payload_obj.get("usage")) or parse_usage(payload_obj)
                         if usage is not None:
@@ -228,7 +232,10 @@ class OpenAICompatProvider(LlmProvider):
                             raise LlmError(_error_message(payload_obj, ""))
                         text = _delta_text(payload_obj)
                         if text:
+                            has_text = True
                             yield text
+                    if not has_text:
+                        raise LlmError("模型响应缺少助手正文")
         except LlmError:
             raise
         except httpx.HTTPError as exc:
@@ -242,7 +249,7 @@ def _safe_json(resp: httpx.Response) -> Any:
         return None
 
 
-def _loads_or_none(raw: str) -> Any:
+def _loads_or_none(raw: str | bytes) -> Any:
     try:
         return json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -267,56 +274,29 @@ def _delta_text(payload: dict[str, Any]) -> str:
 
 async def _iter_stream_payloads(resp: httpx.Response) -> AsyncIterator[dict[str, Any]]:
     """解析 SSE。若服务忽略 stream 并回了整段 JSON，也当成一次完成。"""
-    raw_parts: list[str] = []
-    saw_event = False
-    buffer = ""
-    async for chunk in resp.aiter_text():
-        raw_parts.append(chunk)
-        buffer += chunk
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            payload = _payload_from_sse_line(line)
-            if payload is None:
-                continue
-            if payload is _DONE:
-                return
-            if isinstance(payload, dict):
-                saw_event = True
-                yield payload
-    tail = _payload_from_sse_line(buffer)
-    if tail is _DONE:
-        return
-    if isinstance(tail, dict):
-        saw_event = True
-        yield tail
-    if saw_event:
-        return
-    whole = "".join(raw_parts).strip()
-    parsed = _loads_or_none(whole)
-    if isinstance(parsed, dict):
+    if "application/json" in resp.headers.get("content-type", ""):
+        raw = await resp.aread()
+        parsed = _loads_or_none(raw)
+        if not isinstance(parsed, dict):
+            raise LlmError("模型响应不是 JSON 对象")
         yield parsed
+        return
 
-
-_DONE = object()
-
-
-def _payload_from_sse_line(line: str) -> dict[str, Any] | object | None:
-    data = _sse_data(line)
-    if data is None:
-        return None
-    if data == "[DONE]":
-        return _DONE
-    parsed = _loads_or_none(data)
-    if isinstance(parsed, dict):
-        return parsed
-    return None
-
-
-def _sse_data(line: str) -> str | None:
-    stripped = line.strip()
-    if not stripped or stripped.startswith(":"):
-        return None
-    if not stripped.lower().startswith("data:"):
-        return None
-    data = stripped[5:].strip()
-    return data or None
+    finished = False
+    async for line in resp.aiter_lines():
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            return
+        if not data:
+            continue
+        event = _loads_or_none(data)
+        if not isinstance(event, dict):
+            raise LlmError("模型返回了无效的 SSE 数据")
+        for choice in event.get("choices") or []:
+            if isinstance(choice, dict) and choice.get("finish_reason"):
+                finished = True
+        yield event
+    if not finished:
+        raise LlmError("模型回复流提前结束")

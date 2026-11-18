@@ -18,7 +18,7 @@ from app.llm.openai_compat import (
     openai_chat_completions_url,
     openai_compat_base_url,
 )
-from app.llm.providers import AnthropicCompatProvider, StubLlmProvider, make_provider
+from app.llm.providers import AnthropicCompatProvider, make_provider
 from app.models.credential import Credential
 from app.models.user import User
 from app.services.discover_models import discover_models
@@ -84,13 +84,8 @@ def test_factory_keeps_minimax_and_routes_openai_compat():
     )
     assert isinstance(minimax, AnthropicCompatProvider)
 
-    whisper = make_provider(
-        provider_name="whisper",
-        api_key="sk-test",
-        base_url="https://api.openai.com/v1",
-        model_name="whisper-1",
-    )
-    assert isinstance(whisper, StubLlmProvider)
+    with pytest.raises(LlmError, match="不支持对话"):
+        make_provider(provider_name="whisper", api_key="", base_url=None, model_name="whisper-1")
 
 
 class _JSONResponse:
@@ -141,6 +136,7 @@ class _StreamCM:
     def __init__(self, lines: list[str], status: int = 200):
         self.status_code = status
         self._lines = lines
+        self.headers = {"content-type": "application/json" if lines[0].startswith("{") else "text/event-stream"}
 
     async def __aenter__(self):
         return self
@@ -148,12 +144,12 @@ class _StreamCM:
     async def __aexit__(self, *args):
         return False
 
-    async def aiter_text(self):
+    async def aiter_lines(self):
         for line in self._lines:
             yield line
 
     async def aread(self):
-        return b'{"error":{"message":"nope"}}'
+        return "".join(self._lines).encode()
 
 
 def _patch_client(monkeypatch) -> list[_FakeClient]:
@@ -521,7 +517,7 @@ async def test_create_local_credential_without_api_key(client: AsyncClient, db_s
     assert body["provider"] == "local"
     assert body["has_api_key"] is False
     assert body["base_url"] == "http://127.0.0.1:11434/v1"
-    assert body["modalities"] == ["language"]
+    assert body["modalities"] == ["language", "embedding"]
 
     denied = await client.post(
         "/api/admin/credentials",
@@ -538,6 +534,8 @@ async def test_providers_endpoint_marks_local_key_optional(client: AsyncClient):
     rows = {item["name"]: item for item in resp.json()}
     assert rows["local"]["requires_api_key"] is False
     assert rows["local"]["default_base_url"] == "http://127.0.0.1:11434/v1"
+    assert rows["ollama"]["requires_api_key"] is False
+    assert rows["ollama"]["modalities"] == ["language", "embedding"]
     assert rows["openai"]["requires_api_key"] is True
     assert rows["minimax"]["requires_api_key"] is True
 
@@ -554,3 +552,35 @@ async def test_env_without_model_still_reports_missing_default(db_session, monke
             await get_active_llm(db_session)
     finally:
         invalidate()
+
+
+@pytest.mark.parametrize("api_key", ["", "gateway-key"])
+async def test_ollama_embeddings_use_configured_endpoint(monkeypatch, api_key):
+    import httpx
+
+    from app.llm.config_service import EmbeddingResolved
+    from app.vector.embeddings import embed_texts
+
+    def respond(request):
+        assert str(request.url) == "http://models.test:11434/v1/embeddings"
+        assert request.headers.get("authorization") == (f"Bearer {api_key}" if api_key else None)
+        assert json.loads(request.content)["input"] == ["one", "two"]
+        return httpx.Response(200, json={"data": [
+            {"index": 1, "embedding": [2.0]}, {"index": 0, "embedding": [1.0]},
+        ]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr("app.vector.embeddings.httpx.AsyncClient", lambda **kwargs: client)
+    config = EmbeddingResolved("ollama", "http://models.test:11434", api_key, "embedding-model", None)
+    assert await embed_texts(config, ["one", "two"]) == [[1.0], [2.0]]
+
+
+async def test_partial_stream_fails_without_completion_marker(monkeypatch):
+    client = _FakeClient()
+    client.stream_lines = ['data: {"choices":[{"delta":{"content":"partial"}}]}\n']
+    monkeypatch.setattr("app.llm.openai_compat.httpx.AsyncClient", lambda **kwargs: client)
+    provider = make_provider(provider_name="ollama", api_key="", base_url=None, model_name="chat")
+    stream = provider.stream_chat("hi")
+    assert await anext(stream) == "partial"
+    with pytest.raises(LlmError, match="提前结束"):
+        await anext(stream)

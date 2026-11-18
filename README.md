@@ -30,6 +30,7 @@
 | [采集说明](docs/collection.md) | 哔哩哔哩、YouTube、抖音如何搜索与入库 |
 | [架构](docs/architecture.md) | 组件与数据流 |
 | [本地部署与开发](docs/development.md) | 本机进程、中间件、环境变量与本地 LLM |
+| [语音转文字](docs/asr.md) | 默认云端转写，以及本地模型和自建 ASR 服务 |
 | [需求](docs/requirements.md) | 产品范围与当前边界 |
 
 本地对话模型（Ollama、LM Studio、vLLM、llama.cpp 等 OpenAI 兼容接口）的配法见 [本地 LLM](docs/development.md#local-llm)。

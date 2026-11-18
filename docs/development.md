@@ -71,7 +71,7 @@ AppID `wx807def5a62c2af59` 用于内网、开发或体验入口，不必正式�
 | `STORAGE_ROOT` / `SKILLS_ROOT` | `./storage` / `./skills` |
 | `SEED_ADMIN_*` | 首个管理员 |
 
-LLM / 语音转文字的 Key、抓取 Cookie、向量地址也可以在**后台配置**里改（向量默认常为 `http://127.0.0.1:6333`）。本地对话模型见下文 [本地 LLM](#local-llm)。
+LLM / 语音转文字的 Key、抓取 Cookie、向量地址也可以在**后台配置**里改（向量默认常为 `http://127.0.0.1:6333`）。本地对话模型见下文 [本地 LLM](#local-llm)。 自建 ASR 的配置见[语音转文字](asr.md)。
 
 Celery 的 `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` 若未单独配置，一般跟 Redis 约定（见 api 配置）。
 
@@ -97,10 +97,10 @@ Celery 的 `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` 若未单独配置，�
 
 ### 后台
 
-1. 打开后台的模型配置，找到 **本地 OpenAI 兼容**，添加凭证。
-2. Base URL 带 `/v1`。不带也会在请求前补上。API Key 可留空；服务要求鉴权时再填。
+1. 打开后台的模型配置，为 Ollama 选择 **Ollama**，为 LM Studio、vLLM 或 llama.cpp 选择 **本地 OpenAI 兼容**，添加凭证。
+2. Base URL 可填完整 API 前缀。只填主机和端口时自动补 `/v1`。API Key 可留空；服务要求鉴权时再填。
 3. 「发现模型」或手动填写模型名（例如 `qwen2.5`），类型为对话。
-4. 把该模型设为 **聊天模型**。
+4. 把该模型设为 **聊天模型**。如需向量检索，可用同一凭证注册单独的 embedding 模型，并设为**向量模型**。
 
 | 服务 | Base URL 示例 |
 |------|----------------|
@@ -108,6 +108,8 @@ Celery 的 `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` 若未单独配置，�
 | LM Studio | `http://127.0.0.1:1234/v1` |
 | vLLM | `http://127.0.0.1:8001/v1`（本机 API 已占用 8000） |
 | llama.cpp server | `http://127.0.0.1:8080/v1` |
+
+API 或 worker 运行在容器中时，回环地址指向容器自身。模型运行在另一台机器时，填写 API 和 worker 都能访问的私网地址，例如 `http://<模型主机>:11434/v1`。Studio 的 Claude Code 引擎有独立配置。
 
 Ollama 示例：
 
@@ -125,7 +127,7 @@ ollama pull qwen2.5
 库里还没有默认聊天模型时，才读取下面四项。后台已经指定聊天模型时，以后台为准。
 
 ```bash
-LLM_PROVIDER=local
+LLM_PROVIDER=ollama
 LLM_BASE_URL=http://127.0.0.1:11434/v1
 LLM_MODEL_NAME=qwen2.5
 LLM_API_KEY=

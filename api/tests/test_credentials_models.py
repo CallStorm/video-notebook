@@ -39,8 +39,18 @@ async def _user_token(db_session) -> str:
 # ─── provider registry ──────────────────────────────────────────────
 
 
-def test_provider_registry_four_providers():
-    assert provider_names() == ["minimax", "openai", "deepseek", "whisper", "local"]
+def test_provider_registry_lists_providers():
+    assert provider_names() == [
+        "minimax",
+        "openai",
+        "deepseek",
+        "whisper",
+        "local",
+        "ollama",
+        "faster_whisper",
+        "whisper_cpp",
+        "asr_server",
+    ]
 
 
 def test_assert_provider_exists_raises_on_unknown():
@@ -122,7 +132,7 @@ async def test_credential_test_endpoint_uses_registry(client: AsyncClient, db_se
     assert create.status_code == 201
     cred_id = create.json()["id"]
 
-    async def fake_test(provider, api_key, base_url=None):
+    async def fake_test(provider, api_key, base_url=None, **_kwargs):
         return {"ok": True, "latency_ms": 7, "provider": provider, "message": "fake-ok"}
 
     from app.routes import admin_credentials as r

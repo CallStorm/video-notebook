@@ -71,10 +71,9 @@ flowchart TB
 聊天、概览、笔记辅助、知识底稿、标签整理、图标（未单独指定 logo 模型时）经 `app.llm.providers.make_provider`：
 
 - MiniMax 走 Anthropic Messages API
-- OpenAI、DeepSeek、本地 OpenAI 兼容服务走 `/v1/chat/completions`（`app.llm.openai_compat`）
-- 未实现的 provider 仍返回 stub
+- OpenAI、DeepSeek、Ollama 和其他 OpenAI 兼容服务走 `/v1/chat/completions`（`app.llm.openai_compat`）
 
-本地服务在后台选「本地 OpenAI 兼容」（Base URL、模型名、API Key 可空）。没有默认聊天模型时，也可以用 `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL_NAME` / `LLM_API_KEY`。配法见 [本地 LLM](development.md#local-llm)。
+本地服务在后台选「Ollama」或「本地 OpenAI 兼容」，填写模型名和服务地址。无鉴权服务可以留空 API Key。没有默认聊天模型时，也可以用 `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL_NAME` / `LLM_API_KEY`。配法见 [本地 LLM](development.md#local-llm)。
 
 ## 主业务路径
 

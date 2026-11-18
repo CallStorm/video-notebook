@@ -56,7 +56,7 @@ async def create_credential(
     *,
     name: str,
     provider: str,
-    api_key: str,
+    api_key: str | None = None,
     modalities: list[str] | None = None,
     base_url: str | None = None,
     config: dict | None = None,

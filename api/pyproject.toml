@@ -40,6 +40,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+asr = [
+  "faster-whisper>=1.1.0",
+  "av>=11,<17",  # faster-whisper 1.x calls av.open(metadata_errors=...)
+]
 dev = [
   "pytest>=8.3",
   "pytest-asyncio>=0.24",

@@ -37,6 +37,7 @@ interface Credential {
   provider: string;
   modalities: string[];
   base_url: string | null;
+  config: Record<string, unknown> | null;
   api_key_masked: string;
   has_api_key: boolean;
   is_builtin: boolean;
@@ -172,6 +173,52 @@ const ROLE_LABEL: Record<string, string> = {
   cover_image: "封面文生图",
   embedding: "向量模型",
 };
+
+const LOCAL_PROCESS_ASR = new Set(["faster_whisper", "whisper_cpp"]);
+const LOCAL_ASR = new Set(["faster_whisper", "whisper_cpp", "asr_server"]);
+
+function providerNeedsKey(spec?: ProviderInfo): boolean {
+  if (spec && typeof spec.requires_api_key === "boolean") return spec.requires_api_key;
+  return !LOCAL_ASR.has(spec?.name ?? "");
+}
+
+function asrHint(provider: string): string | null {
+  if (provider === "faster_whisper") {
+    return "在 media-worker 进程里跑 faster-whisper。模型名填 tiny / small / large-v3，或本地模型目录。API Key 可以留空。安装见 docs/asr.md。";
+  }
+  if (provider === "whisper_cpp") {
+    return "在本机跑 whisper.cpp（whisper-cli 或 pywhispercpp）。模型名填 ggml 文件路径，更长的路径也可以写在下面的模型路径里。API Key 可以留空。";
+  }
+  if (provider === "asr_server") {
+    return "把音频发给你自己的 HTTP 服务。OpenAI 兼容地址要带 /v1；whisper.cpp server 把协议选成 whisper.cpp，地址如 http://127.0.0.1:8080。";
+  }
+  return null;
+}
+
+function buildAsrConfig(
+  existing: Record<string, unknown> | null | undefined,
+  language: string,
+  protocol: string,
+  modelPath: string,
+  provider: string,
+): Record<string, unknown> {
+  const config: Record<string, unknown> = { ...(existing ?? {}) };
+  const lang = language.trim();
+  if (lang && lang.toLowerCase() !== "auto") config.language = lang;
+  else delete config.language;
+  if (provider === "asr_server") config.protocol = protocol || "openai";
+  if (LOCAL_PROCESS_ASR.has(provider)) {
+    const path = modelPath.trim();
+    if (path) config.model_path = path;
+    else delete config.model_path;
+  }
+  return config;
+}
+
+function configText(config: Record<string, unknown> | null | undefined, key: string): string {
+  const value = config?.[key];
+  return typeof value === "string" ? value : "";
+}
 
 // ─── page ─────────────────────────────────────────────────────────────
 export function AdminConfigsPage() {
@@ -387,11 +434,12 @@ function ProviderSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        {asrHint(provider.name) ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">{asrHint(provider.name)}</p>
+        ) : null}
         {credentials.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            {provider.requires_api_key === false
-              ? "还没有凭证。Base URL 填本机 OpenAI 兼容地址（如 http://127.0.0.1:11434/v1），API Key 可留空。"
-              : "还没有凭证。点下方按钮添加。"}
+            还没有凭证。点下方按钮添加。
           </p>
         )}
         {credentials.map((cred) => (
@@ -401,6 +449,7 @@ function ProviderSection({
             models={models.filter((m) => m.credential_id === cred.id)}
             allModels={allModels}
             token={token}
+            requiresApiKey={provider.requires_api_key !== false}
           />
         ))}
         <AddCredentialButton provider={provider.name} token={token} />
@@ -415,17 +464,15 @@ function CredentialItem({
   models,
   allModels,
   token,
+  requiresApiKey,
 }: {
   credential: Credential;
   models: ModelRow[];
   allModels: ModelRow[];
   token: string;
+  requiresApiKey: boolean;
 }) {
   const qc = useQueryClient();
-  const providers = useQuery({ queryKey: ["providers"], queryFn: fetchProviders });
-  const keyOptional =
-    providers.data?.find((item) => item.name === credential.provider)?.requires_api_key ===
-    false;
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [editing, setEditing] = useState(false);
   const [showAddModel, setShowAddModel] = useState(false);
@@ -473,7 +520,7 @@ function CredentialItem({
             size="sm"
             variant="ghost"
             onClick={() => testCred.mutate()}
-            disabled={testCred.isPending || (!credential.has_api_key && !keyOptional)}
+            disabled={testCred.isPending || (requiresApiKey && !credential.has_api_key)}
             title="测试连通性"
           >
             <Plug className="h-4 w-4" />
@@ -588,11 +635,13 @@ function CredentialItem({
             variant="secondary"
             onClick={() => setShowDiscover(true)}
             className="w-full text-xs"
-            disabled={!credential.has_api_key && !keyOptional}
+            disabled={(requiresApiKey && !credential.has_api_key) || LOCAL_ASR.has(credential.provider)}
             title={
-              credential.has_api_key || keyOptional
-                ? "从服务商拉取模型列表"
-                : "先设置 API Key"
+              LOCAL_ASR.has(credential.provider)
+                ? "本地模型请手动填写名称或路径"
+                : credential.has_api_key || !requiresApiKey
+                  ? "从服务商拉取模型列表"
+                  : "先设置 API Key"
             }
           >
             <Plug className="h-3 w-3" />
@@ -680,21 +729,31 @@ function AddCredentialForm({
 }) {
   const providers = useQuery({ queryKey: ["providers"], queryFn: fetchProviders });
   const spec = providers.data?.find((p) => p.name === provider);
-  const keyOptional = spec?.requires_api_key === false;
+  const needsKey = providerNeedsKey(spec);
+  const localProcess = LOCAL_PROCESS_ASR.has(provider);
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [language, setLanguage] = useState("");
+  const [protocol, setProtocol] = useState("openai");
+  const [modelPath, setModelPath] = useState("");
   const [modalities, setModalities] = useState<string[]>(spec?.modalities ?? []);
+  const showSpeech = modalities.includes("speech_to_text") || LOCAL_ASR.has(provider);
 
   const create = useMutation({
-    mutationFn: () =>
-      createCredential(token, {
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
         name: name.trim(),
         provider,
-        api_key: apiKey,
-        base_url: baseUrl || null,
+        api_key: apiKey.trim() || null,
+        base_url: localProcess ? null : baseUrl.trim() || null,
         modalities,
-      }),
+      };
+      if (showSpeech) {
+        body.config = buildAsrConfig(null, language, protocol, modelPath, provider);
+      }
+      return createCredential(token, body);
+    },
     onSuccess: onSaved,
   });
 
@@ -703,7 +762,7 @@ function AddCredentialForm({
       className="admin-inline-form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (name.trim() && (keyOptional || apiKey.trim())) create.mutate();
+        if (name.trim() && (!needsKey || apiKey.trim())) create.mutate();
       }}
     >
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -715,17 +774,34 @@ function AddCredentialForm({
         />
         <Input
           type="password"
-          placeholder={keyOptional ? "API Key（本地服务可留空）" : "API Key"}
+          placeholder={needsKey ? "API Key" : "API Key（本地可留空）"}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          required={!keyOptional}
+          required={needsKey}
         />
-        <Input
-          className="md:col-span-2"
-          placeholder={spec?.default_base_url ?? "Base URL（留空用 provider 默认）"}
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-        />
+        {localProcess ? null : (
+          <Input
+            className="md:col-span-2"
+            placeholder={
+              provider === "asr_server"
+                ? "http://127.0.0.1:8080/v1 或 http://127.0.0.1:8080"
+                : (spec?.default_base_url ?? "Base URL（留空用 provider 默认）")
+            }
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+        )}
+        {showSpeech ? (
+          <AsrExtraFields
+            provider={provider}
+            language={language}
+            setLanguage={setLanguage}
+            protocol={protocol}
+            setProtocol={setProtocol}
+            modelPath={modelPath}
+            setModelPath={setModelPath}
+          />
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">能力类型：</span>
@@ -746,21 +822,16 @@ function AddCredentialForm({
           </label>
         ))}
       </div>
-      {keyOptional && (
-        <p className="text-xs text-muted-foreground">
-          指向本机 OpenAI 兼容服务（Ollama、LM Studio、vLLM、llama.cpp）。API Key 可留空。
-        </p>
-      )}
-      {spec?.docs_url && (
+      {spec?.docs_url ? (
         <a
           href={spec.docs_url}
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-blue-600 underline"
         >
-          {keyOptional ? "兼容接口说明" : "获取 API Key"} ↗
+          {needsKey ? "获取 API Key" : "服务文档"} ↗
         </a>
-      )}
+      ) : null}
       {create.error instanceof ApiError && (
         <p className="text-sm text-destructive">
           {create.error.code}: {create.error.message}
@@ -778,6 +849,52 @@ function AddCredentialForm({
   );
 }
 
+function AsrExtraFields({
+  provider,
+  language,
+  setLanguage,
+  protocol,
+  setProtocol,
+  modelPath,
+  setModelPath,
+}: {
+  provider: string;
+  language: string;
+  setLanguage: (value: string) => void;
+  protocol: string;
+  setProtocol: (value: string) => void;
+  modelPath: string;
+  setModelPath: (value: string) => void;
+}) {
+  return (
+    <>
+      <Input
+        placeholder="语言，如 zh / en（留空自动检测）"
+        value={language}
+        onChange={(e) => setLanguage(e.target.value)}
+      />
+      {provider === "asr_server" ? (
+        <select
+          className="admin-select h-9"
+          value={protocol}
+          onChange={(e) => setProtocol(e.target.value)}
+        >
+          <option value="openai">协议：OpenAI 兼容 /audio/transcriptions</option>
+          <option value="whisper_cpp">协议：whisper.cpp /inference</option>
+        </select>
+      ) : null}
+      {LOCAL_PROCESS_ASR.has(provider) ? (
+        <Input
+          className="md:col-span-2"
+          placeholder="模型路径（可选，优先于模型名；如 /models/ggml-base.bin）"
+          value={modelPath}
+          onChange={(e) => setModelPath(e.target.value)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function EditCredentialForm({
   credential,
   token,
@@ -787,21 +904,38 @@ function EditCredentialForm({
   token: string;
   onSaved: () => void;
 }) {
+  const localProcess = LOCAL_PROCESS_ASR.has(credential.provider);
+  const showSpeech =
+    credential.modalities.includes("speech_to_text") || LOCAL_ASR.has(credential.provider);
   const [name, setName] = useState(credential.name);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(credential.base_url ?? "");
+  const [language, setLanguage] = useState(configText(credential.config, "language"));
+  const [protocol, setProtocol] = useState(configText(credential.config, "protocol") || "openai");
+  const [modelPath, setModelPath] = useState(configText(credential.config, "model_path"));
 
   const save = useMutation({
-    mutationFn: () =>
-      api(`/admin/credentials/${credential.id}`, {
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        name: name.trim(),
+        api_key: apiKey || undefined,
+        base_url: localProcess ? null : baseUrl || null,
+      };
+      if (showSpeech) {
+        body.config = buildAsrConfig(
+          credential.config,
+          language,
+          protocol,
+          modelPath,
+          credential.provider,
+        );
+      }
+      return api(`/admin/credentials/${credential.id}`, {
         method: "PATCH",
-        body: {
-          name: name.trim(),
-          api_key: apiKey || undefined,
-          base_url: baseUrl || null,
-        },
+        body,
         access: token,
-      }),
+      });
+    },
     onSuccess: onSaved,
   });
 
@@ -821,12 +955,25 @@ function EditCredentialForm({
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
         />
-        <Input
-          className="md:col-span-2"
-          placeholder="Base URL"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-        />
+        {localProcess ? null : (
+          <Input
+            className="md:col-span-2"
+            placeholder="Base URL"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+        )}
+        {showSpeech ? (
+          <AsrExtraFields
+            provider={credential.provider}
+            language={language}
+            setLanguage={setLanguage}
+            protocol={protocol}
+            setProtocol={setProtocol}
+            modelPath={modelPath}
+            setModelPath={setModelPath}
+          />
+        ) : null}
       </div>
       {save.error instanceof ApiError && (
         <p className="text-sm text-destructive">
@@ -883,12 +1030,18 @@ function AddModelForm({
     >
       <Input
         placeholder={
-          credential.provider === "local" ? "模型名（如 qwen2.5）" : "模型名（如 MiniMax-M3）"
+          credential.provider === "faster_whisper"
+            ? "tiny、small，或模型目录"
+            : credential.provider === "whisper_cpp"
+              ? "ggml 模型路径，或短名称"
+              : credential.provider === "asr_server"
+                ? "服务端模型名"
+                : "模型名（填写服务端的模型 ID）"
         }
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
-        className="max-w-[180px]"
+        className={LOCAL_ASR.has(credential.provider) ? "max-w-[280px]" : "max-w-[180px]"}
       />
       <select
         className="admin-select h-9 w-auto"

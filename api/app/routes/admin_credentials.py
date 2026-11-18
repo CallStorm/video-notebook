@@ -104,6 +104,7 @@ async def post_credential_test(
         cred.provider,
         api_key,
         base_url=cred.base_url,
+        config=cred.config,
     )
     invalidate_default_cache("all")  # 测试也触一次失效，便于立刻生效
     return result
